@@ -1,6 +1,6 @@
 **简体中文（默认）** | [English](README.en.md)
 
-<img width="1920" height="1080" alt="Azeroth Survivors 游戏画面" src="https://github.com/user-attachments/assets/fa574bb6-7bd4-4e78-8b72-14c58e3c716e" />
+<img width="1920" alt="Azeroth Survivors zhCN 游戏画面" src="docs/screenshots/combat.zh-CN.jpg" />
 
 <div align="center">
 
@@ -42,12 +42,12 @@ fork 自 [OutThisLife/azeroth-survivors-re](https://github.com/OutThisLife/azero
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/menu.jpg" alt="角色与地图选择界面"></td>
-    <td width="50%"><img src="docs/screenshots/combat.jpg" alt="法师在艾尔文森林中战斗"></td>
+    <td width="50%"><img src="docs/screenshots/menu.zh-CN.jpg" alt="中文角色与战场选择界面"></td>
+    <td width="50%"><img src="docs/screenshots/combat.zh-CN.jpg" alt="中文战斗 HUD"></td>
   </tr>
   <tr>
-    <td width="50%"><img src="docs/screenshots/level-up.jpg" alt="升级时选择技能强化卡牌"></td>
-    <td width="50%"><img src="docs/screenshots/results.jpg" alt="战斗结束后的结算界面"></td>
+    <td width="50%"><img src="docs/screenshots/level-up.zh-CN.jpg" alt="中文升级强化卡牌"></td>
+    <td width="50%"><img src="docs/screenshots/results.zh-CN.jpg" alt="中文战斗结算界面"></td>
   </tr>
 </table>
 
