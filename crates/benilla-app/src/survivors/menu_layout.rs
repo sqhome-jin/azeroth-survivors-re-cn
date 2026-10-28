@@ -4,6 +4,7 @@ use bevy::prelude::*;
 
 use super::hud::{SpellIcon, UiArt, text_bundle};
 use super::menu::{MenuAction, MenuCopy, RaceFace};
+use super::gear_ui::{MenuSlotButton, MenuSlotIcon};
 use super::{data, localization};
 use crate::char_select::race_name;
 use crate::glue::art::{GOLD, GlueArt, class_tc, race_tc, tc_rect};
@@ -695,39 +696,26 @@ fn champion(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
         p.spawn(Node { position_type: PositionType::Absolute, left: Val::Px(16.0), right: Val::Px(16.0),
             top: Val::Px(28.0), justify_content: JustifyContent::Center, column_gap: Val::Px(4.0), ..default()
         }).with_children(|slots| {
-            for path in [
-                "Interface\\PaperDoll\\UI-PaperDoll-Slot-Head",
-                "Interface\\PaperDoll\\UI-PaperDoll-Slot-Shoulder",
-                "Interface\\PaperDoll\\UI-PaperDoll-Slot-Chest",
-                "Interface\\PaperDoll\\UI-PaperDoll-Slot-Hands",
-                "Interface\\PaperDoll\\UI-PaperDoll-Slot-Waist",
-                "Interface\\PaperDoll\\UI-PaperDoll-Slot-Legs",
-                "Interface\\PaperDoll\\UI-PaperDoll-Slot-Feet",
-                "Interface\\PaperDoll\\UI-PaperDoll-Slot-MainHand",
-                "Interface\\PaperDoll\\UI-PaperDoll-Slot-SecondaryHand",
-            ] {
-                slots.spawn((Button, MenuAction::Feature("Equipment", "装备"), Node {
+            for index in 0..super::gear::SLOT_COUNT {
+                slots.spawn((Button, MenuAction::Gear, MenuSlotButton(index), Node {
                     width: Val::Percent(10.0), aspect_ratio: Some(1.0),
                     border: UiRect::all(Val::Px(1.0)), ..default()
                 }, BorderColor::all(EDGE))).with_children(|slot| {
-                    slot.spawn((UiArt::crop(path, [0.0, 1.0, 0.0, 1.0]), ImageNode::default(),
+                    slot.spawn((MenuSlotIcon(index), ImageNode::default(),
                         Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }));
                 });
             }
         });
-        label(p, f, localization::text("Collection", "收藏"), abs(16.0, 74.0, 100.0, 14.0), 10.0, DIM);
-        label(p, f, localization::text("Not yet available", "尚未开放"), Node {
-            position_type: PositionType::Absolute, right: Val::Px(16.0), top: Val::Px(74.0), ..default()
-        }, 10.0, DIM);
+        label(p, f, localization::text("Gear", "装备"), abs(16.0, 74.0, 100.0, 14.0), 10.0, DIM);
         p.spawn((Node { position_type: PositionType::Absolute, left: Val::Px(16.0), right: Val::Px(16.0),
             top: Val::Px(92.0), height: Val::Px(4.0), ..default() }, BackgroundColor(EDGE)));
-        label(p, f, localization::text("Equipment and collections are coming soon.", "装备与收藏尚未开放，当前不提供属性加成。"),
+        label(p, f, localization::text("Gear drops from kills and is kept. Click a slot to manage it.", "装备由击杀掉落并永久保留，点击装备栏进行管理。"),
             Node { position_type: PositionType::Absolute, left: Val::Px(16.0), top: Val::Px(103.0), right: Val::Px(16.0), ..default() }, 11.0, DIM);
         p.spawn(Node { position_type: PositionType::Absolute, top: Val::Px(130.0), left: Val::Px(16.0), right: Val::Px(16.0),
             column_gap: Val::Px(8.0), ..default()
         }).with_children(|buttons| {
-            button(buttons, f, MenuAction::Feature("Armory", "军械库"), localization::text("Armory", "军械库"),
-                Some(localization::text("Race, appearance, equipment and drops", "种族、外观、装备与掉落表")), button_node(Val::Percent(50.0), 49.0));
+            button(buttons, f, MenuAction::Gear, localization::text("Armory", "军械库"),
+                Some(localization::text("Wear and manage the gear you have found", "穿戴与管理已获得的装备")), button_node(Val::Percent(50.0), 49.0));
             let talent = button(buttons, f, MenuAction::Talents, localization::text("Talents", "天赋"), None,
                 button_node(Val::Percent(50.0), 49.0));
             buttons.commands().entity(talent).with_children(|b| { b.spawn((MenuCopy::TalentSummary, text_bundle(f, "", 10.0, DIM))); });

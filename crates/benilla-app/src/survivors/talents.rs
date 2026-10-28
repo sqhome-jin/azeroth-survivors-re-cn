@@ -528,7 +528,17 @@ pub(super) fn cast(def: &'static data::AbilityDef, level: u8, stats: &Stats) -> 
         "shadow_bolt" | "immolate" | "searing_pain" => 0.02 * r(19),
         _ => 0.0,
     };
-    let mult = owned.damage_mult() * stats.might * damage;
+    let (mut e_dmg, mut e_cd, mut e_count, mut e_radius, mut e_dur) = (1.0, 0.0, 0, 1.0, 1.0);
+    for (kind, value) in stats.gear.enhancements(def.key) {
+        match kind {
+            super::gear::EnhKind::Damage => e_dmg += value,
+            super::gear::EnhKind::Cooldown => e_cd += value,
+            super::gear::EnhKind::Count => e_count += value.round() as u32,
+            super::gear::EnhKind::Radius => e_radius += value,
+            super::gear::EnhKind::Duration => e_dur += value,
+        }
+    }
+    let mult = owned.damage_mult() * stats.might * damage * e_dmg;
     Cast {
         dmg: def.damage * mult,
         dot: def.dot
@@ -538,15 +548,16 @@ pub(super) fn cast(def: &'static data::AbilityDef, level: u8, stats: &Stats) -> 
             } else {
                 1.0
             },
-        count: owned.count(),
+        count: owned.count() + e_count,
         radius: owned.radius(stats)
+            * e_radius
             * if matches!(def.key, "rain_of_fire" | "hellfire") {
                 1.0 + 0.03 * r(20)
             } else {
                 1.0
             },
-        duration: owned.duration() * if periodic { 1.0 + 0.04 * r(2) } else { 1.0 },
-        cooldown: (owned.cooldown(stats) * (1.0 - cooldown)).max(0.2),
+        duration: owned.duration() * e_dur * if periodic { 1.0 + 0.04 * r(2) } else { 1.0 },
+        cooldown: (owned.cooldown(stats) * (1.0 - cooldown) * (1.0 - e_cd.min(0.6))).max(0.2),
         range: def.range
             + if matches!(def.key, "corruption" | "curse_of_agony") {
                 r(3)
@@ -571,7 +582,7 @@ pub(super) fn periodic_heal(run: &mut Run, effective_damage: f32, dt: f32) {
     }
     let max_hp = run.stats().max_hp;
     run.talent_leech_budget = (run.talent_leech_budget + max_hp * 0.04 * dt).min(max_hp * 0.04);
-    let heal = (effective_damage * run.talents.leech()).min(run.talent_leech_budget);
+    let heal = (effective_damage * run.leech()).min(run.talent_leech_budget);
     run.talent_leech_budget -= heal;
     run.hp = (run.hp + heal).min(max_hp);
 }

@@ -163,6 +163,7 @@ pub(super) struct TipBody;
 #[derive(Component, Clone, Copy, PartialEq)]
 pub(super) enum UiAction {
     Resume,
+    Gear,
     MainMenu,
     Quit,
 }
@@ -273,7 +274,7 @@ fn icon(spell: u32, size: f32) -> impl Bundle {
     )
 }
 
-fn spell_name(spells: Option<&crate::ui_action::Spells>, spell: u32, fallback: &str) -> String {
+pub(super) fn spell_name(spells: Option<&crate::ui_action::Spells>, spell: u32, fallback: &str) -> String {
     spells
         .and_then(|s| s.catalog.get(spell))
         .map(|d| d.name.clone())
@@ -769,6 +770,7 @@ pub(super) fn setup_hud(
             ));
             for (label, action) in [
                 (localization::text("Resume", "继续"), UiAction::Resume),
+                (localization::text("Equipment (B)", "装备 (B)"), UiAction::Gear),
                 (
                     localization::text("Abandon run", "放弃本局"),
                     UiAction::MainMenu,
@@ -914,7 +916,8 @@ pub(super) fn menu_preview(
     mut run: ResMut<Run>,
     heroes: Query<Entity, With<Hero>>,
     world: benilla_world::world_point::WorldPoint,
-    mut shown: Local<Option<(usize, u32, usize)>>,
+    gear: Res<super::gear::Gear>,
+    mut shown: Local<Option<(usize, u32, usize, u32)>>,
 ) {
     if *phase.get() != Phase::Menu {
         return;
@@ -922,7 +925,7 @@ pub(super) fn menu_preview(
     let want = selection
         .class
         .zip(selection.look.and_then(|i| selection.looks.get(i)).copied());
-    let key = want.map(|(c, l)| (c, l.0, selection.stage));
+    let key = want.map(|(c, l)| (c, l.0, selection.stage, gear.version));
     if key == *shown && (key.is_none() || !heroes.is_empty()) {
         return;
     }
@@ -944,6 +947,7 @@ pub(super) fn menu_preview(
         display,
         race,
         sex,
+        &gear.weapons(&data::CLASSES[class]),
         serial,
         pos,
     );
@@ -1080,6 +1084,7 @@ pub(super) fn buttons(
     >,
     mut next: ResMut<NextState<Phase>>,
     mut exit: MessageWriter<AppExit>,
+    mut gear: ResMut<super::gear_ui::GearUi>,
     phase: Res<State<Phase>>,
 ) {
     for (interaction, action, base, mut bg) in &mut presses {
@@ -1090,6 +1095,7 @@ pub(super) fn buttons(
                 bg.0 = BUTTON_HOT;
                 match (*action, *phase.get()) {
                     (UiAction::Resume, Phase::Paused) => next.set(Phase::Playing),
+                    (UiAction::Gear, Phase::Paused) => gear.open = true,
                     (UiAction::MainMenu, Phase::Paused | Phase::GameOver) => next.set(Phase::Menu),
                     (UiAction::Quit, Phase::Paused | Phase::GameOver) => {
                         exit.write(AppExit::Success);
@@ -1108,11 +1114,17 @@ pub(super) fn keys(
     mut run: ResMut<Run>,
     mut next: ResMut<NextState<Phase>>,
     talents: Res<super::talents::TalentUi>,
+    mut gear: ResMut<super::gear_ui::GearUi>,
     menu: Res<super::menu::MenuState>,
 ) {
+    if gear.open && keys.just_pressed(KeyCode::Escape) {
+        gear.open = false;
+        return;
+    }
     match phase.get() {
         Phase::Menu => {
             if !talents.open
+                && !gear.open
                 && !menu.modal_open()
                 && keys.just_pressed(KeyCode::Enter)
                 && start_run(&mut run, &mut selection)
@@ -1123,11 +1135,16 @@ pub(super) fn keys(
         Phase::Playing => {
             if keys.just_pressed(KeyCode::Escape) {
                 next.set(Phase::Paused);
+            } else if keys.just_pressed(KeyCode::KeyB) {
+                gear.open = true;
+                next.set(Phase::Paused);
             }
         }
         Phase::Paused => {
             if keys.just_pressed(KeyCode::Escape) {
                 next.set(Phase::Playing);
+            } else if keys.just_pressed(KeyCode::KeyB) {
+                gear.open = true;
             }
         }
         Phase::LevelUp => {}
@@ -1545,7 +1562,7 @@ pub(super) fn refresh_mobility(
         }
     }
     if let Ok(s) = sweep.single() {
-        let total = def.cooldown * run.talents.mobility_cooldown();
+        let total = def.cooldown * run.mobility_cooldown();
         let f = (run.mobile.cd / total.max(0.01)).clamp(0.0, 1.0);
         if let Some(m) = mats.get_mut(&s.0) {
             if m.sweep != f {
@@ -2240,13 +2257,13 @@ fn ability_tip(
                 format!(
                     "{}几率造成{}倍暴击伤害",
                     pct(stats.crit),
-                    num(stats.talents.critical_multiplier())
+                    num(stats.crit_multiplier())
                 )
             } else {
                 format!(
                     "{} chance to critically strike for {}x damage",
                     pct(stats.crit),
-                    num(stats.talents.critical_multiplier())
+                    num(stats.crit_multiplier())
                 )
             },
             DIM,
@@ -2531,7 +2548,7 @@ pub(super) fn icon_tooltip(
                 TipLine::new(localization::text("Press F", "按 F"), Color::WHITE).right(
                     format!(
                         "{} sec cooldown",
-                        num(m.cooldown * run.talents.mobility_cooldown())
+                        num(m.cooldown * run.mobility_cooldown())
                     ),
                     Color::WHITE,
                 ),

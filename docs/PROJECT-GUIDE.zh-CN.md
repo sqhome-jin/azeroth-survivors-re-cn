@@ -222,6 +222,8 @@ Survivors 决定“这一局的规则”。通常应优先在最上面的玩法�
 | [units.rs](../crates/benilla-app/src/survivors/units.rs) | 构造兼容引擎的本地单位和物体、坐标转换、光环标记、特效与飘字适配 |
 | [hud.rs](../crates/benilla-app/src/survivors/hud.rs) | HUD、开局、升级候选池与选择、数值说明、图标、冷却、提示和结算 |
 | [menu.rs](../crates/benilla-app/src/survivors/menu.rs) | 种族、性别、职业、地图选择，复用 glue 美术，保存和恢复选择；每张地图在区域卡片中有简介（`localization::map_blurb`），面板与按钮使用平铺纹理和渐变 |
+| [gear.rs](../crates/benilla-app/src/survivors/gear.rs) | 装备核心：六档稀有度（普通/优秀/精良/史诗/传奇/太古，词缀数 2/4/6/8/10/10+1）、9 个部位、14 种带范围的随机词缀、共享背包（上限 200）、按职业独立穿戴，存档 `survivors-gear.toml`；太古的额外词缀是掉落职业法术池里的技能强化 |
+| [gear_ui.rs](../crates/benilla-app/src/survivors/gear_ui.rs) | 装备界面（主菜单装备栏/军械库、局内按 B 或暂停菜单进入）与主菜单装备栏图标同步 |
 | [menu_layout.rs](../crates/benilla-app/src/survivors/menu_layout.rs) | 三栏主界面的布局、装备占位、区域滚动列表和功能提示弹窗 |
 | [cards.rs](../crates/benilla-app/src/survivors/cards.rs) | 升级卡牌的品质、发牌、悬停动画和选择交互 |
 | [mobility.rs](../crates/benilla-app/src/survivors/mobility.rs) | 5 级解锁的 F 键职业机动技能及其冷却和运行状态 |
@@ -239,9 +241,10 @@ Survivors 决定“这一局的规则”。通常应优先在最上面的玩法�
 生命值使用所选职业及已应用天赋的真实开局属性，法术池来自职业定义；
 区域显示真实敌人等级范围及每 2 分 15 秒一轮、共六轮的首领时间。
 角色预览沿用菜单里的实时世界模型；名称按钮仅切换本次预览的展示名，不新增角色存档。
-收藏、掉落表、图鉴、成就、奖励、军械库、装备、难度、合作保留入口，
+收藏、掉落表、图鉴、成就、奖励、难度、合作保留入口，
 点击明确提示“尚未开放”，不伪造收藏进度或种族属性。
-弹窗和天赋界面打开时禁止回车开局，Esc 可关闭角色和占位提示弹窗。
+装备由击杀掉落（首领必掉）并永久保留；只有主手/副手会改变英雄模型，且在回到主菜单或下一局时刷新，其余部位只影响属性。
+弹窗、天赋和装备界面打开时禁止回车开局，Esc 可关闭角色和占位提示弹窗。
 
 ## 9. 一局游戏的数据如何流动
 

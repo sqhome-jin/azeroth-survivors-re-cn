@@ -100,6 +100,7 @@ pub(super) fn spawn_hero(
     display: u32,
     race: u8,
     sex: u8,
+    weapons: &[super::data::Weapon],
     serial: u64,
     pos: Vec3,
 ) -> Entity {
@@ -116,7 +117,7 @@ pub(super) fn spawn_hero(
             level: 60,
             faction: units::FACTION_FRIENDLY,
             bytes0,
-            weapons: class.weapons,
+            weapons,
             sheath: class.sheath,
         },
         pos,
@@ -403,7 +404,7 @@ pub(super) fn hurt_hero(run: &mut Run, raw: f32) -> f32 {
     if run.immune_t > 0.0 || run.dead_t.is_some() {
         return 0.0;
     }
-    let mut dmg = (raw - run.stats().armor).max(1.0) * run.talents.incoming();
+    let mut dmg = (raw - run.stats().armor).max(1.0) * run.incoming();
     if run.shield_t > 0.0 && run.shield > 0.0 {
         let absorbed = dmg.min(run.shield);
         run.shield -= absorbed;

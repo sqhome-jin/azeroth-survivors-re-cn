@@ -10,6 +10,8 @@ mod cards;
 mod data;
 mod enemies;
 mod fill;
+mod gear;
+mod gear_ui;
 mod grade;
 mod hero;
 mod hud;
@@ -45,6 +47,8 @@ impl Plugin for SurvivorsPlugin {
         app.insert_resource(crate::run_mode::CaptureMode)
             .add_plugins(grade::plugin)
             .add_plugins(talents::plugin)
+            .add_plugins(gear::plugin)
+            .add_plugins(gear_ui::plugin)
             .init_state::<Phase>()
             .init_resource::<Rng>()
             .init_resource::<Selection>()
@@ -235,6 +239,7 @@ impl Owned {
 #[derive(Clone, Copy)]
 pub(super) struct Stats {
     talents: talents::Loadout,
+    gear: gear::Bonuses,
     pub might: f32,
     pub max_hp: f32,
     pub speed: f32,
@@ -264,6 +269,7 @@ pub(super) struct Run {
     pub talent_points_gained: u8,
     talents: talents::Loadout,
     pub talent_leech_budget: f32,
+    gear: gear::Bonuses,
     pub talents_locked: bool,
     pub level: u32,
     pub xp: f32,
@@ -307,6 +313,7 @@ impl Default for Run {
             talent_points_gained: 0,
             talents: talents::Loadout::default(),
             talent_leech_budget: 0.0,
+            gear: gear::Bonuses::default(),
             talents_locked: false,
             level: 1,
             xp: 0.0,
@@ -335,10 +342,29 @@ impl Default for Run {
     }
 }
 
+impl Stats {
+    pub fn crit_multiplier(&self) -> f32 {
+        self.talents.critical_multiplier() + self.gear.crit_damage()
+    }
+}
+
 impl Run {
+    pub fn incoming(&self) -> f32 {
+        self.talents.incoming() * self.gear.incoming()
+    }
+
+    pub fn mobility_cooldown(&self) -> f32 {
+        self.talents.mobility_cooldown() * self.gear.mobility_cooldown()
+    }
+
+    pub fn leech(&self) -> f32 {
+        self.talents.leech() + self.gear.leech()
+    }
+
     pub fn stats(&self) -> Stats {
         let mut s = Stats {
             talents: self.talents,
+            gear: self.gear,
             might: 1.0,
             max_hp: BASE_HP,
             speed: BASE_SPEED,
@@ -372,6 +398,7 @@ impl Run {
             }
         }
         talents::modify_stats(&mut s);
+        gear::modify_stats(&mut s, &self.gear);
         s
     }
 
