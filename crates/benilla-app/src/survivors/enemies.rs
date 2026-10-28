@@ -64,6 +64,8 @@ pub(super) struct Loot {
 pub(super) enum GemKind {
     Xp(u32),
     Heal(f32),
+    /// A gear drop's rarity; the item itself is rolled when it is picked up.
+    Item(u8),
 }
 
 #[derive(Component)]
@@ -79,6 +81,10 @@ fn look_for(kind: GemKind) -> (u32, f32) {
     match kind {
         // `TurkeyLeg.mdx`.
         GemKind::Heal(_) => (114, 2.5),
+        // `Chest01.mdx`, `Chest02.mdx` and `Chest03.mdx`, richer with the rarity.
+        GemKind::Item(0 | 1) => (10, 0.5),
+        GemKind::Item(2 | 3) => (1, 0.5),
+        GemKind::Item(_) => (41, 0.5),
         // `BFD_WispSmallPurple.mdx`.
         GemKind::Xp(xp) if xp >= 20 => (1307, 1.0),
         // `BFD_WispSmallGreen.mdx`.
@@ -421,6 +427,16 @@ pub(super) fn drop_loot(
 ) {
     let mut count = gems.iter().count();
     for d in drops.read() {
+        let items = if d.boss {
+            1 + u32::from(rng.f32() < super::gear::BOSS_EXTRA_CHANCE)
+        } else {
+            u32::from(rng.f32() < super::gear::NORMAL_DROP_CHANCE)
+        };
+        for n in 0..items {
+            let rarity = super::gear::roll_rarity(&mut rng, d.boss);
+            let at = d.pos + Vec3::new(-0.8 - 0.8 * n as f32, 0.0, 0.8);
+            spawn_gem(&mut commands, run.guid(), at, GemKind::Item(rarity));
+        }
         if d.boss || rng.f32() < 0.015 {
             let heal = GemKind::Heal(if d.boss { 1000.0 } else { 30.0 });
             spawn_gem(&mut commands, run.guid(), d.pos + Vec3::X * 0.8, heal);
@@ -453,6 +469,8 @@ pub(super) fn collect_gems(
     mut commands: Commands,
     time: Res<Time>,
     mut run: ResMut<Run>,
+    mut gear: ResMut<super::gear::Gear>,
+    mut rng: ResMut<Rng>,
     mut next: ResMut<NextState<Phase>>,
     hero: Query<&Transform, (With<Hero>, Without<Gem>)>,
     mut gems: Query<(Entity, &mut Transform, &mut Gem)>,
@@ -477,6 +495,13 @@ pub(super) fn collect_gems(
             match g.kind {
                 GemKind::Xp(xp) => run.xp += xp as f32 * data::XP_RATE * stats.growth,
                 GemKind::Heal(hp) => run.hp = (run.hp + hp).min(stats.max_hp),
+                GemKind::Item(rarity) => {
+                    let item = super::gear::roll_item(&mut rng, run.class, rarity);
+                    let line = format!("[{}] {}", item.rarity_name(), item.name());
+                    if gear.add(item) != 0 {
+                        run.banner = Some((line, 3.0));
+                    }
+                }
             }
             commands.entity(e).despawn();
             continue;

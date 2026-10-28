@@ -142,7 +142,7 @@ fn schedule(
 
 fn roll(rng: &mut Rng, stats: &Stats, dmg: f32) -> (f32, bool) {
     if rng.f32() < stats.crit {
-        (dmg * stats.talents.critical_multiplier(), true)
+        (dmg * stats.crit_multiplier(), true)
     } else {
         (dmg, false)
     }

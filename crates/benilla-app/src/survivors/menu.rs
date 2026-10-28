@@ -23,6 +23,7 @@ pub(super) enum MenuAction {
     Randomize,
     RandomName,
     Talents,
+    Gear,
     Enter,
     Character,
     Appearance,
@@ -166,10 +167,11 @@ pub(super) fn menu_clicks(
     mut rng: ResMut<Rng>,
     mut next: ResMut<NextState<Phase>>,
     mut talents: ResMut<super::talents::TalentUi>,
+    mut gear: ResMut<super::gear_ui::GearUi>,
     mut menu: ResMut<MenuState>,
     keys: Res<ButtonInput<KeyCode>>,
 ) {
-    if *phase.get() != Phase::Menu || talents.open {
+    if *phase.get() != Phase::Menu || talents.open || gear.open {
         return;
     }
     if keys.just_pressed(KeyCode::Escape) {
@@ -210,6 +212,10 @@ pub(super) fn menu_clicks(
         }
         MenuAction::RandomName => {
             menu.name_index = (menu.name_index + 1) % 8;
+            return;
+        }
+        MenuAction::Gear => {
+            gear.open = true;
             return;
         }
         MenuAction::Talents => {
