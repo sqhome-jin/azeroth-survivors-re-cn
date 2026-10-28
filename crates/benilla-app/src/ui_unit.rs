@@ -9,8 +9,8 @@ use bevy::prelude::*;
 use benilla_formats::ChrClasses;
 use benilla_protocol::messages::ObjectType;
 use benilla_ui::script::{
-    parse_unit_token, power_token, ScriptValue, UiScript, UnitBase, UnitState, UnitTokenParse,
-    WornDisplay,
+    ScriptValue, UiScript, UnitBase, UnitState, UnitTokenParse, WornDisplay, parse_unit_token,
+    power_token,
 };
 
 use crate::creature_type::CreatureTypeSources;
@@ -18,8 +18,8 @@ use crate::names::NameCache;
 use crate::net::{
     FieldChanged, FieldEdges, Guid, NetCommands, ObjectStore, Reputations, SelfPlayer,
 };
-use crate::target::{ring_reaction, Factions, Selection};
-use crate::ui_script::{gate, UiInput};
+use crate::target::{Factions, Selection, ring_reaction};
+use crate::ui_script::{UiInput, gate};
 
 mod held;
 
@@ -316,11 +316,16 @@ pub(crate) fn seed_default_language(world: &mut World, script: &mut UiScript) {
     let Some(row) = roster.pending_row() else {
         return;
     };
-    script.set_default_language(langs.0.name(u32::from(row.race), 0).map(str::to_string));
+    script.set_default_language(
+        langs
+            .0
+            .name(u32::from(row.race), crate::char_select::ui_locale_index())
+            .map(str::to_string),
+    );
 }
 
 /// Seed a new VM with `Languages.dbc`, the static table `SendChatMessage` resolves its language
-/// name against (`0x49f8a0`); locale column 0, as [`feed_default_language`] reads.
+/// name against (`0x49f8a0`), in the configured locale column.
 pub(crate) fn seed_language_table(world: &World, script: &mut UiScript) {
     let Some(langs) = world.get_resource::<LanguagesRes>() else {
         return;
@@ -328,14 +333,14 @@ pub(crate) fn seed_language_table(world: &World, script: &mut UiScript) {
     script.set_language_table(
         langs
             .0
-            .names(0)
+            .names(crate::char_select::ui_locale_index())
             .map(|(id, name)| (id, name.to_string()))
             .collect(),
     );
 }
 
 /// Push `GetDefaultLanguage()`'s string on a change of race; `None` is the reference's zero value.
-/// Locale column 0 (the client's slot is `[0xc0e080]`): only enUS is populated in the 1.12 data.
+/// The client's locale slot is `[0xc0e080]`.
 fn feed_default_language(
     script: Option<NonSendMut<UiScript>>,
     self_q: Query<&ObjectStore, With<SelfPlayer>>,
@@ -351,7 +356,11 @@ fn feed_default_language(
         .next()
         .and_then(|store| store.0.unit_race())
         .zip(langs.as_ref())
-        .and_then(|(race, langs)| langs.0.name(u32::from(race), 0))
+        .and_then(|(race, langs)| {
+            langs
+                .0
+                .name(u32::from(race), crate::char_select::ui_locale_index())
+        })
         .map(str::to_string);
     if pushed.as_ref() != Some(&name) {
         script.set_default_language(name.clone());
@@ -1663,9 +1672,9 @@ mod tests {
     mod group_pet_tokens {
         use super::*;
         use crate::net::GuidIndex;
-        use crate::ui_party::{GroupState, GROUPTYPE_RAID};
-        use benilla_protocol::messages::{member_status, GroupMemberEntry, PartyMemberStatsInfo};
+        use crate::ui_party::{GROUPTYPE_RAID, GroupState};
         use benilla_protocol::ObjectFields;
+        use benilla_protocol::messages::{GroupMemberEntry, PartyMemberStatsInfo, member_status};
         use bevy::ecs::system::RunSystemOnce;
 
         const ME: u64 = 0x10;
@@ -1986,9 +1995,9 @@ mod tests {
         use super::*;
         use crate::net::GuidIndex;
         use crate::target::{Hovered, HoveredObject};
-        use crate::ui_party::{GroupState, GROUPTYPE_RAID};
-        use benilla_protocol::messages::{member_status, GroupMemberEntry};
+        use crate::ui_party::{GROUPTYPE_RAID, GroupState};
         use benilla_protocol::ObjectFields;
+        use benilla_protocol::messages::{GroupMemberEntry, member_status};
         use bevy::ecs::system::RunSystemOnce;
 
         const ME: u64 = 0x10;
@@ -2249,7 +2258,7 @@ mod tests {
     /// `0x515970`), on the unit the chain names and not on the base.
     #[test]
     fn the_range_verbs_answer_for_a_target_chain() {
-        use benilla_protocol::messages::{member_status, GroupMemberEntry, ObjectFields};
+        use benilla_protocol::messages::{GroupMemberEntry, ObjectFields, member_status};
 
         const ME: u64 = 0x10;
         const A: u64 = 0x1001;
@@ -2387,7 +2396,7 @@ mod tests {
     /// order: read off the declared graph, the aura feed's set comes before the reach feed.
     #[test]
     fn the_reach_feed_runs_after_the_aura_feed_it_reads() {
-        use crate::game_plugins::schedule_tests::{census, headless_client, SyncPoints};
+        use crate::game_plugins::schedule_tests::{SyncPoints, census, headless_client};
 
         let mut app = headless_client();
         let c = census(&mut app, Update, SyncPoints::Declared);
@@ -3438,8 +3447,8 @@ mod tests {
     fn unit_creature_type_names_the_form_before_the_race_and_a_creature_its_template() {
         use crate::names::CreatureRecord;
         use benilla_formats::ShapeshiftForm;
-        use benilla_protocol::messages::ObjectType;
         use benilla_protocol::ObjectFields;
+        use benilla_protocol::messages::ObjectType;
 
         /// `UNIT_FIELD_BYTES_0` and `UNIT_FIELD_BYTES_1`, absolute descriptor indices, and
         /// `OBJECT_FIELD_ENTRY`.

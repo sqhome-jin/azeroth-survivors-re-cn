@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use benilla_dbc::{DbcParser, FieldType, Record, RecordSet, Schema, SchemaField, StringRef, Value};
 
 use crate::Chain;
@@ -121,13 +121,12 @@ pub(crate) fn load_spell_icon_map(chain: &mut Chain) -> Result<HashMap<u32, Stri
     Ok(icons)
 }
 
-/// An id → name schema of `cols` four-byte columns (a string column is one offset); the other
-/// locale slots and the locale flag mask stay anonymous `cN` columns.
+/// An id → name schema of `cols` four-byte columns; the name is an eight-slot localized string.
 pub(crate) fn id_name_schema(what: &str, name_col: usize, cols: usize) -> Schema {
     let mut s = Schema::new(what);
     for i in 0..cols {
-        if i == name_col {
-            s.add_field(SchemaField::new("Name", FieldType::String));
+        if (name_col..name_col + LOCALE_COUNT).contains(&i) {
+            s.add_field(SchemaField::new(format!("Name{i}"), FieldType::String));
         } else {
             s.add_field(SchemaField::new(format!("c{i}"), FieldType::UInt32));
         }
@@ -135,7 +134,7 @@ pub(crate) fn id_name_schema(what: &str, name_col: usize, cols: usize) -> Schema
     s
 }
 
-/// Read an id → name DBC into a map, skipping rows whose name is empty (a hole, not a name).
+/// Read an id → localized name DBC into a map, skipping rows with no name in any locale.
 pub(crate) fn load_id_name_table(
     chain: &mut Chain,
     file: &str,
@@ -147,9 +146,10 @@ pub(crate) fn load_id_name_table(
         .read_file(file)
         .with_context(|| format!("reading {file}"))?;
     let rs = parse(&bytes, id_name_schema(what, name_col, cols), what)?;
+    let locale = preferred_locale(&rs, name_col);
     let mut out = HashMap::with_capacity(rs.records().len());
     for r in rs.records() {
-        if let (Some(id), Some(name)) = (u32_at(r, 0), str_at(&rs, r, name_col)) {
+        if let (Some(id), Some(name)) = (u32_at(r, 0), localized_str_at(&rs, r, name_col, locale)) {
             out.insert(id, name);
         }
     }

@@ -9,6 +9,7 @@ use bevy::ui::RelativeCursorPosition;
 use super::data::{self, Kind};
 use super::fill::FillMaterial;
 use super::hud::{self, Choice, HudFont, Offer, SpellIcon};
+use super::localization;
 use super::{Phase, Rng, Run};
 
 /// WoW's item-quality colours (`ITEM_QUALITY_COLORS`).
@@ -46,11 +47,11 @@ impl Rarity {
 
     fn label(self) -> &'static str {
         match self {
-            Self::Common => "Common",
-            Self::Uncommon => "Uncommon",
-            Self::Rare => "Rare",
-            Self::Epic => "Epic",
-            Self::Legendary => "Legendary",
+            Self::Common => localization::text("Common", "普通"),
+            Self::Uncommon => localization::text("Uncommon", "优秀"),
+            Self::Rare => localization::text("Rare", "精良"),
+            Self::Epic => localization::text("Epic", "史诗"),
+            Self::Legendary => localization::text("Legendary", "传说"),
         }
     }
 }

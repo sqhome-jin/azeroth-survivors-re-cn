@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
 use crate::chain::Chain;
-use crate::dbc::{parse, str_at, u32_at};
+use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
 
 const CHAT_CHANNELS: &str = "DBFilesClient\\ChatChannels.dbc";
 
@@ -40,9 +40,9 @@ pub struct ChatChannelRow {
     pub id: u32,
     /// Bits from [`flags`].
     pub flags: u32,
-    /// The enUS name pattern, `%s` intact ("General - %s").
+    /// The localized name pattern, `%s` intact for the zone or city.
     pub pattern: String,
-    /// The enUS shortcut ("General"), the name without number or zone.
+    /// The localized shortcut, the name without number or zone.
     pub shortcut: String,
 }
 
@@ -150,18 +150,21 @@ pub fn load_chat_channels_catalog(chain: &mut Chain) -> Result<ChatChannelsCatal
         .read_file(CHAT_CHANNELS)
         .context("reading ChatChannels.dbc")?;
     let rs = parse(&bytes, schema(), "ChatChannels")?;
+    let locale = preferred_locale(&rs, 3);
     let mut rows = Vec::with_capacity(rs.records().len());
     for r in rs.records() {
-        let (Some(id), Some(flags), Some(pattern)) =
-            (u32_at(r, 0), u32_at(r, 1), str_at(&rs, r, 3))
-        else {
+        let (Some(id), Some(flags), Some(pattern)) = (
+            u32_at(r, 0),
+            u32_at(r, 1),
+            localized_str_at(&rs, r, 3, locale),
+        ) else {
             continue;
         };
         rows.push(ChatChannelRow {
             id,
             flags,
             pattern,
-            shortcut: str_at(&rs, r, 12).unwrap_or_default(),
+            shortcut: localized_str_at(&rs, r, 12, locale).unwrap_or_default(),
         });
     }
     Ok(ChatChannelsCatalog { rows })
@@ -183,16 +186,23 @@ mod tests {
             .map(|r| (r.id, r.flags, r.pattern.as_str(), r.shortcut.as_str()))
             .collect();
         assert_eq!(
-            got,
-            vec![
-                (1, 0x00003, "General - %s", "General"),
-                (2, 0x0003B, "Trade - %s", "Trade"),
-                (22, 0x10003, "LocalDefense - %s", "LocalDefense"),
-                (23, 0x10004, "WorldDefense", "WorldDefense"),
-                (24, 0x00000, "LookingForGroup", "LookingForGroup"),
-                (25, 0x20032, "GuildRecruitment - %s", "GuildRecruitment"),
-            ]
+            got.iter().map(|(id, _, _, _)| *id).collect::<Vec<_>>(),
+            [1, 2, 22, 23, 24, 25]
         );
+        assert!(
+            got.iter()
+                .all(|(_, _, pattern, shortcut)| { !pattern.is_empty() && !shortcut.is_empty() })
+        );
+        for id in [1, 2, 22, 25] {
+            assert!(
+                cat.rows()
+                    .iter()
+                    .find(|row| row.id == id)
+                    .unwrap()
+                    .pattern
+                    .contains("%s")
+            );
+        }
 
         // The auto-join set is the reference's `chat-cache.txt` `ZONECHANNELS` mask.
         let mask: u32 = cat.auto_join_rows().map(|r| 1 << (r.id - 1)).sum();
@@ -211,29 +221,23 @@ mod tests {
                 .unwrap_or_else(|| panic!("row {id}"))
         };
 
-        assert_eq!(
-            row(1).joinable_name("Elwynn Forest", "City"),
-            "General - Elwynn Forest"
-        );
-        assert_eq!(
-            row(22).joinable_name("Elwynn Forest", "City"),
-            "LocalDefense - Elwynn Forest"
-        );
+        let general = row(1).joinable_name("艾尔文森林", "城市");
+        assert!(general.ends_with("艾尔文森林"));
+        assert_eq!(cat.zone_channel_id(&general), 1);
+        let defense = row(22).joinable_name("艾尔文森林", "城市");
+        assert!(defense.ends_with("艾尔文森林"));
+        assert_eq!(cat.zone_channel_id(&defense), 22);
         // City-named: one channel for every capital, not one per capital.
-        assert_eq!(
-            row(2).joinable_name("Stormwind City", "City"),
-            "Trade - City"
-        );
-        assert_eq!(row(2).joinable_name("Orgrimmar", "City"), "Trade - City");
+        let trade = row(2).joinable_name("暴风城", "城市");
+        assert!(trade.ends_with("城市"));
+        assert_eq!(row(2).joinable_name("奥格瑞玛", "城市"), trade);
+        assert_eq!(cat.zone_channel_id(&trade), 2);
         // A pattern with no `%s` ignores both.
-        assert_eq!(
-            row(23).joinable_name("Elwynn Forest", "City"),
-            "WorldDefense"
-        );
+        let world_defense = row(23).joinable_name("艾尔文森林", "城市");
+        assert_eq!(world_defense, row(23).pattern);
 
-        assert_eq!(cat.zone_channel_id("General - Elwynn Forest"), 1);
-        assert_eq!(cat.zone_channel_id("Trade - City"), 2);
-        assert_eq!(cat.zone_channel_id("LocalDefense - Durotar"), 22);
+        assert_eq!(cat.zone_channel_id(&general), 1);
+        assert_eq!(cat.zone_channel_id(&trade), 2);
         assert_eq!(cat.zone_channel_id("World"), 0, "a custom channel is 0");
     }
 }

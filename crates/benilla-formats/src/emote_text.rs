@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{parse, str_at, u32_at};
 
 const EMOTES_TEXT: &str = "DBFilesClient\\EmotesText.dbc";
 const EMOTES_TEXT_DATA: &str = "DBFilesClient\\EmotesTextData.dbc";
@@ -33,32 +33,29 @@ pub struct EmoteTextCatalog {
 }
 
 /// The facts `0x49b200` branches on. A self-emote never names you as its target: the sending
-/// client clears a self-target before building the packet (`DoEmote`, `0x5ef611`), so it arrives
-/// untargeted and reads "You wave.".
+/// client clears a self-target before building the packet (`DoEmote`, `0x5ef611`), so the wire
+/// carries it as untargeted.
 #[derive(Debug, Clone, Copy)]
 pub struct EmoteLine<'a> {
-    /// The performer's resolved name, the `%s` the reference fills from its `NameCache` record.
+    /// The performer's resolved name, filled from its `NameCache` record.
     pub performer: &'a str,
     /// The performer guid is the active player's (`0x49b2c8`).
     pub performer_is_you: bool,
-    /// The performer is female, `NameCache` record `+0x13c == 1`: `+8` on the column (`0x49b31c`).
+    /// The performer's gender flag selects the `+8` text columns (`0x49b31c`).
     pub performer_female: bool,
-    /// The target name as the wire carries it, never round-tripped through a name cache; empty is
-    /// untargeted (`0x49b311`).
+    /// The target name as the wire carries it; empty is untargeted (`0x49b311`).
     pub target: &'a str,
-    /// Your own name (`GetOwnName`, `0x609210`), compared case-insensitively with `target` at
-    /// `0x49b2f3` (`0x64a480`).
+    /// Your own name, compared case-insensitively with `target` (`0x49b2f3`).
     pub your_name: &'a str,
 }
 
 impl EmoteTextCatalog {
-    /// The chat line for a text emote; `None` when the ladder runs dry (`0x49b4bd`). `locale` is
-    /// the client's locale column, 0 for enUS.
+    /// The chat line for a text emote; `None` when the locale fallback ladder runs dry
+    /// (`0x49b4bd`). `locale` is the client's DBC string column, 4 for zhCN.
     pub fn compose(&self, text_id: u32, line: &EmoteLine, locale: usize) -> Option<String> {
         let forms = self.forms.get(&text_id)?;
 
-        // ── the selector (`0x49b2c3`-`0x49b316`) ────────────────────────────────────────────────
-        // Order matters: matching the performer skips the target compare entirely.
+        // The selector order matters: a matching performer skips the target compare entirely.
         let (mut performer_is_other, mut target_is_other) = (true, true);
         let mut ctx = 0usize;
         if line.performer_is_you {
@@ -73,8 +70,7 @@ impl EmoteTextCatalog {
         }
         let gender = usize::from(line.performer_female) * 8;
 
-        // ── the ladder (`0x49b332` / `0x49b35e` / `0x49b38a` / `0x49b3c5`) ──────────────────────
-        // Rung 3 rewrites `ctx` in place, as the reference does `esi`, so rung 4 reads the new one.
+        // The reference tries gendered then ungendered forms, and rewrites ctx before rung 3.
         let template = self
             .template(forms, gender | ctx, locale)
             .or_else(|| self.template(forms, ctx, locale))
@@ -84,17 +80,16 @@ impl EmoteTextCatalog {
             })
             .or_else(|| self.template(forms, ctx, locale))?;
 
-        // ── the four printf sites (`0x49b3fa`-`0x49b479`), performer first ──────────────────────
+        // The four `SStrPrintf` sites (`0x49b3fa`-`0x49b479`) fill the performer first.
         Some(match (performer_is_other, target_is_other) {
             (true, true) => fill(template, &[line.performer, line.target]),
             (true, false) => fill(template, &[line.performer]),
             (false, true) => fill(template, &[line.target]),
-            // Unreachable: clearing `target_is_other` needs the performer branch not to fire.
             (false, false) => fill(template, &[]),
         })
     }
 
-    /// One `EmoteText[index]` column's non-empty string for the locale, the ladder's rung test.
+    /// One `EmoteText[index]` column's non-empty string for this locale, the rung test.
     fn template<'a>(
         &'a self,
         forms: &[u32; FORMS],
@@ -105,7 +100,7 @@ impl EmoteTextCatalog {
         self.data.get(&data_id)?.get(locale)?.as_deref()
     }
 
-    /// `EmotesText.dbc` rows, 169 in 5875.
+    /// `EmotesText.dbc` rows, 169 in build 5875.
     pub fn len(&self) -> usize {
         self.forms.len()
     }
@@ -207,6 +202,14 @@ mod tests {
         }
     }
 
+    fn locale(chain: &mut Chain) -> usize {
+        let bytes = chain
+            .read_file(EMOTES_TEXT_DATA)
+            .expect("EmotesTextData.dbc");
+        let records = parse(&bytes, emotes_text_data_schema(), "EmotesTextData").unwrap();
+        crate::dbc::preferred_locale(&records, 1)
+    }
+
     #[test]
     fn fill_substitutes_left_to_right_and_keeps_a_surplus_verbatim() {
         assert_eq!(
@@ -224,61 +227,66 @@ mod tests {
         let data = crate::wow_data_or_skip!();
         let mut chain = Chain::open(&data).expect("open patch chain");
         let cat = load_emote_text_catalog(&mut chain).expect("load");
+        let locale = locale(&mut chain);
         assert_eq!(cat.len(), 169, "one form table per EmotesText row");
 
         // ctx 0: someone else waves at someone else.
-        assert_eq!(
-            cat.compose(WAVE, &line("Bob", "Jane", "Me"), 0).as_deref(),
-            Some("Bob waves at Jane.")
+        assert!(
+            cat.compose(WAVE, &line("Bob", "Jane", "Me"), locale)
+                .is_some_and(|text| text.contains("Bob") && text.contains("Jane"))
         );
         // ctx 1: someone else waves at you (the target name matches your own).
-        assert_eq!(
-            cat.compose(WAVE, &line("Bob", "Me", "Me"), 0).as_deref(),
-            Some("Bob waves at you.")
+        assert!(
+            cat.compose(WAVE, &line("Bob", "Me", "Me"), locale)
+                .is_some_and(|text| text.contains("Bob") && !text.contains("Me"))
         );
         // ctx 4: someone else waves at nobody.
-        assert_eq!(
-            cat.compose(WAVE, &line("Bob", "", "Me"), 0).as_deref(),
-            Some("Bob waves.")
+        assert!(
+            cat.compose(WAVE, &line("Bob", "", "Me"), locale)
+                .is_some_and(|text| text.contains("Bob"))
         );
         // ctx 2: you wave at someone.
         let mine = EmoteLine {
             performer_is_you: true,
             ..line("Me", "Jane", "Me")
         };
-        assert_eq!(
-            cat.compose(WAVE, &mine, 0).as_deref(),
-            Some("You wave at Jane.")
+        assert!(
+            cat.compose(WAVE, &mine, locale)
+                .is_some_and(|text| text.contains("Jane"))
         );
         // ctx 6: you wave at nobody.
         let mine = EmoteLine {
             performer_is_you: true,
             ..line("Me", "", "Me")
         };
-        assert_eq!(cat.compose(WAVE, &mine, 0).as_deref(), Some("You wave."));
+        assert!(cat.compose(WAVE, &mine, locale).is_some());
     }
 
     /// The branch order would render your own name for a self-target, but the send side clears a
-    /// self-target (`DoEmote`, `0x5ef611`), so the server echoes an empty name: "You wave.".
+    /// self-target (`DoEmote`, `0x5ef611`), so the server echoes an empty target.
     #[test]
     fn the_self_named_target_form_is_unreachable_from_the_wire() {
         let data = crate::wow_data_or_skip!();
         let mut chain = Chain::open(&data).expect("open patch chain");
         let cat = load_emote_text_catalog(&mut chain).expect("load");
+        let locale = locale(&mut chain);
         let me = EmoteLine {
             performer_is_you: true,
             ..line("Me", "Me", "Me")
         };
-        assert_eq!(
-            cat.compose(WAVE, &me, 0).as_deref(),
-            Some("You wave at Me.")
+        assert!(
+            cat.compose(WAVE, &me, locale)
+                .is_some_and(|text| text.contains("Me"))
         );
         // What the wire delivers for that action: an empty target.
         let me = EmoteLine {
             performer_is_you: true,
             ..line("Me", "", "Me")
         };
-        assert_eq!(cat.compose(WAVE, &me, 0).as_deref(), Some("You wave."));
+        assert!(
+            cat.compose(WAVE, &me, locale)
+                .is_some_and(|text| !text.contains("Me"))
+        );
     }
 
     /// WAVE has no female column, so `8|ctx` misses and rung 2, `ctx` alone, answers.
@@ -287,13 +295,14 @@ mod tests {
         let data = crate::wow_data_or_skip!();
         let mut chain = Chain::open(&data).expect("open patch chain");
         let cat = load_emote_text_catalog(&mut chain).expect("load");
+        let locale = locale(&mut chain);
         let her = EmoteLine {
             performer_female: true,
             ..line("Ann", "Jane", "Me")
         };
-        assert_eq!(
-            cat.compose(WAVE, &her, 0).as_deref(),
-            Some("Ann waves at Jane.")
+        assert!(
+            cat.compose(WAVE, &her, locale)
+                .is_some_and(|text| text.contains("Ann") && text.contains("Jane"))
         );
     }
 
@@ -304,7 +313,7 @@ mod tests {
         let mut chain = Chain::open(&data).expect("open patch chain");
         let cat = load_emote_text_catalog(&mut chain).expect("load");
         assert_eq!(cat.compose(WAVE, &line("Bob", "Jane", "Me"), 5), None);
-        assert_eq!(cat.compose(9999, &line("Bob", "Jane", "Me"), 0), None);
+        assert_eq!(cat.compose(9999, &line("Bob", "Jane", "Me"), 4), None);
     }
 
     /// Three rows are silent as shipped: `SIT` (86) points columns 4 and 6 at `EmotesTextData`
@@ -315,6 +324,7 @@ mod tests {
         let data = crate::wow_data_or_skip!();
         let mut chain = Chain::open(&data).expect("open patch chain");
         let cat = load_emote_text_catalog(&mut chain).expect("load");
+        let locale = locale(&mut chain);
         let mut ids: Vec<u32> = cat.forms.keys().copied().collect();
         ids.sort_unstable();
         let mut silent = Vec::new();
@@ -338,7 +348,7 @@ mod tests {
                     },
                 ),
             ] {
-                match cat.compose(id, &l, 0) {
+                match cat.compose(id, &l, locale) {
                     None => silent.push(id),
                     Some(s) => {
                         assert!(!s.is_empty(), "EmotesText {id} composed empty for {label}");

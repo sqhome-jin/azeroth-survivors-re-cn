@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{f32_at, parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{f32_at, localized_str_at, parse, preferred_locale, u32_at};
 
 const TAXI_NODES: &str = "DBFilesClient\\TaxiNodes.dbc";
 
@@ -22,7 +22,7 @@ pub struct TaxiNode {
     pub map_id: u32,
     /// World position `(x, y, z)` on `map_id`.
     pub pos: [f32; 3],
-    /// The enUS name (locale slot 0), the taxi map's node label.
+    /// The localized name, the taxi map's node label.
     pub name: String,
     /// The `creature_template` entry of a Horde rider's taxi mount here, `0` for no Horde service.
     pub mount_horde: u32,
@@ -79,6 +79,7 @@ pub fn load_taxi_nodes(chain: &mut Chain) -> Result<TaxiNodes> {
         .read_file(TAXI_NODES)
         .context("reading TaxiNodes.dbc")?;
     let rs = parse(&bytes, schema(), "TaxiNodes")?;
+    let locale = preferred_locale(&rs, 5);
     let mut rows = HashMap::with_capacity(rs.records().len());
     for r in rs.records() {
         let Some(id) = u32_at(r, 0) else { continue };
@@ -89,7 +90,7 @@ pub fn load_taxi_nodes(chain: &mut Chain) -> Result<TaxiNodes> {
             id,
             map_id: u32_at(r, 1).unwrap_or(0),
             pos: [x, y, z],
-            name: str_at(&rs, r, 5).unwrap_or_default(),
+            name: localized_str_at(&rs, r, 5, locale).unwrap_or_default(),
             mount_horde: u32_at(r, 14).unwrap_or(0),
             mount_alliance: u32_at(r, 15).unwrap_or(0),
         };
@@ -111,7 +112,7 @@ mod tests {
         assert_eq!(cat.len(), 85, "1.12 ships 85 taxi nodes");
 
         let stormwind = cat.get(2).expect("node 2 exists");
-        assert_eq!(stormwind.name, "Stormwind, Elwynn");
+        assert!(!stormwind.name.is_empty());
         assert_eq!(stormwind.map_id, 0, "Eastern Kingdoms");
         assert_eq!(stormwind.mount_horde, 0, "no Horde service from Stormwind");
         assert_eq!(
@@ -121,6 +122,6 @@ mod tests {
 
         // The other end of the hop the `TaxiPath` test pins.
         let sentinel_hill = cat.get(4).expect("node 4 exists");
-        assert_eq!(sentinel_hill.name, "Sentinel Hill, Westfall");
+        assert!(!sentinel_hill.name.is_empty());
     }
 }

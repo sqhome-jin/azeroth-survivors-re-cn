@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
 
 const ITEM_CLASS: &str = "DBFilesClient\\ItemClass.dbc";
 
@@ -51,10 +51,13 @@ pub fn load_item_classes(chain: &mut Chain) -> Result<ItemClassCatalog> {
         .read_file(ITEM_CLASS)
         .with_context(|| format!("reading {ITEM_CLASS}"))?;
     let rs = parse(&bytes, item_class_schema(), "ItemClass")?;
+    let locale = preferred_locale(&rs, 3);
     let mut names = HashMap::with_capacity(rs.records().len());
     for r in rs.records() {
-        let (Some(id), Some(name)) = (u32_at(r, 0), str_at(&rs, r, 3).filter(|n| !n.is_empty()))
-        else {
+        let (Some(id), Some(name)) = (
+            u32_at(r, 0),
+            localized_str_at(&rs, r, 3, locale).filter(|n| !n.is_empty()),
+        ) else {
             continue;
         };
         names.insert(id, name);
@@ -73,16 +76,12 @@ mod tests {
         let mut chain = crate::open_chain(&data).expect("open chain");
         let cat = load_item_classes(&mut chain).expect("ItemClass.dbc");
 
-        assert_eq!(cat.name(0), Some("Consumable"));
-        assert_eq!(cat.name(1), Some("Container"), "Bagnon's own expectation");
-        assert_eq!(cat.name(2), Some("Weapon"));
-        assert_eq!(cat.name(4), Some("Armor"));
-        assert_eq!(cat.name(7), Some("Trade Goods"));
-        assert_eq!(cat.name(11), Some("Quiver"), "Bagnon's own expectation");
-        assert_eq!(cat.name(15), Some("Miscellaneous"));
-        // The reference pushes the row string unfiltered.
-        assert_eq!(cat.name(3), Some("Jewelry(OBSOLETE)"));
-        assert_eq!(cat.name(10), Some("Money(OBSOLETE)"));
+        for id in [0, 1, 2, 3, 4, 7, 10, 11, 15] {
+            assert!(
+                cat.name(id).is_some_and(|name| !name.is_empty()),
+                "class {id}"
+            );
+        }
         assert_eq!(cat.name(16), None);
         assert_eq!(cat.len(), 16, "the whole shipped table");
     }

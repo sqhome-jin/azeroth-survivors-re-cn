@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
 use crate::chain::Chain;
-use crate::dbc::{parse, str_at, u32_at};
+use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
 
 const SERVER_MESSAGES: &str = "DBFilesClient\\ServerMessages.dbc";
 
@@ -68,9 +68,10 @@ pub fn load_server_messages_catalog(chain: &mut Chain) -> Result<ServerMessagesC
         .read_file(SERVER_MESSAGES)
         .context("reading ServerMessages.dbc")?;
     let rs = parse(&bytes, schema(), "ServerMessages")?;
+    let locale = preferred_locale(&rs, 1);
     let mut rows = Vec::with_capacity(rs.records().len());
     for r in rs.records() {
-        let (Some(id), Some(text)) = (u32_at(r, 0), str_at(&rs, r, 1)) else {
+        let (Some(id), Some(text)) = (u32_at(r, 0), localized_str_at(&rs, r, 1, locale)) else {
             continue;
         };
         rows.push((id, text));
@@ -87,17 +88,12 @@ mod tests {
         let data = crate::wow_data_or_skip!();
         let mut chain = crate::open_chain(&data).expect("open chain");
         let cat = load_server_messages_catalog(&mut chain).expect("load ServerMessages");
-        let got: Vec<(u32, &str)> = cat.rows.iter().map(|(i, t)| (*i, t.as_str())).collect();
+        assert_eq!(cat.len(), 5);
         assert_eq!(
-            got,
-            vec![
-                (1, "[SERVER] Shutdown in %s"),
-                (2, "[SERVER] Restart in %s"),
-                (3, "%s"),
-                (4, "[SERVER] Shutdown cancelled"),
-                (5, "[SERVER] Restart cancelled"),
-            ]
+            cat.rows.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            [1, 2, 3, 4, 5]
         );
+        assert!(cat.rows.iter().all(|(_, text)| !text.is_empty()));
     }
 
     fn shipped() -> ServerMessagesCatalog {

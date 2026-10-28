@@ -1,15 +1,15 @@
 //! `WMOAreaTable.dbc`, a WMO interior's audio identity per building and per group; the Northshire
 //! Abbey chant is its whole-WMO row's `ZoneIntroMusicTable` 221. Rows key on the root's
 //! `MOHD.wmoID`, the placement's `MODF.nameSet` and each group's `MOGP.uniqueID` (`+0x38`), with
-//! `WMOGroupID` `-1` for the whole-WMO row; the enUS `AreaName` is column 11 of 20.
+//! `WMOGroupID` `-1` for the whole-WMO row; `AreaName` is a localized block starting at column 11.
 
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
 
 /// One `WMOAreaTable` row's audio fields, `0` for none or inherit.
 #[derive(Clone)]
@@ -28,7 +28,7 @@ pub struct WmoArea {
     /// The `AreaTable.dbc` area this group counts as (0 = none), read by the area resolver
     /// `0x670250` when the down-ray keeps the WMO over the terrain: Ironforge reports its own area.
     pub area_table_id: u32,
-    /// The interior's enUS display name, empty for an unnamed row.
+    /// The interior's localized display name, empty for an unnamed row.
     pub name: String,
 }
 
@@ -123,10 +123,10 @@ fn schema() -> Schema {
     ] {
         s.add_field(SchemaField::new(name, FieldType::UInt32));
     }
-    s.add_field(SchemaField::new("AreaName", FieldType::String));
-    for i in 12..20 {
-        s.add_field(SchemaField::new(format!("_pad{i}"), FieldType::UInt32));
+    for i in 11..19 {
+        s.add_field(SchemaField::new(format!("AreaName{i}"), FieldType::String));
     }
+    s.add_field(SchemaField::new("AreaNameFlags", FieldType::UInt32));
     s
 }
 
@@ -136,6 +136,7 @@ pub fn load_wmo_area_catalog(chain: &mut Chain) -> Result<WmoAreaCatalog> {
         .read_file("DBFilesClient\\WMOAreaTable.dbc")
         .context("reading WMOAreaTable.dbc")?;
     let rs = parse(&bytes, schema(), "WMOAreaTable")?;
+    let locale = preferred_locale(&rs, 11);
     let mut groups = HashMap::new();
     let mut defaults = HashMap::new();
     for r in rs.records() {
@@ -149,7 +150,7 @@ pub fn load_wmo_area_catalog(chain: &mut Chain) -> Result<WmoAreaCatalog> {
             zone_music: u32_at(r, 7).unwrap_or(0),
             intro_sound: u32_at(r, 8).unwrap_or(0),
             area_table_id: u32_at(r, 10).unwrap_or(0),
-            name: str_at(&rs, r, 11).unwrap_or_default(),
+            name: localized_str_at(&rs, r, 11, locale).unwrap_or_default(),
         };
         if group == u32::MAX {
             defaults.insert((wmo_id, name_set), area);
@@ -188,7 +189,7 @@ mod tests {
         assert_eq!(hall.intro_sound, 221, "the chant reaches the hall");
         assert_eq!(hall.zone_music, 204);
         assert_eq!(hall.ambience, 26);
-        assert_eq!(hall.name, "Main Hall", "the group's own name wins");
+        assert!(!hall.name.is_empty(), "the group's own name wins");
 
         // Chapel (656) group 478: cave reverb and ambience over the whole-WMO underwater preset.
         let chapel = cat.resolve(656, 0, 478).expect("chapel group row");

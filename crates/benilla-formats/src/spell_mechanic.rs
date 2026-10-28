@@ -7,14 +7,14 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
 
 const SPELL_MECHANIC: &str = "DBFilesClient\\SpellMechanic.dbc";
 const SPELL_MECHANIC_FIELDS: usize = 10;
 const COL_NAME_ENUS: usize = 1;
 
-/// Mechanic id → name, lower-case in the data ("stunned") and left so, as the reference does.
+/// Mechanic id → localized name, left as authored, as the reference does.
 pub struct SpellMechanicCatalog {
     names: HashMap<u32, String>,
 }
@@ -37,7 +37,7 @@ impl SpellMechanicCatalog {
 fn schema() -> Schema {
     let mut s = Schema::new("SpellMechanic");
     for i in 0..SPELL_MECHANIC_FIELDS {
-        let ty = if i == COL_NAME_ENUS {
+        let ty = if (COL_NAME_ENUS..COL_NAME_ENUS + 8).contains(&i) {
             FieldType::String
         } else {
             FieldType::UInt32
@@ -53,10 +53,11 @@ pub fn load_spell_mechanic_catalog(chain: &mut Chain) -> Result<SpellMechanicCat
         .read_file(SPELL_MECHANIC)
         .with_context(|| format!("reading {SPELL_MECHANIC}"))?;
     let rs = parse(&bytes, schema(), "SpellMechanic.dbc")?;
+    let locale = preferred_locale(&rs, COL_NAME_ENUS);
     let mut names = HashMap::new();
     for r in rs.records() {
         let Some(id) = u32_at(r, 0) else { continue };
-        if let Some(name) = str_at(&rs, r, COL_NAME_ENUS) {
+        if let Some(name) = localized_str_at(&rs, r, COL_NAME_ENUS, locale) {
             names.insert(id, name);
         }
     }
@@ -74,11 +75,12 @@ mod tests {
         let mut chain = crate::open_chain(&data).expect("open chain");
         let cat = load_spell_mechanic_catalog(&mut chain).expect("load SpellMechanic.dbc");
 
-        assert_eq!(cat.name(5), Some("fleeing"));
-        assert_eq!(cat.name(7), Some("rooted"));
-        assert_eq!(cat.name(11), Some("ensnared"));
-        assert_eq!(cat.name(12), Some("stunned"));
-        assert_eq!(cat.name(17), Some("polymorphed"));
+        for id in [5, 7, 11, 12, 17] {
+            assert!(
+                cat.name(id).is_some_and(|name| !name.is_empty()),
+                "mechanic {id}"
+            );
+        }
         assert_eq!(cat.name(0), None, "0 = no mechanic, and no line to fill");
         assert_eq!(cat.name(999), None);
         assert_eq!(cat.len(), 27, "the 5875 file's full row count");

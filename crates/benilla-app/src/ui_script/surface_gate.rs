@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeSet, HashSet};
 
-use benilla_ui::script::{widget_method_census, UiScript};
+use benilla_ui::script::{UiScript, widget_method_census};
 
 use crate::local_state::test_env::ENV_LOCK;
 
@@ -69,9 +69,11 @@ fn layer_prefixed(n: &str) -> bool {
 fn production_beyond(s: &UiScript, engine: &UiScript) -> (Vec<String>, Vec<String>) {
     let reference = reference_globals();
     let engine_globals = globals_of(engine);
+    let locale_global = format!("LOCALE_{}", s.eval::<String>("return GetLocale()").unwrap());
     let globals = globals_of(s)
         .into_iter()
         .filter(|n| !reference.contains(n.as_str()) && !engine_globals.contains(n))
+        .filter(|n| n != &locale_global)
         .filter(|n| !layer_prefixed(n))
         .collect();
     let engine_methods = methods_of(engine);

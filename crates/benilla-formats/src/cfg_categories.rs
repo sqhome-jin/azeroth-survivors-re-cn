@@ -7,8 +7,8 @@
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
 
 const CFG_CATEGORIES: &str = "DBFilesClient\\Cfg_Categories.dbc";
 
@@ -17,7 +17,7 @@ const CFG_CATEGORIES: &str = "DBFilesClient\\Cfg_Categories.dbc";
 pub struct RealmCategory {
     /// Column 0, compared for equality with a realm's category byte (`0x46e60b`).
     pub id: u32,
-    /// The enUS `Name_Lang` slot, the column the reference reads on an enUS or enGB client.
+    /// The selected `Name_Lang` slot, with enUS fallback for an empty locale entry.
     pub name: String,
 }
 
@@ -41,6 +41,7 @@ pub fn load_realm_categories(chain: &mut Chain, region: u32) -> Result<Vec<Realm
         .read_file(CFG_CATEGORIES)
         .with_context(|| format!("reading {CFG_CATEGORIES}"))?;
     let rs = parse(&bytes, cfg_categories_schema(), "Cfg_Categories")?;
+    let locale = preferred_locale(&rs, 2);
     Ok(rs
         .records()
         .iter()
@@ -49,7 +50,7 @@ pub fn load_realm_categories(chain: &mut Chain, region: u32) -> Result<Vec<Realm
             Some(RealmCategory {
                 id: u32_at(r, 0)?,
                 // An empty name is pushed as the empty string; only a missing row reads "UNKNOWN".
-                name: str_at(&rs, r, 2).unwrap_or_default(),
+                name: localized_str_at(&rs, r, 2, locale).unwrap_or_default(),
             })
         })
         .collect())
@@ -70,10 +71,8 @@ mod tests {
     #[test]
     fn the_us_region_is_united_states_then_oceanic() {
         let Some(us) = rows(1) else { return };
-        assert_eq!(
-            us,
-            [(1, "United States".to_string()), (5, "Oceanic".to_string())]
-        );
+        assert_eq!(us.iter().map(|(id, _)| *id).collect::<Vec<_>>(), [1, 5]);
+        assert!(us.iter().all(|(_, name)| !name.is_empty()));
     }
 
     /// Region 3 is Europe's four language tabs; the ids are not contiguous, so a category is
@@ -83,8 +82,7 @@ mod tests {
         let Some(eu) = rows(3) else { return };
         let ids: Vec<u32> = eu.iter().map(|(id, _)| *id).collect();
         assert_eq!(ids, [1, 2, 3, 5]);
-        assert_eq!(eu[0].1, "English");
-        assert_eq!(eu[3].1, "Spanish");
+        assert!(eu.iter().all(|(_, name)| !name.is_empty()));
     }
 
     /// No row carries Region 0, the value a client without a `Wow.ini` Region reads.

@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
 use crate::chain::Chain;
-use crate::dbc::{parse, str_at, u32_at};
+use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
 
 const AREA_TABLE: &str = "DBFilesClient\\AreaTable.dbc";
 
@@ -115,7 +115,7 @@ fn schema() -> Schema {
     let mut s = Schema::new("AreaTable");
     for i in 0..25 {
         match i {
-            11 => s.add_field(SchemaField::new("AreaName", FieldType::String)),
+            11..=18 => s.add_field(SchemaField::new(format!("AreaName{i}"), FieldType::String)),
             _ => s.add_field(SchemaField::new(format!("c{i}"), FieldType::UInt32)),
         }
     }
@@ -128,6 +128,7 @@ pub fn load_area_table_catalog(chain: &mut Chain) -> Result<AreaTableCatalog> {
         .read_file(AREA_TABLE)
         .context("reading AreaTable.dbc")?;
     let rs = parse(&bytes, schema(), "AreaTable")?;
+    let locale = preferred_locale(&rs, 11);
     let mut by_id = HashMap::with_capacity(rs.records().len());
     for r in rs.records() {
         let (Some(id), Some(map_id), Some(zone_id), Some(explore_flag), Some(flags), Some(name)) = (
@@ -136,7 +137,7 @@ pub fn load_area_table_catalog(chain: &mut Chain) -> Result<AreaTableCatalog> {
             u32_at(r, 2),
             u32_at(r, 3),
             u32_at(r, 4),
-            str_at(&rs, r, 11),
+            localized_str_at(&rs, r, 11, locale),
         ) else {
             continue;
         };
@@ -176,14 +177,17 @@ mod tests {
 
         let northshire = cat.get(9).expect("Northshire Valley (id 9)");
         assert_eq!(northshire.zone_id, 12, "Northshire's parent is Elwynn");
-        assert_eq!(northshire.name, "Northshire Valley");
+        assert!(!northshire.name.is_empty());
         assert_eq!(cat.top_zone(9), Some(12));
 
         // Booty Bay (35) sits under Stranglethorn Vale (33), a top-level zone.
         assert_eq!(cat.top_zone(35), Some(33));
 
         assert_eq!(cat.top_zone(12), Some(12));
-        assert_eq!(cat.name(12), Some("Elwynn Forest"));
+        assert_eq!(
+            cat.name(12),
+            Some(cat.get(12).expect("Elwynn").name.as_str())
+        );
 
         assert_eq!(cat.get(12).expect("Elwynn").explore_flag, 126);
 

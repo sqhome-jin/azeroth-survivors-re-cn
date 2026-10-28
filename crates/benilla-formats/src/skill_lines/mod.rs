@@ -18,8 +18,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
 
 const SKILL_LINE: &str = "DBFilesClient\\SkillLine.dbc";
 const SKILL_LINE_ABILITY: &str = "DBFilesClient\\SkillLineAbility.dbc";
@@ -84,7 +84,7 @@ pub struct SkillLineInfo {
     pub category_id: u32,
     /// The tab icon's extensionless path (`Interface\Icons\…`), from `spellIcon`, column 21.
     pub icon: Option<String>,
-    /// enUS `description_lang`, column 12: `GetSkillLineInfo`'s 13th return.
+    /// Localized `description_lang`, column 12: `GetSkillLineInfo`'s 13th return.
     pub description: String,
 }
 
@@ -364,10 +364,10 @@ impl SkillLineCatalog {
 fn skill_line_schema() -> Schema {
     let mut s = Schema::new("SkillLine");
     for i in 0..SKILL_LINE_FIELDS {
-        if i == COL_SL_NAME_ENUS {
-            s.add_field(SchemaField::new("NameEnUs", FieldType::String));
-        } else if i == COL_SL_DESC_ENUS {
-            s.add_field(SchemaField::new("DescEnUs", FieldType::String));
+        if (COL_SL_NAME_ENUS..COL_SL_NAME_ENUS + 8).contains(&i)
+            || (COL_SL_DESC_ENUS..COL_SL_DESC_ENUS + 8).contains(&i)
+        {
+            s.add_field(SchemaField::new(format!("Localized{i}"), FieldType::String));
         } else {
             s.add_field(SchemaField::new(format!("F{i}"), FieldType::UInt32));
         }
@@ -386,7 +386,7 @@ fn skill_line_ability_schema() -> Schema {
 fn skill_line_category_schema() -> Schema {
     let mut s = Schema::new("SkillLineCategory");
     for i in 0..SKILL_LINE_CATEGORY_FIELDS {
-        let ty = if i == COL_SLC_NAME_ENUS {
+        let ty = if (COL_SLC_NAME_ENUS..COL_SLC_NAME_ENUS + 8).contains(&i) {
             FieldType::String
         } else {
             FieldType::UInt32
@@ -409,9 +409,10 @@ fn load_categories(chain: &mut Chain) -> HashMap<u32, (String, u32)> {
     ) else {
         return map;
     };
+    let locale = preferred_locale(&set, COL_SLC_NAME_ENUS);
     for r in set.records() {
         let Some(id) = u32_at(r, 0) else { continue };
-        if let Some(name) = str_at(&set, r, COL_SLC_NAME_ENUS) {
+        if let Some(name) = localized_str_at(&set, r, COL_SLC_NAME_ENUS, locale) {
             map.insert(id, (name, u32_at(r, COL_SLC_ORDER).unwrap_or(0)));
         }
     }
@@ -466,15 +467,17 @@ pub fn load_skill_line_catalog(chain: &mut Chain) -> Result<SkillLineCatalog> {
         .read_file(SKILL_LINE)
         .context("reading SkillLine.dbc")?;
     let sl_set = parse(&sl_bytes, skill_line_schema(), "SkillLine.dbc")?;
+    let locale = preferred_locale(&sl_set, COL_SL_NAME_ENUS);
     let mut lines: HashMap<u32, SkillLineInfo> = HashMap::new();
     for r in sl_set.records() {
         let Some(id) = u32_at(r, 0) else { continue };
-        let name = str_at(&sl_set, r, COL_SL_NAME_ENUS).unwrap_or_default();
+        let name = localized_str_at(&sl_set, r, COL_SL_NAME_ENUS, locale).unwrap_or_default();
         let icon = u32_at(r, COL_SL_SPELL_ICON)
             .filter(|&i| i != 0)
             .and_then(|i| icons.get(&i).cloned());
         let category_id = u32_at(r, 1).unwrap_or(0);
-        let description = str_at(&sl_set, r, COL_SL_DESC_ENUS).unwrap_or_default();
+        let description =
+            localized_str_at(&sl_set, r, COL_SL_DESC_ENUS, locale).unwrap_or_default();
         lines.insert(
             id,
             SkillLineInfo {

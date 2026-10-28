@@ -8,8 +8,8 @@
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{localized_str_at, parse, preferred_locale, str_at, u32_at};
 
 const WORLD_STATE_UI: &str = "DBFilesClient\\WorldStateUI.dbc";
 
@@ -78,7 +78,7 @@ fn schema() -> Schema {
     }
     s.add_field(SchemaField::new("Icon", FieldType::String));
     let loc = |s: &mut Schema, name: &str| {
-        s.add_field(SchemaField::new(name, FieldType::String)); // enUS (locale 0)
+        s.add_field(SchemaField::new(name, FieldType::String));
         s.add_field(SchemaField::new_array(
             format!("{name}OtherLocales"),
             FieldType::String,
@@ -109,6 +109,7 @@ pub fn load_world_state_ui_catalog(chain: &mut Chain) -> Result<WorldStateUiCata
         .read_file(WORLD_STATE_UI)
         .context("reading WorldStateUI.dbc")?;
     let rs = parse(&bytes, schema(), "WorldStateUI")?;
+    let locale = preferred_locale(&rs, 4);
     let mut rows = Vec::with_capacity(rs.records().len());
     for r in rs.records() {
         let Some(id) = u32_at(r, 0) else { continue };
@@ -118,12 +119,12 @@ pub fn load_world_state_ui_catalog(chain: &mut Chain) -> Result<WorldStateUiCata
                 map_id: u32_at(r, 1).unwrap_or(0),
                 area_id: u32_at(r, 2).unwrap_or(0),
                 icon: str_at(&rs, r, 3).unwrap_or_default(),
-                text: str_at(&rs, r, 4).unwrap_or_default(),
-                tooltip: str_at(&rs, r, 13).unwrap_or_default(),
+                text: localized_str_at(&rs, r, 4, locale).unwrap_or_default(),
+                tooltip: localized_str_at(&rs, r, 13, locale).unwrap_or_default(),
                 state_variable: u32_at(r, 23).unwrap_or(0),
                 ui_type: u32_at(r, 24).unwrap_or(0),
                 dynamic_icon: str_at(&rs, r, 25).unwrap_or_default(),
-                dynamic_tooltip: str_at(&rs, r, 26).unwrap_or_default(),
+                dynamic_tooltip: localized_str_at(&rs, r, 26, locale).unwrap_or_default(),
                 extended_ui: str_at(&rs, r, 35).unwrap_or_default(),
                 extended_ui_state: [
                     u32_at(r, 36).unwrap_or(0),
@@ -158,12 +159,12 @@ mod tests {
         let alliance = by_id(136);
         assert_eq!((alliance.map_id, alliance.area_id), (0, 139));
         assert_eq!(alliance.icon, "Interface\\WorldStateFrame\\AllianceTower");
-        assert_eq!(alliance.text, "Towers Controlled: %2327w");
-        assert_eq!(alliance.tooltip, "Alliance Towers Controlled");
+        assert!(alliance.text.contains("%2327w"));
+        assert!(!alliance.tooltip.is_empty());
         assert_eq!(alliance.ui_type, 1);
         let horde = by_id(137);
         assert_eq!(horde.icon, "Interface\\WorldStateFrame\\HordeTower");
-        assert_eq!(horde.text, "Towers Controlled: %2328w");
+        assert!(horde.text.contains("%2328w"));
         assert_eq!((alliance.ui_type, horde.ui_type), (1, 1));
         assert_eq!(
             (alliance.state_variable, horde.state_variable),
@@ -176,7 +177,7 @@ mod tests {
         assert_eq!(progress.extended_ui, "CAPTUREPOINT");
         assert_eq!(progress.extended_ui_state, [2427, 2428, 0]);
         assert_eq!(progress.state_variable, 2426);
-        assert_eq!(progress.text, "Progress: %2427w");
+        assert!(progress.text.contains("%2427w"));
 
         // ── Warsong Gulch: the dynamic-icon columns, the only rows that carry them.
         let ws_alliance = by_id(2);
@@ -186,7 +187,7 @@ mod tests {
             ws_alliance.dynamic_icon,
             "Interface\\WorldStateFrame\\HordeFlag"
         );
-        assert_eq!(ws_alliance.dynamic_tooltip, "Horde flag has been picked up");
+        assert!(!ws_alliance.dynamic_tooltip.is_empty());
         assert_eq!(ws_alliance.text, "%1581w/%1601w");
         assert_eq!(ws_alliance.ui_type, 0, "unconditional always-up");
 
@@ -194,7 +195,7 @@ mod tests {
         let graveyards = by_id(63);
         assert_eq!(graveyards.map_id, 30);
         assert_eq!(graveyards.ui_type, 2);
-        assert_eq!(graveyards.text, "Graveyards Assaulted");
+        assert!(!graveyards.text.is_empty());
         assert!(!graveyards.text.contains('%'));
 
         // ── Whole-table shape.

@@ -13,6 +13,7 @@ use bevy::window::PrimaryWindow;
 
 use super::data::{self, AbilityDef, Effect, Kind, PassiveDef, Stat};
 use super::hero::{self, Hero};
+use super::localization;
 use super::minimap::{self, MiniMap};
 use super::{Owned, Phase, Rng, Run, Selection, Stats};
 
@@ -506,8 +507,24 @@ pub(super) fn setup_hud(
                         ..default()
                     })
                     .with_children(|line| {
-                        line.spawn((LevelText, text(f, "Level 1", 14.0, GOLD)));
-                        line.spawn((KillText, text(f, "Kills 0", 14.0, Color::WHITE)));
+                        line.spawn((
+                            LevelText,
+                            text(
+                                f,
+                                format!("{} 1", localization::text("Level", "等级")),
+                                14.0,
+                                GOLD,
+                            ),
+                        ));
+                        line.spawn((
+                            KillText,
+                            text(
+                                f,
+                                format!("{} 0", localization::text("Kills", "击杀")),
+                                14.0,
+                                Color::WHITE,
+                            ),
+                        ));
                     });
                 });
                 // The minimap cluster's column.
@@ -672,32 +689,40 @@ pub(super) fn setup_hud(
                     ),
                     ..default()
                 },
-                BackgroundGradient(vec![
-                    Gradient::Conic(ConicGradient::new(
-                        UiPosition::CENTER,
-                        (0..24)
-                            .map(|i| {
-                                let a = i as f32 / 24.0 * std::f32::consts::TAU;
-                                let on = i % 2 == 0;
-                                AngularColorStop::new(
-                                    if on {
-                                        Color::srgba(1.0, 0.8, 0.3, 0.07)
-                                    } else {
-                                        Color::srgba(1.0, 0.8, 0.3, 0.0)
-                                    },
-                                    a,
-                                )
-                            })
-                            .collect(),
-                    )),
-                ]),
+                BackgroundGradient(vec![Gradient::Conic(ConicGradient::new(
+                    UiPosition::CENTER,
+                    (0..24)
+                        .map(|i| {
+                            let a = i as f32 / 24.0 * std::f32::consts::TAU;
+                            let on = i % 2 == 0;
+                            AngularColorStop::new(
+                                if on {
+                                    Color::srgba(1.0, 0.8, 0.3, 0.07)
+                                } else {
+                                    Color::srgba(1.0, 0.8, 0.3, 0.0)
+                                },
+                                a,
+                            )
+                        })
+                        .collect(),
+                ))]),
                 UiTransform::default(),
                 bevy::ui::FocusPolicy::Pass,
             ));
-            root.spawn(centered(f, "LEVEL UP", 52.0, GOLD));
+            root.spawn(centered(
+                f,
+                localization::text("LEVEL UP", "升级"),
+                52.0,
+                GOLD,
+            ));
             root.spawn((
                 LevelUpSub,
-                centered(f, "Choose your power", 16.0, Color::srgb(0.85, 0.78, 0.6)),
+                centered(
+                    f,
+                    localization::text("Choose your power", "选择一项强化"),
+                    16.0,
+                    Color::srgb(0.85, 0.78, 0.6),
+                ),
             ));
             root.spawn((
                 OfferRow,
@@ -708,7 +733,12 @@ pub(super) fn setup_hud(
                     ..default()
                 },
             ));
-            root.spawn(centered(f, "Click a card, or press 1, 2 or 3", 14.0, DIM));
+            root.spawn(centered(
+                f,
+                localization::text("Click a card, or press 1, 2 or 3", "点击卡牌，或按 1、2、3"),
+                14.0,
+                DIM,
+            ));
         });
 
     // --- Pause. ---
@@ -731,11 +761,19 @@ pub(super) fn setup_hud(
             bevy::ui::FocusPolicy::Pass,
         ))
         .with_children(|root| {
-            root.spawn(centered(f, "Paused", 46.0, GOLD));
+            root.spawn(centered(
+                f,
+                localization::text("Paused", "已暂停"),
+                46.0,
+                GOLD,
+            ));
             for (label, action) in [
-                ("Resume", UiAction::Resume),
-                ("Abandon run", UiAction::MainMenu),
-                ("Quit game", UiAction::Quit),
+                (localization::text("Resume", "继续"), UiAction::Resume),
+                (
+                    localization::text("Abandon run", "放弃本局"),
+                    UiAction::MainMenu,
+                ),
+                (localization::text("Quit game", "退出游戏"), UiAction::Quit),
             ] {
                 root.spawn((
                     button(action, BUTTON),
@@ -788,9 +826,15 @@ pub(super) fn setup_hud(
                 ..default()
             })
             .with_children(|row| {
-                for (i, label) in ["Survived", "Level", "Kills", "Damage", "Bosses"]
-                    .into_iter()
-                    .enumerate()
+                for (i, label) in [
+                    localization::text("Survived", "存活时间"),
+                    localization::text("Level", "等级"),
+                    localization::text("Kills", "击杀"),
+                    localization::text("Damage", "伤害"),
+                    localization::text("Bosses", "首领"),
+                ]
+                .into_iter()
+                .enumerate()
                 {
                     row.spawn((
                         Node {
@@ -836,7 +880,12 @@ pub(super) fn setup_hud(
                 ),
             ))
             .with_children(|b| {
-                b.spawn(text(f, "Play again", 22.0, GOLD));
+                b.spawn(text(
+                    f,
+                    localization::text("Play again", "再来一局"),
+                    22.0,
+                    GOLD,
+                ));
             });
             root.spawn((
                 button(UiAction::Quit, Color::NONE),
@@ -847,7 +896,12 @@ pub(super) fn setup_hud(
                 },
             ))
             .with_children(|b| {
-                b.spawn(text(f, "Quit game", 15.0, DIM));
+                b.spawn(text(
+                    f,
+                    localization::text("Quit game", "退出游戏"),
+                    15.0,
+                    DIM,
+                ));
             });
         });
 }
@@ -1121,7 +1175,7 @@ pub(super) fn describe_card(
             CardText {
                 spell: def.spell,
                 name: spell_name(spells, def.spell, def.key),
-                tag: "New spell".into(),
+                tag: localization::text("New spell", "新法术").into(),
                 tag_color: new,
                 desc: format!("{}.", ability_body(def, &c)),
                 ranks: Some((0, data::MAX_ABILITY_LEVEL)),
@@ -1143,28 +1197,48 @@ pub(super) fn describe_card(
                 (a.dot, b.dot)
             };
             if db > da {
-                lines.push(format!("Damage {} » {}", num(da), num(db)));
+                lines.push(if localization::is_zh_cn() {
+                    format!("伤害 {} → {}", num(da), num(db))
+                } else {
+                    format!("Damage {} » {}", num(da), num(db))
+                });
             }
             if b.cooldown < a.cooldown - 0.01 {
-                lines.push(format!(
-                    "Cooldown {}s » {}s",
-                    num(a.cooldown),
-                    num(b.cooldown)
-                ));
+                lines.push(if localization::is_zh_cn() {
+                    format!("冷却 {}秒 → {}秒", num(a.cooldown), num(b.cooldown))
+                } else {
+                    format!("Cooldown {}s » {}s", num(a.cooldown), num(b.cooldown))
+                });
             }
             if b.count > a.count {
-                lines.push(format!("Targets {} » {}", a.count, b.count));
+                lines.push(if localization::is_zh_cn() {
+                    format!("目标数 {} → {}", a.count, b.count)
+                } else {
+                    format!("Targets {} » {}", a.count, b.count)
+                });
             }
             if b.radius > a.radius + 0.05 {
-                lines.push(format!("Area {} » {} yd", num(a.radius), num(b.radius)));
+                lines.push(if localization::is_zh_cn() {
+                    format!("范围 {} → {}码", num(a.radius), num(b.radius))
+                } else {
+                    format!("Area {} » {} yd", num(a.radius), num(b.radius))
+                });
             }
             if b.duration > a.duration + 0.05 {
-                lines.push(format!("Lasts {}s » {}s", num(a.duration), num(b.duration)));
+                lines.push(if localization::is_zh_cn() {
+                    format!("持续 {}秒 → {}秒", num(a.duration), num(b.duration))
+                } else {
+                    format!("Lasts {}s » {}s", num(a.duration), num(b.duration))
+                });
             }
             CardText {
                 spell: o.def.spell,
                 name: spell_name(spells, o.def.spell, o.def.key),
-                tag: format!("Rank {} » {next}", o.level),
+                tag: if localization::is_zh_cn() {
+                    format!("等级 {} → {next}", o.level)
+                } else {
+                    format!("Rank {} » {next}", o.level)
+                },
                 tag_color: Color::WHITE,
                 desc: lines.join("\n"),
                 ranks: Some((o.level, data::MAX_ABILITY_LEVEL)),
@@ -1172,8 +1246,8 @@ pub(super) fn describe_card(
         }
         Choice::NewPassive(p) => CardText {
             spell: p.spell,
-            name: p.name.into(),
-            tag: "New talent".into(),
+            name: passive_name(p).into(),
+            tag: localization::text("New talent", "新天赋").into(),
             tag_color: new,
             desc: passive_text(p.stat, p.per_level),
             ranks: Some((0, data::MAX_PASSIVE_LEVEL)),
@@ -1186,8 +1260,12 @@ pub(super) fn describe_card(
             };
             CardText {
                 spell: p.spell,
-                name: p.name.into(),
-                tag: format!("Rank {level} » {}", level + 1),
+                name: passive_name(p).into(),
+                tag: if localization::is_zh_cn() {
+                    format!("等级 {level} → {}", level + 1)
+                } else {
+                    format!("Rank {level} » {}", level + 1)
+                },
                 tag_color: Color::WHITE,
                 desc: format!(
                     "{}\n{} » {}",
@@ -1200,10 +1278,14 @@ pub(super) fn describe_card(
         }
         Choice::Heal => CardText {
             spell: 5720,
-            name: "Healthstone".into(),
-            tag: "Restore".into(),
+            name: localization::text("Healthstone", "治疗石").into(),
+            tag: localization::text("Restore", "恢复").into(),
             tag_color: Color::WHITE,
-            desc: "Everything is mastered. Restores all health.".into(),
+            desc: localization::text(
+                "Everything is mastered. Restores all health.",
+                "所有能力都已精通。恢复全部生命值。",
+            )
+            .into(),
             ranks: None,
         },
     }
@@ -1236,13 +1318,17 @@ pub(super) fn refresh_hud(
         n.width = Val::Percent((run.xp / need * 100.0).clamp(0.0, 100.0));
     }
     if let Ok(mut t) = texts.p6().single_mut() {
-        let xp = format!("XP {} / {}", run.xp as u32, need as u32);
+        let xp = if localization::is_zh_cn() {
+            format!("经验 {} / {}", run.xp as u32, need as u32)
+        } else {
+            format!("XP {} / {}", run.xp as u32, need as u32)
+        };
         if **t != xp {
             **t = xp;
         }
     }
     if let Ok(mut t) = texts.p0().single_mut() {
-        **t = format!("Level {}", run.level);
+        **t = format!("{} {}", localization::text("Level", "等级"), run.level);
     }
     let secs = run.elapsed as u32;
     if let Ok(mut t) = texts.p1().single_mut() {
@@ -1250,16 +1336,12 @@ pub(super) fn refresh_hud(
     }
     let kills = run.kills;
     if let Ok(mut t) = texts.p2().single_mut() {
-        **t = format!("Kills {kills}");
+        **t = format!("{} {kills}", localization::text("Kills", "击杀"));
     }
     let banner = match run.banner.as_mut() {
         Some((msg, t)) => {
             *t -= time.delta_secs();
-            if *t > 0.0 {
-                msg.clone()
-            } else {
-                String::new()
-            }
+            if *t > 0.0 { msg.clone() } else { String::new() }
         }
         None => String::new(),
     };
@@ -1278,20 +1360,29 @@ pub(super) fn refresh_hud(
         }
     }
     let title = if run.won {
-        "Victory!"
+        localization::text("Victory!", "胜利！")
     } else {
-        "You have fallen"
+        localization::text("You have fallen", "你已倒下")
     }
     .to_string();
     if let Ok(mut t) = texts.p4().single_mut() {
         **t = title;
     }
-    let summary = format!(
-        "{} {} in {}   —   press Enter to play again",
-        crate::char_select::race_name(run.race),
-        run.class.name,
-        selection.map_def().name,
-    );
+    let summary = if localization::is_zh_cn() {
+        format!(
+            "{} {} · {} · 按 Enter 再来一局",
+            localization::race_name(run.race, crate::char_select::race_name(run.race)),
+            localization::class_name(run.class.id, run.class.name),
+            localization::map_name(selection.map_def().name),
+        )
+    } else {
+        format!(
+            "{} {} in {}   —   press Enter to play again",
+            crate::char_select::race_name(run.race),
+            run.class.name,
+            selection.map_def().name,
+        )
+    };
     if let Ok(mut t) = texts.p5().single_mut() {
         if **t != summary {
             **t = summary;
@@ -1522,8 +1613,8 @@ pub(super) fn hero_plate(
     mut level: Query<(&mut Text, &mut TextFont), With<HpLevel>>,
 ) {
     use crate::vplates::{
-        gx_px, plate_basis, text_px, BAR_H, BAR_OFF_X, BAR_OFF_Y, BAR_W, LEVEL_H, LEVEL_OFF_X,
-        LEVEL_OFF_Y, PLATE_H, PLATE_W,
+        BAR_H, BAR_OFF_X, BAR_OFF_Y, BAR_W, LEVEL_H, LEVEL_OFF_X, LEVEL_OFF_Y, PLATE_H, PLATE_W,
+        gx_px, plate_basis, text_px,
     };
     let seat = hero.single().ok().and_then(|h| {
         let (cam, tf) = cams.single().ok()?;
@@ -1640,8 +1731,6 @@ impl TipLine {
     }
 }
 
-/// A number as the tooltips print it: whole when near enough, else to one decimal.
-
 /// The results screen's tiles and its line under the title.
 #[allow(clippy::type_complexity)]
 pub(super) fn refresh_results(
@@ -1654,9 +1743,12 @@ pub(super) fn refresh_results(
 ) {
     let secs = run.elapsed as u32;
     let stats_line = if run.won {
-        selection.map_def().victory
+        localization::victory_line(selection.map_def().victory)
     } else {
-        "The horde was too much this time."
+        localization::text(
+            "The horde was too much this time.",
+            "这一次，兽潮还是压倒了你。",
+        )
     };
     let values = [
         format!("{:02}:{:02}", secs / 60, secs % 60),
@@ -1690,6 +1782,7 @@ fn compact(v: f64) -> String {
     }
 }
 
+/// A number as the tooltips print it: whole when near enough, else to one decimal.
 fn num(v: f32) -> String {
     if (v - v.round()).abs() < 0.05 {
         format!("{}", v.round() as i64)
@@ -1731,6 +1824,20 @@ fn cast_at(def: &'static AbilityDef, level: u8, stats: &Stats) -> Cast {
 }
 
 fn effect_text(effect: Effect) -> Option<String> {
+    if localization::is_zh_cn() {
+        return Some(match effect {
+            Effect::None => return None,
+            Effect::Slow(m, t) => format!("使其移动速度降低{}，持续{}秒", pct(1.0 - m), num(t)),
+            Effect::Root(t) => format!("将其定身{}秒", num(t)),
+            Effect::Stun(t) => format!("使其昏迷{}秒", num(t)),
+            Effect::Fear(t) => format!("使其恐惧并逃跑{}秒", num(t)),
+            Effect::Weaken(m, t) => {
+                format!("使其造成的伤害降低{}，持续{}秒", pct(1.0 - m), num(t))
+            }
+            Effect::Drain(f) => format!("将所造成伤害的{}转化为生命值", pct(f)),
+            Effect::Execute(f) => format!("目标生命值低于{}时直接将其击杀", pct(f)),
+        });
+    }
     Some(match effect {
         Effect::None => return None,
         Effect::Slow(m, t) => format!("slowing them by {} for {} sec", pct(1.0 - m), num(t)),
@@ -1749,11 +1856,17 @@ fn effect_text(effect: Effect) -> Option<String> {
 
 /// What an ability does at these numbers, in the voice of a spell description.
 fn ability_body(def: &AbilityDef, c: &Cast) -> String {
+    if localization::is_zh_cn() {
+        return ability_body_zh(def, c);
+    }
     let d = num(c.dmg);
     let burst = def.duration <= 0.0;
     let mut s = match def.kind {
         Kind::Bolt | Kind::Strike | Kind::Melee => {
-            let toughest = matches!(def.key, "pyroblast" | "aimed_shot" | "exorcism" | "starfire");
+            let toughest = matches!(
+                def.key,
+                "pyroblast" | "aimed_shot" | "exorcism" | "starfire"
+            );
             let melee = def.kind == Kind::Melee;
             let who = match (toughest, melee, c.count) {
                 (true, _, 1) => "the toughest enemy in range".to_string(),
@@ -1763,16 +1876,29 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
                 (false, false, 1) => "the nearest enemy".into(),
                 (false, false, n) => format!("the {n} nearest enemies"),
             };
-            let mut s = format!("{} {who} for {d} damage", if melee { "Strikes" } else { "Hits" });
+            let mut s = format!(
+                "{} {who} for {d} damage",
+                if melee { "Strikes" } else { "Hits" }
+            );
             if c.radius > 0.0 && !melee {
                 s += &format!(", and everything within {} yd of the hit", num(c.radius));
             }
             s
         }
-        Kind::Nova => format!("Deals {d} damage to every enemy within {} yd of you", num(c.radius)),
-        Kind::Cone => format!("Deals {d} damage to every enemy in a {} yd cone toward the closest", num(c.radius)),
+        Kind::Nova => format!(
+            "Deals {d} damage to every enemy within {} yd of you",
+            num(c.radius)
+        ),
+        Kind::Cone => format!(
+            "Deals {d} damage to every enemy in a {} yd cone toward the closest",
+            num(c.radius)
+        ),
         Kind::Ground | Kind::GroundSelf => {
-            let at = if def.kind == Kind::GroundSelf { "around you" } else { "on the thickest pack" };
+            let at = if def.kind == Kind::GroundSelf {
+                "around you"
+            } else {
+                "on the thickest pack"
+            };
             if burst {
                 format!("Strikes a {} yd area {at} for {d} damage", num(c.radius))
             } else {
@@ -1802,10 +1928,17 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
         Kind::Orbit => format!(
             "Every {} sec, zaps {} within {} yd of you for {d} damage",
             num(c.cooldown),
-            if c.count == 1 { "an enemy".to_string() } else { format!("{} enemies", c.count) },
+            if c.count == 1 {
+                "an enemy".to_string()
+            } else {
+                format!("{} enemies", c.count)
+            },
             num(c.radius)
         ),
-        Kind::Shield => format!("Absorbs the next {d} damage you take within {} sec", num(c.duration)),
+        Kind::Shield => format!(
+            "Absorbs the next {d} damage you take within {} sec",
+            num(c.duration)
+        ),
         Kind::Immune => format!(
             "When an enemy closes in, makes you immune to all damage for {} sec",
             num(c.duration)
@@ -1814,7 +1947,10 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
             "When enemies close in, deals {d} damage to every attacker for {} sec",
             num(c.duration)
         ),
-        Kind::Heal => format!("Below 85% health, heals you for {d} over {} sec", num(c.duration)),
+        Kind::Heal => format!(
+            "Below 85% health, heals you for {d} over {} sec",
+            num(c.duration)
+        ),
         Kind::Totem if def.key == "magma_totem" => format!(
             "Drops a totem for {} sec that burns every enemy within {} yd for {d} damage every 2 sec",
             num(c.duration),
@@ -1844,8 +1980,173 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
     s
 }
 
+fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
+    let damage = num(c.dmg);
+    let burst = def.duration <= 0.0;
+    let mut body = match def.kind {
+        Kind::Bolt | Kind::Strike | Kind::Melee => {
+            let toughest = matches!(
+                def.key,
+                "pyroblast" | "aimed_shot" | "exorcism" | "starfire"
+            );
+            let target = match (toughest, def.kind == Kind::Melee, c.count) {
+                (true, _, 1) => "射程内最强的敌人".to_string(),
+                (true, _, count) => format!("射程内最强的{count}名敌人"),
+                (false, true, 1) => "最近的敌人".to_string(),
+                (false, true, count) => format!("最近的{count}名敌人"),
+                (false, false, 1) => "距离最近的敌人".to_string(),
+                (false, false, count) => format!("距离最近的{count}名敌人"),
+            };
+            let mut text = format!(
+                "{}，造成{}点伤害",
+                if def.kind == Kind::Melee {
+                    format!("攻击{target}")
+                } else {
+                    format!("命中{target}")
+                },
+                damage
+            );
+            if c.radius > 0.0 && def.kind != Kind::Melee {
+                text += &format!("，并对命中点{}码内的敌人造成伤害", num(c.radius));
+            }
+            text
+        }
+        Kind::Nova => format!(
+            "对你周围{}码内的所有敌人造成{}点伤害",
+            num(c.radius),
+            damage
+        ),
+        Kind::Cone => format!(
+            "朝最近的敌人方向释放{}码锥形攻击，造成{}点伤害",
+            num(c.radius),
+            damage
+        ),
+        Kind::Ground | Kind::GroundSelf => {
+            let at = if def.kind == Kind::GroundSelf {
+                "你周围"
+            } else {
+                "敌人最密集处"
+            };
+            if burst {
+                format!(
+                    "攻击{at}{}码范围内的敌人，造成{}点伤害",
+                    num(c.radius),
+                    damage
+                )
+            } else {
+                format!(
+                    "覆盖{at}{}码范围，持续{}秒，每秒造成{}点伤害",
+                    num(c.radius),
+                    num(c.duration),
+                    damage
+                )
+            }
+        }
+        Kind::Chain => format!(
+            "对最近的敌人造成{}点伤害，随后在彼此{}码内跳跃至另外{}个目标，每次跳跃伤害降低15%",
+            damage,
+            num(c.radius),
+            c.count
+        ),
+        Kind::Dot => format!(
+            "使射程内{}名敌人每秒受到{}点伤害，持续{}秒",
+            c.count,
+            num(c.dot),
+            num(c.duration)
+        ),
+        Kind::Aura => format!(
+            "每{}秒对你周围{}码内的所有敌人造成{}点伤害",
+            num(c.cooldown),
+            num(c.radius),
+            damage
+        ),
+        Kind::Orbit => format!(
+            "每{}秒电击你周围{}码内的{}名敌人，造成{}点伤害",
+            num(c.cooldown),
+            num(c.radius),
+            c.count,
+            damage
+        ),
+        Kind::Shield => format!(
+            "吸收你在{}秒内受到的下一次{}点伤害",
+            num(c.duration),
+            damage
+        ),
+        Kind::Immune => format!("敌人靠近时，使你免疫所有伤害{}秒", num(c.duration)),
+        Kind::Thorns => format!(
+            "敌人靠近时，对所有攻击者造成{}点伤害，持续{}秒",
+            damage,
+            num(c.duration)
+        ),
+        Kind::Heal => format!(
+            "生命值低于85%时，在{}秒内恢复{}点生命值",
+            num(c.duration),
+            damage
+        ),
+        Kind::Totem if def.key == "magma_totem" => format!(
+            "放置图腾，持续{}秒；每2秒灼烧{}码内的所有敌人，造成{}点伤害",
+            num(c.duration),
+            num(c.radius),
+            damage
+        ),
+        Kind::Totem => format!(
+            "放置图腾，持续{}秒；每秒攻击{}码内最近的敌人，造成{}点伤害",
+            num(c.duration),
+            num(def.range),
+            damage
+        ),
+    };
+    let ground = matches!(def.kind, Kind::Ground | Kind::GroundSelf);
+    if c.dot > 0.0 && def.kind != Kind::Dot && (!ground || burst) {
+        let secs = if ground { 5.0 } else { c.duration };
+        body += &format!("，之后每秒造成{}点伤害，持续{}秒", num(c.dot), num(secs));
+    }
+    if let Some(effect) = effect_text(def.effect) {
+        body.push('，');
+        body.push_str(&effect);
+    }
+    body.push('。');
+    body
+}
+
 /// What the next rank changes, at the current stats.
 fn next_rank(def: &AbilityDef, now: &Cast, next: &Cast) -> String {
+    if localization::is_zh_cn() {
+        let mut gains = Vec::new();
+        if next.dmg > now.dmg && def.kind != Kind::Dot && def.kind != Kind::Immune {
+            gains.push(format!(
+                "{}{}",
+                num(next.dmg),
+                match def.kind {
+                    Kind::Shield => "点吸收量",
+                    Kind::Heal => "点治疗量",
+                    _ => "点伤害",
+                }
+            ));
+        }
+        if next.dot > now.dot {
+            gains.push(format!("每秒{}点伤害", num(next.dot)));
+        }
+        if next.count != now.count
+            && matches!(
+                def.kind,
+                Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Dot | Kind::Chain | Kind::Orbit
+            )
+        {
+            gains.push(match def.kind {
+                Kind::Chain => format!("{}次跳跃", next.count),
+                _ => format!("{}个目标", next.count),
+            });
+        }
+        if next.radius > now.radius {
+            gains.push(format!("{}码范围", num(next.radius)));
+        }
+        if next.duration > now.duration {
+            gains.push(format!("持续{}秒", num(next.duration)));
+        }
+        gains.push(format!("冷却{}秒", num(next.cooldown)));
+        return gains.join("，");
+    }
     let what = match def.kind {
         Kind::Shield => "absorbed",
         Kind::Heal => "healing",
@@ -1889,23 +2190,40 @@ fn ability_tip(
     let mut lines = vec![
         TipLine::new(spell_name(spells, def.spell, def.key), Color::WHITE)
             .header()
-            .right(format!("Rank {}", o.level), TIP_GREY),
+            .right(
+                if localization::is_zh_cn() {
+                    format!("等级 {}", o.level)
+                } else {
+                    format!("Rank {}", o.level)
+                },
+                TIP_GREY,
+            ),
     ];
     let range = match def.kind {
-        Kind::Melee => Some("Melee Range".to_string()),
+        Kind::Melee => Some(localization::text("Melee Range", "近战距离").to_string()),
         Kind::Bolt | Kind::Strike | Kind::Chain | Kind::Dot | Kind::Ground | Kind::Totem => {
-            Some(format!("{} yd range", num(def.range)))
+            Some(if localization::is_zh_cn() {
+                format!("射程{}码", num(def.range))
+            } else {
+                format!("{} yd range", num(def.range))
+            })
         }
         _ => None,
     };
-    let mut cast = TipLine::new("Casts itself", Color::WHITE);
+    let mut cast = TipLine::new(localization::text("Casts itself", "自动施放"), Color::WHITE);
     if let Some(range) = range {
         cast = cast.right(range, Color::WHITE);
     }
     lines.push(cast);
     lines.push(
-        TipLine::new("Instant", Color::WHITE)
-            .right(format!("{} sec cooldown", num(now.cooldown)), Color::WHITE),
+        TipLine::new(localization::text("Instant", "瞬发"), Color::WHITE).right(
+            if localization::is_zh_cn() {
+                format!("冷却{}秒", num(now.cooldown))
+            } else {
+                format!("{} sec cooldown", num(now.cooldown))
+            },
+            Color::WHITE,
+        ),
     );
     lines.push(TipLine::new(ability_body(def, &now), GOLD));
     if !matches!(
@@ -1913,19 +2231,29 @@ fn ability_tip(
         Kind::Shield | Kind::Immune | Kind::Heal | Kind::Dot
     ) {
         lines.push(TipLine::new(
-            format!(
-                "{} chance to critically strike for double damage",
-                pct(stats.crit)
-            ),
+            if localization::is_zh_cn() {
+                format!("{}几率造成双倍暴击伤害", pct(stats.crit))
+            } else {
+                format!(
+                    "{} chance to critically strike for double damage",
+                    pct(stats.crit)
+                )
+            },
             DIM,
         ));
     }
     if o.level < data::MAX_ABILITY_LEVEL {
         let next = cast_at(def, o.level + 1, stats);
-        lines.push(TipLine::new("Next rank:", Color::WHITE));
+        lines.push(TipLine::new(
+            localization::text("Next rank:", "下一级："),
+            Color::WHITE,
+        ));
         lines.push(TipLine::new(next_rank(def, &now, &next), GOLD));
     } else {
-        lines.push(TipLine::new("Highest rank", DIM));
+        lines.push(TipLine::new(
+            localization::text("Highest rank", "已达最高等级"),
+            DIM,
+        ));
     }
     lines
 }
@@ -1934,20 +2262,50 @@ fn ability_tip(
 /// A stat's short name, for the card's before » after line.
 fn stat_label(stat: Stat) -> &'static str {
     match stat {
-        Stat::Might => "All damage",
-        Stat::MaxHp => "Maximum health",
-        Stat::Speed => "Movement speed",
-        Stat::Regen => "Health per second",
-        Stat::Haste => "Recharge speed",
-        Stat::Area => "Area size",
-        Stat::Magnet => "Pickup range",
-        Stat::Growth => "Experience gained",
-        Stat::Armor => "Damage blocked per hit",
-        Stat::Crit => "Critical strike chance",
+        Stat::Might => localization::text("All damage", "全部伤害"),
+        Stat::MaxHp => localization::text("Maximum health", "生命上限"),
+        Stat::Speed => localization::text("Movement speed", "移动速度"),
+        Stat::Regen => localization::text("Health per second", "每秒恢复生命"),
+        Stat::Haste => localization::text("Recharge speed", "冷却速度"),
+        Stat::Area => localization::text("Area size", "范围大小"),
+        Stat::Magnet => localization::text("Pickup range", "拾取范围"),
+        Stat::Growth => localization::text("Experience gained", "经验获取"),
+        Stat::Armor => localization::text("Damage blocked per hit", "每次格挡伤害"),
+        Stat::Crit => localization::text("Critical strike chance", "暴击几率"),
     }
 }
 
+fn passive_name(passive: &PassiveDef) -> &'static str {
+    let chinese = match passive.stat {
+        Stat::Might => "强击",
+        Stat::MaxHp => "活力",
+        Stat::Speed => "迅捷",
+        Stat::Regen => "再生",
+        Stat::Haste => "急速",
+        Stat::Area => "扩张",
+        Stat::Magnet => "磁力",
+        Stat::Growth => "成长",
+        Stat::Armor => "护甲",
+        Stat::Crit => "致命",
+    };
+    localization::text(passive.name, chinese)
+}
+
 fn passive_text(stat: Stat, v: f32) -> String {
+    if localization::is_zh_cn() {
+        return match stat {
+            Stat::Might => format!("造成的所有伤害提高{}。", pct(v)),
+            Stat::MaxHp => format!("生命上限提高{}。", pct(v)),
+            Stat::Speed => format!("移动速度提高{}。", pct(v)),
+            Stat::Regen => format!("每秒恢复{}点生命值。", num(v)),
+            Stat::Haste => format!("所有技能冷却速度提高{}。", pct(v)),
+            Stat::Area => format!("范围效果扩大{}。", pct(v)),
+            Stat::Magnet => format!("拾取范围扩大{}。", pct(v)),
+            Stat::Growth => format!("获得的经验提高{}。", pct(v)),
+            Stat::Armor => format!("每次受到攻击时减免{}点伤害。", num(v)),
+            Stat::Crit => format!("造成双倍暴击伤害的几率提高{}。", pct(v)),
+        };
+    }
     match stat {
         Stat::Might => format!("Increases all damage you deal by {}.", pct(v)),
         Stat::MaxHp => format!("Increases your maximum health by {}.", pct(v)),
@@ -1967,6 +2325,20 @@ fn passive_text(stat: Stat, v: f32) -> String {
 
 /// The hero's total for the stat a passive raises, every source counted.
 fn stat_total(stat: Stat, s: &Stats) -> String {
+    if localization::is_zh_cn() {
+        return match stat {
+            Stat::Might => format!("伤害加成：{}", pct(s.might)),
+            Stat::MaxHp => format!("生命上限：{}", num(s.max_hp)),
+            Stat::Speed => format!("移动速度：{}码/秒", num(s.speed)),
+            Stat::Regen => format!("生命恢复：{}点/秒", num(s.regen)),
+            Stat::Haste => format!("冷却缩减：{}", pct(s.haste.min(0.65))),
+            Stat::Area => format!("范围效果：{}", pct(s.area)),
+            Stat::Magnet => format!("拾取范围：{}码", num(s.magnet)),
+            Stat::Growth => format!("经验获取：{}", pct(s.growth)),
+            Stat::Armor => format!("每次格挡伤害：{}", num(s.armor)),
+            Stat::Crit => format!("暴击几率：{}", pct(s.crit)),
+        };
+    }
     match stat {
         Stat::Might => format!("Damage dealt: {}", pct(s.might)),
         Stat::MaxHp => format!("Maximum health: {}", num(s.max_hp)),
@@ -1983,20 +2355,31 @@ fn stat_total(stat: Stat, s: &Stats) -> String {
 
 fn passive_tip(p: &PassiveDef, level: u8, stats: &Stats) -> Vec<TipLine> {
     let mut lines = vec![
-        TipLine::new(p.name, Color::WHITE)
-            .header()
-            .right(format!("Rank {level}"), TIP_GREY),
+        TipLine::new(passive_name(p), Color::WHITE).header().right(
+            if localization::is_zh_cn() {
+                format!("等级 {level}")
+            } else {
+                format!("Rank {level}")
+            },
+            TIP_GREY,
+        ),
         TipLine::new(passive_text(p.stat, p.per_level * f32::from(level)), GOLD),
         TipLine::new(stat_total(p.stat, stats), Color::WHITE),
     ];
     if level < data::MAX_PASSIVE_LEVEL {
-        lines.push(TipLine::new("Next rank:", Color::WHITE));
+        lines.push(TipLine::new(
+            localization::text("Next rank:", "下一级："),
+            Color::WHITE,
+        ));
         lines.push(TipLine::new(
             passive_text(p.stat, p.per_level * f32::from(level + 1)),
             GOLD,
         ));
     } else {
-        lines.push(TipLine::new("Highest rank", DIM));
+        lines.push(TipLine::new(
+            localization::text("Highest rank", "已达最高等级"),
+            DIM,
+        ));
     }
     lines
 }
@@ -2135,7 +2518,7 @@ pub(super) fn icon_tooltip(
         TipFor::Mobility => run.mobility().map(|m| {
             vec![
                 TipLine::new(spell_name(spells.as_deref(), m.spell, m.name), Color::WHITE).header(),
-                TipLine::new("Press F", Color::WHITE)
+                TipLine::new(localization::text("Press F", "按 F"), Color::WHITE)
                     .right(format!("{} sec cooldown", num(m.cooldown)), Color::WHITE),
                 TipLine::new(m.desc, GOLD),
             ]

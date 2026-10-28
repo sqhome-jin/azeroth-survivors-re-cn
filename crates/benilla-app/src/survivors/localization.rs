@@ -12,6 +12,29 @@ pub(super) fn text(english: &'static str, chinese: &'static str) -> &'static str
     choose(&ui_locale(), english, chinese)
 }
 
+pub(super) fn is_zh_cn() -> bool {
+    locale_is_zh_cn(&ui_locale())
+}
+
+pub(super) fn victory_line(english: &'static str) -> &'static str {
+    victory_line_for(&ui_locale(), english)
+}
+
+fn victory_line_for(locale: &str, english: &'static str) -> &'static str {
+    let chinese = match english {
+        "The Barrens are yours." => "贫瘠之地已在你的掌握之中。",
+        "The Dark Portal stands silent." => "黑暗之门归于沉寂。",
+        "The Qiraji retreat behind the Scarab Wall." => "其拉虫人退回了甲虫之墙后。",
+        "Even King Mosh has fallen." => "连莫什大王也已倒下。",
+        "The arena roars your name." => "竞技场为你的名字欢呼。",
+        "Elwynn Forest is safe once more." => "艾尔文森林再次恢复安宁。",
+        "Durotar is quiet again." => "杜隆塔尔重归寂静。",
+        "Teldrassil blooms again." => "泰达希尔再次焕发生机。",
+        _ => english,
+    };
+    choose(locale, english, chinese)
+}
+
 pub(super) fn race_name(race: u8, english: &'static str) -> &'static str {
     race_name_for(&ui_locale(), race, english)
 }
@@ -107,6 +130,10 @@ mod tests {
         assert_eq!(map_name_for("zhCN", "The Barrens"), "贫瘠之地");
         assert_eq!(zone_name_for("zhCN", "Eastern Kingdoms"), "东部王国");
         assert_eq!(zone_name_for("zhCN", "Eastern Plaguelands"), "东瘟疫之地");
+        assert_eq!(
+            victory_line_for("zhCN", "The Barrens are yours."),
+            "贫瘠之地已在你的掌握之中。"
+        );
     }
 
     #[test]

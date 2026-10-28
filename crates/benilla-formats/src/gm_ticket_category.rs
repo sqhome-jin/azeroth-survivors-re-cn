@@ -7,8 +7,8 @@
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
 
 const GM_TICKET_CATEGORY: &str = "DBFilesClient\\GMTicketCategory.dbc";
 
@@ -22,7 +22,7 @@ pub struct GmTicketCategoryCatalog {
 pub struct GmTicketCategory {
     /// The id `CMSG_GMTICKET_CREATE` carries.
     pub id: u32,
-    /// The button label, from the enUS `Name_Lang` slot.
+    /// The localized button label.
     pub name: String,
 }
 
@@ -58,10 +58,13 @@ pub fn load_gm_ticket_categories(chain: &mut Chain) -> Result<GmTicketCategoryCa
         .read_file(GM_TICKET_CATEGORY)
         .with_context(|| format!("reading {GM_TICKET_CATEGORY}"))?;
     let rs = parse(&bytes, gm_ticket_category_schema(), "GMTicketCategory")?;
+    let locale = preferred_locale(&rs, 1);
     let mut categories = Vec::with_capacity(rs.records().len());
     for r in rs.records() {
-        let (Some(id), Some(name)) = (u32_at(r, 0), str_at(&rs, r, 1).filter(|n| !n.is_empty()))
-        else {
+        let (Some(id), Some(name)) = (
+            u32_at(r, 0),
+            localized_str_at(&rs, r, 1, locale).filter(|n| !n.is_empty()),
+        ) else {
             continue;
         };
         categories.push(GmTicketCategory { id, name });
@@ -87,21 +90,10 @@ mod tests {
             .map(|c| (c.id, c.name.as_str()))
             .collect();
         assert_eq!(
-            rows,
-            vec![
-                (1, "Stuck"),
-                (2, "Behavior/Harassment"),
-                (3, "Guild"),
-                (4, "Item"),
-                (5, "Environmental"),
-                (6, "Non-Quest/Creep"),
-                (7, "Quest/Quest NPC"),
-                (8, "Technical"),
-                (9, "Account/Billing"),
-                (10, "Character"),
-            ],
-            "the wire ids and the painted order both matter — see the module doc"
+            rows.iter().map(|(id, _)| *id).collect::<Vec<_>>(),
+            (1..=10).collect::<Vec<_>>()
         );
+        assert!(rows.iter().all(|(_, name)| !name.is_empty()));
         assert_eq!(cat.len(), 10, "the whole shipped table");
     }
 }

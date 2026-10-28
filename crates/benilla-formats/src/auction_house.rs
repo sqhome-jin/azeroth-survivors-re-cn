@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
 
 const AUCTION_HOUSE: &str = "DBFilesClient\\AuctionHouse.dbc";
 
@@ -74,6 +74,7 @@ pub fn load_auction_houses(chain: &mut Chain) -> Result<AuctionHouseCatalog> {
         .read_file(AUCTION_HOUSE)
         .with_context(|| format!("reading {AUCTION_HOUSE}"))?;
     let rs = parse(&bytes, auction_house_schema(), "AuctionHouse")?;
+    let locale = preferred_locale(&rs, 4);
     let mut houses = HashMap::with_capacity(rs.records().len());
     for r in rs.records() {
         let (Some(id), Some(faction), Some(deposit_percent), Some(cut_percent)) =
@@ -87,7 +88,7 @@ pub fn load_auction_houses(chain: &mut Chain) -> Result<AuctionHouseCatalog> {
                 faction,
                 deposit_percent,
                 cut_percent,
-                name: str_at(&rs, r, 4).unwrap_or_default(),
+                name: localized_str_at(&rs, r, 4, locale).unwrap_or_default(),
             },
         );
     }
@@ -111,16 +112,13 @@ mod tests {
             assert_eq!(h.deposit_percent, 5, "house {id} deposit");
             assert_eq!(h.cut_percent, 5, "house {id} cut");
         }
-        assert_eq!(
-            cat.get(1).map(|h| h.name.as_str()),
-            Some("Stormwind Auction House")
-        );
+        assert!(!cat.get(1).expect("Stormwind").name.is_empty());
 
         let neutral = cat.get(7).expect("house 7");
         assert_eq!(neutral.faction, 369, "Booty Bay");
         assert_eq!(neutral.deposit_percent, 25);
         assert_eq!(neutral.cut_percent, 15);
-        assert_eq!(neutral.name, "Blackwater Auction House");
+        assert!(!neutral.name.is_empty());
 
         assert_eq!(cat.deposit_percent(8), None);
     }

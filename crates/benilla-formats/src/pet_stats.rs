@@ -10,7 +10,7 @@ use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
 use crate::chain::Chain;
-use crate::dbc::{f32_at, parse, str_at, u32_at};
+use crate::dbc::{f32_at, localized_str_at, parse, preferred_locale, u32_at};
 
 const PET_PERSONALITY: &str = "DBFilesClient\\PetPersonality.dbc";
 const PET_LOYALTY: &str = "DBFilesClient\\PetLoyalty.dbc";
@@ -18,7 +18,7 @@ const PET_LOYALTY: &str = "DBFilesClient\\PetLoyalty.dbc";
 /// `PetPersonality.dbc`'s column count, which `benilla-dbc` checks against the header.
 const PERSONALITY_FIELDS: usize = 19;
 const LOYALTY_FIELDS: usize = 10;
-/// The enUS `Name` column in both files, the `+4` in the client's `[row + 4*locale + 4]`.
+/// The localized `Name` block in both files, the `+4` in the client's `[row + 4*locale + 4]`.
 const NAME_FIELD: usize = 1;
 
 const THRESHOLD_FIELD: usize = 0x28 / 4;
@@ -116,10 +116,10 @@ fn personality_schema() -> Schema {
     let mut s = Schema::new("PetPersonality");
     for i in 0..PERSONALITY_FIELDS {
         let ty = match i {
-            NAME_FIELD => FieldType::String,
+            i if (NAME_FIELD..NAME_FIELD + 8).contains(&i) => FieldType::String,
             i if (DAMAGE_FIELD..DAMAGE_FIELD + 3).contains(&i) => FieldType::Float32,
             i if (LOYALTY_RATE_FIELD..LOYALTY_RATE_FIELD + 3).contains(&i) => FieldType::Float32,
-            // ID, the rest of the name block, and the thresholds, compared as integers.
+            // ID, the thresholds and other numeric columns.
             _ => FieldType::UInt32,
         };
         s.add_field(SchemaField::new(format!("F{i}"), ty));
@@ -130,7 +130,7 @@ fn personality_schema() -> Schema {
 fn loyalty_schema() -> Schema {
     let mut s = Schema::new("PetLoyalty");
     for i in 0..LOYALTY_FIELDS {
-        let ty = if i == NAME_FIELD {
+        let ty = if (NAME_FIELD..NAME_FIELD + 8).contains(&i) {
             FieldType::String
         } else {
             FieldType::UInt32
@@ -169,10 +169,11 @@ pub fn load_pet_loyalty_names(chain: &mut Chain) -> Result<PetLoyaltyNames> {
         .read_file(PET_LOYALTY)
         .with_context(|| format!("reading {PET_LOYALTY}"))?;
     let rs = parse(&bytes, loyalty_schema(), "PetLoyalty.dbc")?;
+    let locale = preferred_locale(&rs, NAME_FIELD);
     let mut by_id = HashMap::new();
     for r in rs.records() {
         let Some(id) = u32_at(r, 0) else { continue };
-        if let Some(name) = str_at(&rs, r, NAME_FIELD) {
+        if let Some(name) = localized_str_at(&rs, r, NAME_FIELD, locale) {
             by_id.insert(id, name);
         }
     }
@@ -256,11 +257,12 @@ mod tests {
         let Some(mut chain) = chain() else { return };
         let n = load_pet_loyalty_names(&mut chain).expect("load PetLoyalty.dbc");
         assert_eq!(n.len(), 8);
-        assert_eq!(n.name(1), Some("(Loyalty Level 1) Rebellious"));
-        assert_eq!(n.name(3), Some("(Loyalty Level 3) Submissive"));
-        assert_eq!(n.name(6), Some("(Loyalty Level 6) Best Friend"));
-        assert_eq!(n.name(7), Some("(Loyalty Level 7) Loyalty Cap"));
-        assert_eq!(n.name(8), Some("(Loyalty Level 8) Unused"));
+        for level in [1, 3, 6, 7, 8] {
+            assert!(
+                n.name(level).is_some_and(|name| !name.is_empty()),
+                "level {level}"
+            );
+        }
         // Level 0 is "no loyalty yet" and the client answers nil, not the first row.
         assert_eq!(n.name(0), None);
         assert_eq!(n.name(9), None);

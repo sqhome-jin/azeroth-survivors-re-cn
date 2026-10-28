@@ -7,14 +7,14 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
 
 const SPELL_FOCUS_OBJECT: &str = "DBFilesClient\\SpellFocusObject.dbc";
 const SPELL_FOCUS_FIELDS: usize = 10;
 const COL_NAME_ENUS: usize = 1;
 
-/// `SpellFocusObject` id → its enUS name.
+/// `SpellFocusObject` id → its localized name.
 pub struct SpellFocusCatalog {
     names: HashMap<u32, String>,
 }
@@ -37,7 +37,7 @@ impl SpellFocusCatalog {
 fn schema() -> Schema {
     let mut s = Schema::new("SpellFocusObject");
     for i in 0..SPELL_FOCUS_FIELDS {
-        let ty = if i == COL_NAME_ENUS {
+        let ty = if (COL_NAME_ENUS..COL_NAME_ENUS + 8).contains(&i) {
             FieldType::String
         } else {
             FieldType::UInt32
@@ -53,10 +53,11 @@ pub fn load_spell_focus_catalog(chain: &mut Chain) -> Result<SpellFocusCatalog> 
         .read_file(SPELL_FOCUS_OBJECT)
         .with_context(|| format!("reading {SPELL_FOCUS_OBJECT}"))?;
     let rs = parse(&bytes, schema(), "SpellFocusObject.dbc")?;
+    let locale = preferred_locale(&rs, COL_NAME_ENUS);
     let mut names = HashMap::new();
     for r in rs.records() {
         let Some(id) = u32_at(r, 0) else { continue };
-        if let Some(name) = str_at(&rs, r, COL_NAME_ENUS) {
+        if let Some(name) = localized_str_at(&rs, r, COL_NAME_ENUS, locale) {
             names.insert(id, name);
         }
     }
@@ -73,9 +74,12 @@ mod tests {
         let mut chain = crate::open_chain(&data).expect("open chain");
         let cat = load_spell_focus_catalog(&mut chain).expect("load SpellFocusObject.dbc");
 
-        assert_eq!(cat.name(1), Some("Anvil"));
-        assert_eq!(cat.name(3), Some("Forge"));
-        assert_eq!(cat.name(4), Some("Cooking Fire"));
+        for id in [1, 3, 4] {
+            assert!(
+                cat.name(id).is_some_and(|name| !name.is_empty()),
+                "focus {id}"
+            );
+        }
         assert_eq!(cat.name(0), None, "0 = no requirement");
         assert_eq!(cat.len(), 138, "the 5875 file's full row count");
     }
