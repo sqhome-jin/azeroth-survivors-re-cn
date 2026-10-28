@@ -274,5 +274,5 @@ pub(super) fn cast_mobility(
             }
         }
     }
-    run.mobile.cd = def.cooldown;
+    run.mobile.cd = def.cooldown * run.talents.mobility_cooldown();
 }

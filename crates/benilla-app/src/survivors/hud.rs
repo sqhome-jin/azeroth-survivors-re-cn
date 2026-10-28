@@ -134,7 +134,7 @@ impl UiArt {
         }
     }
 
-    fn tinted(path: &'static str, tint: Color) -> Self {
+    pub(super) fn tinted(path: &'static str, tint: Color) -> Self {
         Self {
             path,
             coords: [0.0, 1.0, 0.0, 1.0],
@@ -1107,10 +1107,16 @@ pub(super) fn keys(
     mut selection: ResMut<Selection>,
     mut run: ResMut<Run>,
     mut next: ResMut<NextState<Phase>>,
+    talents: Res<super::talents::TalentUi>,
+    menu: Res<super::menu::MenuState>,
 ) {
     match phase.get() {
         Phase::Menu => {
-            if keys.just_pressed(KeyCode::Enter) && start_run(&mut run, &mut selection) {
+            if !talents.open
+                && !menu.modal_open()
+                && keys.just_pressed(KeyCode::Enter)
+                && start_run(&mut run, &mut selection)
+            {
                 next.set(Phase::Playing);
             }
         }
@@ -1299,6 +1305,7 @@ pub(super) fn refresh_hud(
     mut run: ResMut<Run>,
     selection: Res<Selection>,
     font: Res<HudFont>,
+    progression: Res<super::talents::Progression>,
     mut texts: ParamSet<(
         Query<&mut Text, With<LevelText>>,
         Query<&mut Text, With<TimerText>>,
@@ -1368,7 +1375,7 @@ pub(super) fn refresh_hud(
     if let Ok(mut t) = texts.p4().single_mut() {
         **t = title;
     }
-    let summary = if localization::is_zh_cn() {
+    let mut summary = if localization::is_zh_cn() {
         format!(
             "{} {} · {} · 按 Enter 再来一局",
             localization::race_name(run.race, crate::char_select::race_name(run.race)),
@@ -1383,6 +1390,18 @@ pub(super) fn refresh_hud(
             selection.map_def().name,
         )
     };
+    summary.push_str(&format!(
+        "\n{} +{} · {} {}/51 · {} {}",
+        localization::text("Talent points this run", "本局天赋点"),
+        run.talent_points_gained,
+        localization::text("Earned", "职业已获得"),
+        progression.points(run.class.id),
+        localization::text("Kill credit", "累计击杀进度"),
+        progression.score(run.class.id),
+    ));
+    if let Some(error) = &progression.error {
+        summary.push_str(&format!("\n{error}"));
+    }
     if let Ok(mut t) = texts.p5().single_mut() {
         if **t != summary {
             **t = summary;
@@ -1526,7 +1545,8 @@ pub(super) fn refresh_mobility(
         }
     }
     if let Ok(s) = sweep.single() {
-        let f = (run.mobile.cd / def.cooldown.max(0.01)).clamp(0.0, 1.0);
+        let total = def.cooldown * run.talents.mobility_cooldown();
+        let f = (run.mobile.cd / total.max(0.01)).clamp(0.0, 1.0);
         if let Some(m) = mats.get_mut(&s.0) {
             if m.sweep != f {
                 m.sweep = f;
@@ -1546,7 +1566,7 @@ pub(super) fn update_cooldown_sweeps(
         let Some(o) = run.abilities.get(s.index) else {
             continue;
         };
-        let total = o.cooldown(&stats).max(0.01);
+        let total = cast_at(o.def, o.level, &stats).cooldown.max(0.01);
         let f = (o.cd / total).clamp(0.0, 1.0);
         if let Some(m) = mats.get_mut(&s.handle) {
             m.sweep = f;
@@ -1574,6 +1594,11 @@ pub(super) fn fill_art(
         }
         img.image = h;
         img.color = art.tint;
+        // A tiled region is spawned with a coarse stretch, since the placeholder 1x1 texture at
+        // the real one would tile into millions of quads; the real texture gets the fine one.
+        if let NodeImageMode::Tiled { stretch_value, .. } = &mut img.image_mode {
+            *stretch_value = 0.5;
+        }
     }
 }
 
@@ -1755,7 +1780,7 @@ pub(super) fn refresh_results(
         run.level.to_string(),
         run.kills.to_string(),
         compact(run.damage_done),
-        run.bosses.to_string(),
+        run.boss_kills.to_string(),
     ];
     for (stat, mut t) in &mut over_texts.p0() {
         if let Some(v) = values.get(stat.0) {
@@ -1797,30 +1822,10 @@ fn pct(v: f32) -> String {
 
 /// The numbers an ability casts with at a level, as [`super::abilities::cast_abilities`] takes
 /// them from [`Owned`].
-struct Cast {
-    dmg: f32,
-    dot: f32,
-    count: u32,
-    radius: f32,
-    duration: f32,
-    cooldown: f32,
-}
+type Cast = super::talents::Cast;
 
 fn cast_at(def: &'static AbilityDef, level: u8, stats: &Stats) -> Cast {
-    let o = Owned {
-        def,
-        level,
-        cd: 0.0,
-    };
-    let mult = o.damage_mult() * stats.might;
-    Cast {
-        dmg: def.damage * mult,
-        dot: def.dot * mult,
-        count: o.count(),
-        radius: o.radius(stats),
-        duration: o.duration(),
-        cooldown: o.cooldown(stats),
-    }
+    super::talents::cast(def, level, stats)
 }
 
 fn effect_text(effect: Effect) -> Option<String> {
@@ -1959,7 +1964,7 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
         Kind::Totem => format!(
             "Drops a totem for {} sec that hits the nearest enemy within {} yd for {d} damage every second",
             num(c.duration),
-            num(def.range)
+            num(c.range)
         ),
     };
     // Areas that tick carry no over-time part; a burst leaves a 5 second one.
@@ -2092,7 +2097,7 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
         Kind::Totem => format!(
             "放置图腾，持续{}秒；每秒攻击{}码内最近的敌人，造成{}点伤害",
             num(c.duration),
-            num(def.range),
+            num(c.range),
             damage
         ),
     };
@@ -2203,9 +2208,9 @@ fn ability_tip(
         Kind::Melee => Some(localization::text("Melee Range", "近战距离").to_string()),
         Kind::Bolt | Kind::Strike | Kind::Chain | Kind::Dot | Kind::Ground | Kind::Totem => {
             Some(if localization::is_zh_cn() {
-                format!("射程{}码", num(def.range))
+                format!("射程{}码", num(now.range))
             } else {
-                format!("{} yd range", num(def.range))
+                format!("{} yd range", num(now.range))
             })
         }
         _ => None,
@@ -2232,11 +2237,16 @@ fn ability_tip(
     ) {
         lines.push(TipLine::new(
             if localization::is_zh_cn() {
-                format!("{}几率造成双倍暴击伤害", pct(stats.crit))
+                format!(
+                    "{}几率造成{}倍暴击伤害",
+                    pct(stats.crit),
+                    num(stats.talents.critical_multiplier())
+                )
             } else {
                 format!(
-                    "{} chance to critically strike for double damage",
-                    pct(stats.crit)
+                    "{} chance to critically strike for {}x damage",
+                    pct(stats.crit),
+                    num(stats.talents.critical_multiplier())
                 )
             },
             DIM,
@@ -2518,8 +2528,13 @@ pub(super) fn icon_tooltip(
         TipFor::Mobility => run.mobility().map(|m| {
             vec![
                 TipLine::new(spell_name(spells.as_deref(), m.spell, m.name), Color::WHITE).header(),
-                TipLine::new(localization::text("Press F", "按 F"), Color::WHITE)
-                    .right(format!("{} sec cooldown", num(m.cooldown)), Color::WHITE),
+                TipLine::new(localization::text("Press F", "按 F"), Color::WHITE).right(
+                    format!(
+                        "{} sec cooldown",
+                        num(m.cooldown * run.talents.mobility_cooldown())
+                    ),
+                    Color::WHITE,
+                ),
                 TipLine::new(m.desc, GOLD),
             ]
         }),
