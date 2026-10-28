@@ -16,7 +16,7 @@
 
 本仓库 [sqhome-jin/azeroth-survivors-re-cn](https://github.com/sqhome-jin/azeroth-survivors-re-cn)
 fork 自 [OutThisLife/azeroth-survivors-re](https://github.com/OutThisLife/azeroth-survivors-re)，用于本地开发与后续功能扩展，中文为默认文档语言。
-**文档中文化不代表游戏界面已完成汉化，也不代表已实现计划中的新功能。**
+本分支已加入 zhCN 本地化：默认中文角色/战场选择、Survivors 战斗 HUD 与升级卡，并按 locale 读取客户端 DBC 和 FrameXML 文本。部分自定义或历史硬编码文案仍可能显示英文；切换界面语言时也需要使用对应 locale 的客户端资源。
 
 > **原作与致谢：** Azeroth Survivors 原作由 **[Aethus](https://wow.aethus.pl/)** 制作。
 > 可在 [原作网站](https://wow.aethus.pl/) 体验线上版本，参阅
@@ -32,6 +32,7 @@ fork 自 [OutThisLife/azeroth-survivors-re](https://github.com/OutThisLife/azero
 - [当前功能](#当前功能)
 - [快速开始](#快速开始)
 - [操作方式](#操作方式)
+- [客户端语言](#客户端语言)
 - [游戏数据](#游戏数据)
 - [架构与开发文档](#架构与开发文档)
 - [文档语言](#文档语言)
@@ -56,6 +57,7 @@ fork 自 [OutThisLife/azeroth-survivors-re](https://github.com/OutThisLife/azero
 - **职业机动技能**：5 级解锁，按 F 向光标方向使用，如闪现、冲锋、疾跑等。
 - **镜头控制**：默认俯视锁定，C 解锁旋转和俯仰，滚轮缩放，最远可至 70 码。
 - **画面后处理**：G 切换锐化与色彩调整。
+- **中文本地化**：默认 zhCN，覆盖 Survivors 界面和客户端本地化数据提供的文本；部分自定义文案仍可能为英文。
 
 ## 快速开始
 
@@ -82,6 +84,7 @@ make start
 ```
 
 打开 <http://127.0.0.1:8090/>。首次游戏素材下载约 5.5 GB，另需下载编译依赖和工具链。
+浏览器版默认使用 zhCN；可在地址后添加 `?locale=enUS` 切换到英文界面。请同时提供对应 locale 的客户端数据。
 
 `make build` 按顺序运行以下可重复执行的步骤，跳过已完成的相应下载或安装：
 
@@ -120,12 +123,16 @@ WOW_DATA=/path/to/WoW/Data cargo run --release -p warcraft-survivors
 
 完整说明见 [CONTROLS.md](CONTROLS.md)（英文）。
 
+## 客户端语言
+
+客户端默认 locale 为 `zhCN`。浏览器版可用 `?locale=zhCN` 或 `?locale=enUS` 选择；桌面版可设置 `WOW_LOCALE=zhCN` 或 `WOW_LOCALE=enUS`。locale 只选择界面读取的语言，不会转换客户端资源；请让 `WOW_LOCALE` 与 `WOW_DATA`/`--data` 指向的客户端版本相匹配。缺失的单条 DBC 文本会回退到 enUS。
+
 ## 游戏数据
 
 仓库不包含暴雪游戏资源文件，如模型、贴图、声音、地图、MPQ 内容和 FrameXML。
 运行时需要 WoW 1.12.1 客户端的 `Data` 目录。
 
-默认脚本从 [archive.org](https://archive.org/details/WoW_1.12.1-5875) 下载英文 **WoW 1.12.1（build 5875）**，
+默认脚本从 [archive.org](https://archive.org/details/WoW_1.12.1-5875) 下载简体中文 **WoW 1.12.1（build 5875，zhCN）**，
 将 MPQ 提取到 `wow-data/Data/`。该目录不纳入 Git，下载支持续传，已有数据会跳过下载。
 使用其他来源的游戏数据时，请自行确认获取和使用权限。
 
