@@ -57,6 +57,52 @@ pub(crate) fn str_at(rs: &RecordSet, r: &Record, i: usize) -> Option<String> {
     }
 }
 
+const LOCALE_COUNT: usize = 8;
+
+pub(crate) fn localized_str_at(
+    rs: &RecordSet,
+    r: &Record,
+    base: usize,
+    locale: usize,
+) -> Option<String> {
+    if locale >= LOCALE_COUNT {
+        return None;
+    }
+    str_at(rs, r, base + locale).or_else(|| (locale != 0).then(|| str_at(rs, r, base)).flatten())
+}
+
+fn preferred_locale_from_counts(counts: [usize; LOCALE_COUNT]) -> usize {
+    (1..LOCALE_COUNT).fold(0, |best, locale| {
+        if counts[locale] > counts[best] {
+            locale
+        } else {
+            best
+        }
+    })
+}
+
+pub(crate) fn preferred_locale(rs: &RecordSet, name_field: usize) -> usize {
+    let mut counts = [0; LOCALE_COUNT];
+    for record in rs.records() {
+        for (locale, count) in counts.iter_mut().enumerate() {
+            if str_at(rs, record, name_field + locale).is_some() {
+                *count += 1;
+            }
+        }
+    }
+    preferred_locale_from_counts(counts)
+}
+
+#[cfg(test)]
+mod locale_tests {
+    use super::*;
+
+    #[test]
+    fn preferred_locale_defaults_to_enus_on_ties() {
+        assert_eq!(preferred_locale_from_counts([12, 0, 0, 0, 12, 0, 0, 0]), 0);
+        assert_eq!(preferred_locale_from_counts([3, 0, 0, 0, 8, 0, 0, 0]), 4);
+    }
+}
 /// `SpellIcon.dbc`: id → extensionless texture path (`Interface\Icons\…`).
 pub(crate) fn load_spell_icon_map(chain: &mut Chain) -> Result<HashMap<u32, String>> {
     let bytes = chain

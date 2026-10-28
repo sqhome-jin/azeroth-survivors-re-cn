@@ -13,6 +13,7 @@ mod fill;
 mod grade;
 mod hero;
 mod hud;
+mod localization;
 mod menu;
 mod minimap;
 mod mobility;

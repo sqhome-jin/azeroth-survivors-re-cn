@@ -8,7 +8,7 @@ use crate::Chain;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{f32_at, parse, str_at, u32_at};
+use crate::dbc::{f32_at, localized_str_at, parse, preferred_locale, str_at, u32_at};
 
 const MAP: &str = "DBFilesClient\\Map.dbc";
 
@@ -18,8 +18,8 @@ const LOADING_SCREEN_FIELD: usize = 38;
 /// `Map.dbc`'s per-map data, keyed by map id.
 pub struct MapCatalog {
     dirs: HashMap<u32, String>,
-    /// `MapName_Lang[enUS]` (field 4, `+0x10`, read by `0x4a65a0`). The continent dropdown shows
-    /// this ("Eastern Kingdoms"), not the art folder ("Azeroth") (`GetMapContinents` `0x4a7ce0`).
+    /// The selected `MapName_Lang` locale (field 4, `+0x10`, read by `0x4a65a0`); the continent
+    /// dropdown shows this, not the art folder (`GetMapContinents` `0x4a7ce0`).
     names: HashMap<u32, String>,
     /// `LoadingScreenID`, for maps with a non-zero one.
     loading_screens: HashMap<u32, u32>,
@@ -76,7 +76,7 @@ impl MapCatalog {
         self.dirs.get(&map_id).map(String::as_str)
     }
 
-    /// The enUS display name (`MapName_Lang`) for `map_id`, "Eastern Kingdoms".
+    /// The localized display name (`MapName_Lang`) for `map_id`.
     pub fn name(&self, map_id: u32) -> Option<&str> {
         self.names.get(&map_id).map(String::as_str)
     }
@@ -112,6 +112,7 @@ impl MapCatalog {
 }
 
 const MAP_NAME_FIELD: usize = 4;
+const MAP_LOCALE_FIELDS: usize = 8;
 
 const INSTANCE_TYPE_FIELD: usize = 2;
 
@@ -135,13 +136,19 @@ fn map_schema() -> Schema {
     for i in 2..42 {
         match i {
             INSTANCE_TYPE_FIELD => s.add_field(SchemaField::new("InstanceType", FieldType::UInt32)),
-            MAP_NAME_FIELD => s.add_field(SchemaField::new("MapName", FieldType::String)),
-            DESCRIPTION_0_FIELD => {
-                s.add_field(SchemaField::new("MapDescription0", FieldType::String))
+            i if (MAP_NAME_FIELD..MAP_NAME_FIELD + MAP_LOCALE_FIELDS).contains(&i) => {
+                s.add_field(SchemaField::new(format!("MapName{i}"), FieldType::String))
             }
-            DESCRIPTION_1_FIELD => {
-                s.add_field(SchemaField::new("MapDescription1", FieldType::String))
-            }
+            i if (DESCRIPTION_0_FIELD..DESCRIPTION_0_FIELD + MAP_LOCALE_FIELDS).contains(&i) => s
+                .add_field(SchemaField::new(
+                    format!("MapDescription0_{i}"),
+                    FieldType::String,
+                )),
+            i if (DESCRIPTION_1_FIELD..DESCRIPTION_1_FIELD + MAP_LOCALE_FIELDS).contains(&i) => s
+                .add_field(SchemaField::new(
+                    format!("MapDescription1_{i}"),
+                    FieldType::String,
+                )),
             FIELD_17 | FIELD_18 | MINIMAP_ICON_SCALE_FIELD => {
                 s.add_field(SchemaField::new(format!("_f{i}"), FieldType::Float32))
             }
@@ -160,6 +167,7 @@ pub fn load_map_catalog(chain: &mut Chain) -> Result<MapCatalog> {
         .read_file(MAP)
         .with_context(|| format!("reading {MAP}"))?;
     let rs = parse(&bytes, map_schema(), "Map")?;
+    let locale = preferred_locale(&rs, MAP_NAME_FIELD);
     let mut dirs = HashMap::with_capacity(rs.records().len());
     let mut names = HashMap::with_capacity(rs.records().len());
     let mut loading_screens = HashMap::new();
@@ -177,8 +185,8 @@ pub fn load_map_catalog(chain: &mut Chain) -> Result<MapCatalog> {
                 field_17: f32_at(r, FIELD_17).unwrap_or(0.0),
                 field_18: f32_at(r, FIELD_18).unwrap_or(0.0),
                 descriptions: [
-                    str_at(&rs, r, DESCRIPTION_0_FIELD).unwrap_or_default(),
-                    str_at(&rs, r, DESCRIPTION_1_FIELD).unwrap_or_default(),
+                    localized_str_at(&rs, r, DESCRIPTION_0_FIELD, locale).unwrap_or_default(),
+                    localized_str_at(&rs, r, DESCRIPTION_1_FIELD, locale).unwrap_or_default(),
                 ],
                 bracket_span: u32_at(r, BRACKET_SPAN_FIELD).unwrap_or(0),
                 group_queue: u32_at(r, GROUP_QUEUE_FIELD).unwrap_or(0),
@@ -188,7 +196,9 @@ pub fn load_map_catalog(chain: &mut Chain) -> Result<MapCatalog> {
         if let Some(dir) = str_at(&rs, r, 1) {
             dirs.insert(id, dir);
         }
-        if let Some(name) = str_at(&rs, r, MAP_NAME_FIELD).filter(|n| !n.is_empty()) {
+        if let Some(name) =
+            localized_str_at(&rs, r, MAP_NAME_FIELD, locale).filter(|n| !n.is_empty())
+        {
             names.insert(id, name);
         }
         // Type 0 is recorded too, so `None` means only that no such map exists.
@@ -223,7 +233,7 @@ mod tests {
             (10, 60, 10, -1)
         );
         assert_eq!((wsg.bracket_span, wsg.group_queue), (10, 1));
-        assert!(wsg.descriptions[0].starts_with("A valley bordering Ashenvale"));
+        assert!(!wsg.descriptions[0].is_empty());
         assert_eq!(
             wsg.descriptions[0], wsg.descriptions[1],
             "both faction descriptions carry the same text on the shipped rows"
@@ -253,5 +263,29 @@ mod tests {
             catalog.battleground(0).is_some(),
             "every row carries the columns — the client resolves map 0's when nothing was listed"
         );
+    }
+
+    #[test]
+    fn real_map_names_use_the_populated_locale() {
+        const EASTERN_KINGDOMS: u32 = 0;
+
+        let data = crate::wow_data_or_skip!();
+        let mut chain = crate::open_chain(&data).expect("open chain");
+        let bytes = chain.read_file(MAP).expect("read Map.dbc");
+        let records = parse(&bytes, map_schema(), "Map.dbc").expect("parse Map.dbc");
+        let locale = preferred_locale(&records, MAP_NAME_FIELD);
+        let row = records
+            .records()
+            .iter()
+            .find(|row| u32_at(row, 0) == Some(EASTERN_KINGDOMS))
+            .expect("Eastern Kingdoms row");
+        let expected =
+            localized_str_at(&records, row, MAP_NAME_FIELD, locale).expect("localized map name");
+
+        let catalog = load_map_catalog(&mut chain).expect("load Map.dbc");
+        assert_eq!(catalog.name(EASTERN_KINGDOMS), Some(expected.as_str()));
+        if locale == 4 {
+            assert_eq!(expected, "东部王国");
+        }
     }
 }

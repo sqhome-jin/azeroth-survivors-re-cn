@@ -851,7 +851,19 @@ fn debug_select_shot(
 
 /// The WoW UI font, straight off the patch chain (Bevy's TTF loader over the `mpq://` source).
 pub(crate) fn wow_font(assets: &AssetServer) -> Handle<Font> {
-    assets.load("mpq://Fonts/FRIZQT__.ttf")
+    if locale_is_zh_cn(&ui_locale()) {
+        assets.load("mpq://Fonts/FZLBJW.TTF")
+    } else {
+        assets.load("mpq://Fonts/FRIZQT__.ttf")
+    }
+}
+
+pub(crate) fn ui_locale() -> String {
+    crate::webenv::var("WOW_LOCALE").unwrap_or_else(|| "zhCN".into())
+}
+
+pub(crate) fn locale_is_zh_cn(locale: &str) -> bool {
+    locale.eq_ignore_ascii_case("zhCN")
 }
 
 // ── 1.12 display names ──────────────────────────────────────────────────────────────────────────

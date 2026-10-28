@@ -32,7 +32,7 @@ use cosmic_text::{
 
 use benilla_assets::{LockRecover, WorldAssets};
 
-use faces::{hhea_ascent_ratio, register_font, CLIENT_FONTS};
+use faces::{hhea_ascent_ratio, register_font, CLIENT_FONTS, ZHCN_FONT};
 pub(crate) use gpu::UiTextPlugin;
 
 use super::outline::outlined_cell;
@@ -146,17 +146,32 @@ pub(crate) struct TextEngine {
 /// the database that can draw a character, so a system face would silently stand in for a client
 /// face. A character no client or addon face carries draws nothing, as in the reference, and
 /// measures 0. The locale only picks which language's family name a face answers to.
-fn client_font_system() -> FontSystem {
-    FontSystem::new_with_locale_and_db("en-US".to_string(), fontdb::Database::new())
+fn client_font_system(locale: &str) -> FontSystem {
+    let locale = if crate::char_select::locale_is_zh_cn(locale) {
+        "zh-CN"
+    } else {
+        "en-US"
+    };
+    FontSystem::new_with_locale_and_db(locale.to_string(), fontdb::Database::new())
+}
+
+fn client_font_paths(locale: &str) -> Vec<&'static str> {
+    let mut paths = CLIENT_FONTS.to_vec();
+    if crate::char_select::locale_is_zh_cn(locale) {
+        paths.push(ZHCN_FONT);
+    }
+    paths
 }
 
 impl TextEngine {
     /// Register the client TTFs off the patch chain; `None`, and no text, without Friz Quadrata.
     fn load(world_assets: &WorldAssets, images: &Assets<Image>, dpi: f32) -> Option<Self> {
-        let mut font_system = client_font_system();
+        let locale = crate::char_select::ui_locale();
+        let font_paths = client_font_paths(&locale);
+        let mut font_system = client_font_system(&locale);
         let mut faces: Vec<Face> = Vec::new();
         let mut path_to_face = HashMap::new();
-        for &path in CLIENT_FONTS {
+        for path in font_paths {
             let bytes = {
                 let chain = world_assets.chain.lock_recover();
                 match chain.read(path) {
@@ -601,12 +616,18 @@ fn read_font_bytes(source: &FontSource, path: &str) -> Option<Vec<u8>> {
 /// or when the chain or a face will not open, and every caller then skips.
 #[cfg(test)]
 pub(super) fn test_engine(dpi: f32) -> Option<TextEngine> {
+    let locale = crate::char_select::ui_locale();
+    test_engine_for_locale(dpi, &locale)
+}
+
+#[cfg(test)]
+fn test_engine_for_locale(dpi: f32, locale: &str) -> Option<TextEngine> {
     let data = benilla_formats::wow_data()?;
     let chain = benilla_formats::open_chain(&data).ok()?;
-    let mut font_system = client_font_system();
+    let mut font_system = client_font_system(locale);
     let mut faces: Vec<Face> = Vec::new();
     let mut path_to_face = HashMap::new();
-    for &path in CLIENT_FONTS {
+    for path in client_font_paths(locale) {
         let Ok(bytes) = chain.read(path) else {
             continue;
         };
@@ -939,6 +960,24 @@ mod ppem_tests {
         assert_eq!(friz, e.face_for(Some("Fonts\\NOSUCH.TTF")));
         assert_eq!(friz, e.face_for(Some("fonts\\frizqt__.ttf")), "case-folded");
         assert_ne!(friz, e.face_for(Some(TEST_FACES[1])), "ARIALN is its own");
+    }
+
+    #[test]
+    fn zh_cn_font_supplies_cjk_glyphs_to_the_default_face() {
+        let Some(mut e) = test_engine_for_locale(1.0, "zhCN") else {
+            return;
+        };
+        assert!(e.faces.iter().any(|face| face.path == ZHCN_FONT));
+
+        let default_face = e.face_for(None);
+        e.ensure_metrics(default_face, 16, "寒冰箭");
+        let cell = e
+            .char_cell(default_face, 16, '寒')
+            .expect("the Chinese glyph was shaped");
+        assert!(
+            !cell.glyphs.is_empty(),
+            "the fallback face has a visible glyph"
+        );
     }
 
     /// Overwrite `OS/2.usWeightClass` (table offset 4) in a raw sfnt, making a bold face out of a

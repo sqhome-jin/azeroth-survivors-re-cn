@@ -2,6 +2,28 @@
 
 use super::*;
 
+#[test]
+fn real_spell_catalog_uses_the_populated_locale_for_names() {
+    let data = crate::wow_data_or_skip!();
+    let mut chain = crate::open_chain(&data).expect("open chain");
+    let bytes = chain.read_file(SPELL).expect("read Spell.dbc");
+    let records = parse(&bytes, spell_schema(), "Spell.dbc").expect("parse Spell.dbc");
+    let locale = preferred_locale(&records, COL_NAME_ENUS);
+    let frostbolt = records
+        .records()
+        .iter()
+        .find(|record| u32_at(record, 0) == Some(116))
+        .expect("Frostbolt row");
+    let expected = localized_str_at(&records, frostbolt, COL_NAME_ENUS, locale)
+        .expect("localized Frostbolt name");
+
+    let catalog = load_spell_catalog(&mut chain).expect("load Spell/SpellIcon");
+    assert_eq!(catalog.get(116).expect("Frostbolt").name, expected);
+    if locale == 4 {
+        assert_eq!(expected, "寒冰箭");
+    }
+}
+
 /// A trainer's learn wrapper is never in `SkillLineAbility`, so the tree groups it by the spell
 /// it teaches: Heroic Strike 78 via 1605, Charge 100 via 1738, Battle Shout 6673 via 6674.
 #[test]

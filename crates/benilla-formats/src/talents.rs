@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
+use crate::dbc::{localized_str_at, parse, preferred_locale, str_at, u32_at};
 use crate::Chain;
 
 const TALENT: &str = "DBFilesClient\\Talent.dbc";
@@ -29,6 +29,7 @@ const COL_T_REQUIRED_SPELL: usize = 20;
 
 const TALENT_TAB_FIELDS: usize = 15;
 const COL_TT_NAME_ENUS: usize = 1;
+const TALENT_TAB_LOCALE_FIELDS: usize = 8;
 const COL_TT_RACE_MASK: usize = 11;
 const COL_TT_CLASS_MASK: usize = 12;
 const COL_TT_BACKGROUND: usize = 14;
@@ -131,8 +132,8 @@ fn talent_schema() -> Schema {
 fn talent_tab_schema() -> Schema {
     let mut s = Schema::new("TalentTab");
     for i in 0..TALENT_TAB_FIELDS {
-        if i == COL_TT_NAME_ENUS {
-            s.add_field(SchemaField::new("NameEnUs", FieldType::String));
+        if (COL_TT_NAME_ENUS..COL_TT_NAME_ENUS + TALENT_TAB_LOCALE_FIELDS).contains(&i) {
+            s.add_field(SchemaField::new(format!("Name{i}"), FieldType::String));
         } else if i == COL_TT_BACKGROUND {
             s.add_field(SchemaField::new("BackgroundFile", FieldType::String));
         } else {
@@ -148,12 +149,13 @@ pub fn load_talent_catalog(chain: &mut Chain) -> Result<TalentCatalog> {
         .read_file(TALENT_TAB)
         .context("reading TalentTab.dbc")?;
     let tab_set = parse(&tab_bytes, talent_tab_schema(), "TalentTab.dbc")?;
+    let locale = preferred_locale(&tab_set, COL_TT_NAME_ENUS);
     let mut tabs = Vec::new();
     for r in tab_set.records() {
         let Some(id) = u32_at(r, 0) else { continue };
         tabs.push(TalentTabInfo {
             id,
-            name: str_at(&tab_set, r, COL_TT_NAME_ENUS).unwrap_or_default(),
+            name: localized_str_at(&tab_set, r, COL_TT_NAME_ENUS, locale).unwrap_or_default(),
             race_mask: u32_at(r, COL_TT_RACE_MASK).unwrap_or(0),
             class_mask: u32_at(r, COL_TT_CLASS_MASK).unwrap_or(0),
             background: str_at(&tab_set, r, COL_TT_BACKGROUND).unwrap_or_default(),
@@ -205,10 +207,8 @@ mod tests {
         const HUMAN: u8 = 1;
         const MAGE: u8 = 8;
         let tabs = cat.tabs_for_class(HUMAN, MAGE);
-        assert_eq!(
-            tabs.iter().map(|t| t.name.as_str()).collect::<Vec<_>>(),
-            vec!["Arcane", "Fire", "Frost"]
-        );
+        assert_eq!(tabs.len(), 3);
+        assert!(tabs.iter().all(|tab| !tab.name.is_empty()));
         assert_eq!(
             tabs.iter()
                 .map(|t| t.background.as_str())
@@ -276,6 +276,37 @@ mod tests {
                     t.prereq_rank
                 );
             }
+        }
+    }
+
+    #[test]
+    fn real_talent_tab_names_use_the_populated_locale() {
+        const ORC: u8 = 2;
+        const SHAMAN: u8 = 7;
+        const ELEMENTAL_TAB: u32 = 261;
+
+        let data = crate::wow_data_or_skip!();
+        let mut chain = crate::open_chain(&data).expect("open chain");
+        let bytes = chain.read_file(TALENT_TAB).expect("read TalentTab.dbc");
+        let tab_set = parse(&bytes, talent_tab_schema(), "TalentTab.dbc").expect("parse DBC");
+        let locale = preferred_locale(&tab_set, COL_TT_NAME_ENUS);
+        let row = tab_set
+            .records()
+            .iter()
+            .find(|row| u32_at(row, 0) == Some(ELEMENTAL_TAB))
+            .expect("Elemental tab row");
+        let expected =
+            localized_str_at(&tab_set, row, COL_TT_NAME_ENUS, locale).expect("localized tab name");
+
+        let catalog = load_talent_catalog(&mut chain).expect("load talent catalog");
+        let loaded = catalog
+            .tabs_for_class(ORC, SHAMAN)
+            .into_iter()
+            .find(|tab| tab.id == ELEMENTAL_TAB)
+            .expect("Elemental tab");
+        assert_eq!(loaded.name, expected);
+        if locale == 4 {
+            assert_eq!(expected, "元素");
         }
     }
 }
