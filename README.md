@@ -1,116 +1,183 @@
-<img width="1920" height="1080" alt="brag" src="https://github.com/user-attachments/assets/fa574bb6-7bd4-4e78-8b72-14c58e3c716e" />
+**简体中文（默认）** | [English](README.en.md)
+
+<img width="1920" height="1080" alt="Azeroth Survivors 游戏画面" src="https://github.com/user-attachments/assets/fa574bb6-7bd4-4e78-8b72-14c58e3c716e" />
 
 <div align="center">
 
 # Azeroth Survivors
 
-**A free fan-made WoW roguelike by [Aethus](https://wow.aethus.pl/), run locally on a
-from-scratch WoW 1.12.1 client engine (Rust + [Bevy](https://bevy.org)).**
+**基于 Rust + [Bevy](https://bevy.org) 的 WoW 1.12.1 客户端引擎，运行在本地的生存类 Roguelite 游戏。**
 
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
 </div>
 
-> **Not an original project.** *Azeroth Survivors* is a free, fan-made WoW roguelike by
-> **Aethus** — play the original in the browser at **[wow.aethus.pl](https://wow.aethus.pl/)**
-> ([r/wowservers announcement](https://www.reddit.com/r/wowservers/comments/1x0yidl/azeroth_survivors_roguelike_wow_singleplayer_game/)
-> · [Discord](https://discord.gg/UzxaZuSAk)). This repository is a from-source local build of the
-> game, running on the [benilla](#how-its-built) / [wenilla](#how-its-built) engine, for personal use.
+## 项目说明
 
-Pick a class and a battleground, then survive: WASD to move, your abilities cast themselves,
-enemies swarm in waves, you level up and pick upgrades, and a boss shows up every couple of
-minutes. **No server, no login, no account** — fully offline and self-contained.
+本仓库 [sqhome-jin/azeroth-survivors-re-cn](https://github.com/sqhome-jin/azeroth-survivors-re-cn)
+fork 自 [OutThisLife/azeroth-survivors-re](https://github.com/OutThisLife/azeroth-survivors-re)，用于本地开发与后续功能扩展，中文为默认文档语言。
+**文档中文化不代表游戏界面已完成汉化，也不代表已实现计划中的新功能。**
+
+> **原作与致谢：** Azeroth Survivors 原作由 **[Aethus](https://wow.aethus.pl/)** 制作。
+> 可在 [原作网站](https://wow.aethus.pl/) 体验线上版本，参阅
+> [发布介绍](https://www.reddit.com/r/wowservers/comments/1x0yidl/azeroth_survivors_roguelike_wow_singleplayer_game/)
+> 或加入 [原作 Discord](https://discord.gg/UzxaZuSAk)。
+> 本仓库独立维护，不能视为线上版本完整源码或与其功能同步的版本。
+
+选择职业和战场，在敌群中生存：使用 WASD 移动，技能自动释放，击杀敌人获取经验，升级时选择强化，并迎战定时出现的 Boss。
+玩法不需要游戏服务器、登录或账号。浏览器版仍需本地 HTTP 服务提供页面和游戏资源；首次构建需要下载依赖与素材。
+
+## 目录
+
+- [当前功能](#当前功能)
+- [快速开始](#快速开始)
+- [操作方式](#操作方式)
+- [游戏数据](#游戏数据)
+- [架构与开发文档](#架构与开发文档)
+- [文档语言](#文档语言)
+- [许可与声明](#许可与声明)
+
+## 当前功能
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/menu.jpg" alt="The pick screen: race, gender and class on the left, sixteen zones on the right, the hero in between"></td>
-    <td width="50%"><img src="docs/screenshots/combat.jpg" alt="A Mage holding off Elwynn Forest's wolves with frost, fire and arcane"></td>
+    <td width="50%"><img src="docs/screenshots/menu.jpg" alt="角色与地图选择界面"></td>
+    <td width="50%"><img src="docs/screenshots/combat.jpg" alt="法师在艾尔文森林中战斗"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/level-up.jpg" alt="Level up: three spell cards, coloured by rarity, each showing exactly what its next rank changes"></td>
-    <td><img src="docs/screenshots/results.jpg" alt="The results screen after a death in Redridge Mountains"></td>
+    <td width="50%"><img src="docs/screenshots/level-up.jpg" alt="升级时选择技能强化卡牌"></td>
+    <td width="50%"><img src="docs/screenshots/results.jpg" alt="战斗结束后的结算界面"></td>
   </tr>
 </table>
 
-### In this build
+- **角色与战场选择**：八个种族、两种性别、符合种族限制的职业组合，以及十六张战场；记住上次选择。
+- **本地生存战斗**：自动施法、敌群波次、经验拾取与定时 Boss，各战场使用对应主题的怪物和 Boss 阵容。
+- **升级卡牌**：展示技能或被动强化、品质颜色和升级前后的具体数值，并带有发牌及悬停动画。
+- **职业机动技能**：5 级解锁，按 F 向光标方向使用，如闪现、冲锋、疾跑等。
+- **镜头控制**：默认俯视锁定，C 解锁旋转和俯仰，滚轮缩放，最远可至 70 码。
+- **画面后处理**：G 切换锐化与色彩调整。
 
-- **A character-create pick screen** built from the client's own glue art: eight races, both
-  genders, every class the race can be, and **sixteen zones**, from the starting zones to
-  Naxxramas and the Gates of Ahn'Qiraj. Each zone fights with its own creatures and bosses, taken
-  from the zone's real spawns. Your pick is remembered across reloads.
-- **Level-up cards** that deal in, tilt toward the cursor and lift on hover. Their WoW item-quality
-  colour says how strong a pick is, and each card lists exactly what changes, like
-  `Damage 20 » 26` or `Targets 2 » 3`.
-- **A class movement spell on F** from level 5, aimed at the cursor: Blink, Charge, Sprint, Dash,
-  Fade, Ghost Wolf, Aspect of the Cheetah, Blessing of Freedom, Howl of Terror.
-- **A camera you can free:** locked top-down by default with the hero facing the cursor. **C**
-  unlocks it to swing and tilt, and the wheel zooms from over the shoulder out to 70 yards.
-- A light sharpen-and-colour pass over the picture (**G** toggles it).
+## 快速开始
 
-## Play it
+### 环境要求
+
+- 通过 [rustup](https://rustup.rs/) 安装 Rust，项目版本由 [rust-toolchain.toml](rust-toolchain.toml) 指定。
+- `make`、`curl`、`unzip` 和 Bash；macOS 还需 Xcode Command Line Tools。
+- 浏览器需支持 **WebGPU**，并使用 `localhost` 或 HTTPS 安全上下文；WebGL2 不支持完整世界渲染。
+- Windows 请使用 Git Bash 执行脚本，不能直接使用 PowerShell 或 cmd 执行这些 Bash 脚本。
+
+若安装 Rust 后提示 `rustup: command not found`，重新打开终端，或在 Bash / Zsh 中执行：
 
 ```bash
-git clone https://github.com/OutThisLife/azeroth-survivors-re
-cd azeroth-survivors-re
-make build     # fetch game data + install toolchain + build the wasm (~5.5 GB download)
-make start     # → open http://127.0.0.1:8090/
+source "$HOME/.cargo/env"
 ```
 
-`make build` chains three re-runnable scripts, each skipping what's already done:
+### 浏览器版
 
-| Step | What it does |
+```bash
+git clone https://github.com/sqhome-jin/azeroth-survivors-re-cn.git
+cd azeroth-survivors-re-cn
+make build
+make start
+```
+
+打开 <http://127.0.0.1:8090/>。首次游戏素材下载约 5.5 GB，另需下载编译依赖和工具链。
+
+`make build` 按顺序运行以下可重复执行的步骤，跳过已完成的相应下载或安装：
+
+| 步骤 | 作用 |
 | --- | --- |
-| `scripts/fetch-data.sh` | downloads the WoW 1.12.1 client and extracts its MPQs |
-| `scripts/web-setup.sh` | installs the wasm toolchain (wasi-sdk, wasm-bindgen, binaryen) |
-| `scripts/web-build.sh` | builds the client into `web/dist/` |
+| [scripts/fetch-data.sh](scripts/fetch-data.sh) | 下载 WoW 1.12.1 客户端并提取 MPQ |
+| [scripts/web-setup.sh](scripts/web-setup.sh) | 配置 WASM 目标、wasm-bindgen、WASI SDK 和 Binaryen |
+| [scripts/web-build.sh](scripts/web-build.sh) | 编译浏览器客户端，输出到 `web/dist/` |
 
-**Prerequisites:** [Rust](https://rustup.rs/), `make`, `curl`, `unzip`, and a bash shell. On Windows, run everything from Git Bash; PowerShell and cmd can't run the scripts.
+### 桌面版
 
-Run `make` (or `make help`) to list every target.
+```bash
+make native
+```
 
-## Controls
+已有素材时，也可以指定自己的 Data 目录直接运行：
 
-See [CONTROLS.md](CONTROLS.md). The short version: **WASD** to move, **Space** to jump, **F**
-for your class's movement spell, the **mouse wheel** to zoom, **C** to unlock the camera, **Esc**
-to pause, **1/2/3** to pick a level-up card.
+```bash
+WOW_DATA=/path/to/WoW/Data cargo run --release -p warcraft-survivors
+```
 
-## The game data (not in this repo)
+运行 `make help` 查看全部目标。**`make clean` 会删除已下载的游戏数据和浏览器构建产物，请谨慎使用。**
 
-This repo ships **no Blizzard content** — no art, models, sounds, maps, MPQ contents, or
-FrameXML. The game reads a WoW 1.12.1 client's `Data` folder at runtime, which you supply.
+## 操作方式
 
-`make build` (via `scripts/fetch-data.sh`) downloads the **English WoW 1.12.1 (build 5875)**
-client from [archive.org](https://archive.org/details/WoW_1.12.1-5875) (~5.5 GB) and extracts the
-MPQs into `wow-data/Data/` (git-ignored, resumable, skipped when already present). Or point at a
-client you already have with `--data` / `WOW_DATA`.
+| 按键 | 操作 |
+| --- | --- |
+| WASD | 移动 |
+| Space | 跳跃 |
+| F | 职业机动技能，5 级解锁 |
+| 鼠标滚轮 | 镜头缩放 |
+| C | 切换镜头锁定 |
+| Esc | 暂停 |
+| 1 / 2 / 3 | 选择升级卡牌 |
+| G | 切换画面后处理 |
 
-### Changing the download source
+完整说明见 [CONTROLS.md](CONTROLS.md)（英文）。
 
-If the archive.org item moves or you have your own mirror, override the URL without editing
-anything:
+## 游戏数据
+
+仓库不包含暴雪游戏资源文件，如模型、贴图、声音、地图、MPQ 内容和 FrameXML。
+运行时需要 WoW 1.12.1 客户端的 `Data` 目录。
+
+默认脚本从 [archive.org](https://archive.org/details/WoW_1.12.1-5875) 下载英文 **WoW 1.12.1（build 5875）**，
+将 MPQ 提取到 `wow-data/Data/`。该目录不纳入 Git，下载支持续传，已有数据会跳过下载。
+使用其他来源的游戏数据时，请自行确认获取和使用权限。
+
+### 使用已有素材
+
+桌面版通过 `WOW_DATA` 指定路径；浏览器版可直接用 host 的 `--data` 参数：
+
+```bash
+cargo run --release -p wenilla-host -- --www web/dist --data /path/to/WoW/Data
+```
+
+本地 host 的资源接口不带登录认证，**不要直接暴露到公网**。
+
+### 更换下载地址
 
 ```bash
 make build WOW_DATA_URL=https://your-mirror.example/client.zip
 ```
 
-Or set it permanently by editing the single clearly-marked `DEFAULT_DATA_URL` line at the top of
-`scripts/fetch-data.sh`. Either way the URL must be a direct link to a zip holding the client's
-`Data/*.MPQ` files.
+也可修改 [scripts/fetch-data.sh](scripts/fetch-data.sh) 中的 `DEFAULT_DATA_URL`。
+地址必须直接指向包含客户端 `Data/*.MPQ` 文件的 ZIP 压缩包。
 
-## How it's built
+## 架构与开发文档
 
-The survivors mode is `crates/benilla-app/src/survivors/`, running on two upstream projects:
+玩法主要位于 [crates/benilla-app/src/survivors](crates/benilla-app/src/survivors)，桌面与浏览器启动器共用同一套 Rust 逻辑。
+底层依赖两个上游项目：
 
-- [benilla](https://github.com/samwhosung/benilla) — a from-scratch WoW 1.12.1 client.
-- [wenilla](https://github.com/Arnesen/wenilla) — benilla compiled to WebAssembly, with a local
-  host and realm service.
+- [benilla](https://github.com/samwhosung/benilla)：从零实现的 WoW 1.12.1 客户端。
+- [wenilla](https://github.com/Arnesen/wenilla)：浏览器 WASM 移植及相关 host / realm 服务。
 
-## Legal
+| 文档 | 内容 |
+| --- | --- |
+| [中文项目开发指南](docs/PROJECT-GUIDE.zh-CN.md) | 架构、模块、运行流程、功能修改入口和验证建议 |
+| [AGENTS.md](AGENTS.md) | 仓库工作约定 |
+| [docs/METHOD.md](docs/METHOD.md) | 引擎开发方法与约束 |
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | 上游引擎贡献规范 |
+| [docs/MAP.md](docs/MAP.md) | 自动生成的引擎代码索引 |
+| [web/README.md](web/README.md) | 浏览器适配与 JavaScript bridge 说明 |
 
-*Azeroth Survivors* is a free fan game by **Aethus**, not affiliated with or endorsed by
-Blizzard Entertainment, and it ships no Blizzard game files. The screenshots in `docs/screenshots/`
-show World of Warcraft art rendered from a user-supplied client; that art is © Blizzard
-Entertainment. World of Warcraft is a trademark of Blizzard Entertainment, Inc. The engine code in
-this repository is licensed under
-[MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE), at your option; the vendored components under
-`third_party/` keep their own upstream licenses.
+部分继承文档描述原客户端或其他上游组件，不能直接作为本分支的功能清单；请结合当前源码与中文指南阅读。
+
+## 文档语言
+
+- [README.md](README.md)：简体中文，默认项目入口。
+- [README.en.md](README.en.md)：英文版，与中文版保持相同章节和核心信息。
+- 修改安装命令、功能范围或重要声明时，请同步更新两版 README；新增语言时在各版本顶部添加互链。
+
+## 许可与声明
+
+Azeroth Survivors 原作由 **Aethus** 制作。本项目与 Blizzard Entertainment 无隶属关系，也未获其背书。
+仓库不包含暴雪游戏资源文件；截图展示的是从外部客户端资源渲染的画面，相关美术版权归 Blizzard Entertainment 所有。
+World of Warcraft 是 Blizzard Entertainment, Inc. 的商标。
+
+仓库引擎代码采用 [MIT](LICENSE-MIT) 或 [Apache 2.0](LICENSE-APACHE) 双重许可，可任选其一。
+[third_party](third_party) 中的第三方组件保留各自的上游许可证。代码许可证不授予暴雪素材的再分发权。
