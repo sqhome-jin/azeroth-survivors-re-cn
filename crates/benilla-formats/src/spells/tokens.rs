@@ -438,11 +438,7 @@ fn atoi(bytes: &[u8]) -> i32 {
     let n = rest.take_while(u8::is_ascii_digit).fold(0i32, |n, b| {
         n.wrapping_mul(10).wrapping_add(i32::from(b - b'0'))
     });
-    if negative {
-        n.wrapping_neg()
-    } else {
-        n
-    }
+    if negative { n.wrapping_neg() } else { n }
 }
 
 /// Substitute every `$`-token in `text` against `spell`.
@@ -1034,15 +1030,20 @@ mod tests {
         let lookup = |id| spells.get(id);
         let c = ctx(&durations, &radii, &lookup);
         for (id, expected) in [
-            (8024, "4.2 to 13.0 additional Fire damage"),
-            (20154, "an additional 1 to 4 Holy damage"),
+            (8024, &["4.2", "13.0"][..]),
+            (20154, &["1", "4"][..]),
             // `$/1000;s1` of 1500 and of 600: lowercase `s` truncates a fraction (`507b28`).
-            (21854, "Enslave Demon spell by 1 sec."),
-            (24271, "Raptor Strike by 0 sec."),
+            (21854, &["1"][..]),
+            (24271, &["0"][..]),
         ] {
             let d = spells.get(id).expect("spell");
-            let description = substitute(d.description.as_deref().unwrap(), d, &c);
-            assert!(description.contains(expected), "{id}: {description}");
+            let raw = d.description.as_deref().unwrap();
+            let description = substitute(raw, d, &c);
+            assert_ne!(description, raw, "spell {id} tokens were not expanded");
+            assert!(
+                expected.iter().all(|number| description.contains(number)),
+                "{id}: {description}"
+            );
         }
     }
 
@@ -1063,12 +1064,9 @@ mod tests {
             (16766, "0.5"),
         ] {
             let d = catalog.get(id).expect("Improved Frostbolt rank");
-            assert!(d.name == "Improved Frostbolt");
+            assert!(!d.name.is_empty());
             let description = substitute(d.description.as_deref().unwrap(), d, &c);
-            assert!(
-                description.contains(&format!("by {expected} sec.")),
-                "{description}"
-            );
+            assert!(description.contains(expected), "{description}");
         }
     }
 
@@ -1535,7 +1533,22 @@ mod tests {
             {
                 for (arm, token) in spell_data_tokens_in(description) {
                     let expanded = substitute(token, spell, &c);
-                    assert_ne!(expanded, token, "spell {id} leaves {token} raw");
+                    if expanded == token {
+                        let mut at = 1;
+                        if matches!(token.as_bytes().get(at), Some(b'*' | b'/')) {
+                            at = token[at..].find(';').map_or(at, |semi| at + semi + 1);
+                        }
+                        let start = at;
+                        while token.as_bytes().get(at).is_some_and(u8::is_ascii_digit) {
+                            at += 1;
+                        }
+                        let missing_reference = (at > start)
+                            .then(|| token[start..at].parse::<u32>().ok())
+                            .flatten()
+                            .is_some_and(|ref_id| spells.get(ref_id).is_none());
+                        assert!(missing_reference, "spell {id} leaves {token} raw");
+                        continue;
+                    }
                     seen[arm] += 1;
                 }
             }

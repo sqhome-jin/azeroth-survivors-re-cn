@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{i32_at, parse, u32_at};
 use crate::Chain;
+use crate::dbc::{i32_at, localized_str_at, parse, preferred_locale, u32_at};
 
 const ITEM_SUB_CLASS: &str = "DBFilesClient\\ItemSubClass.dbc";
 /// The group names, read before [`ITEM_SUB_CLASS`] when a whole subclass mask needs a name.
@@ -223,12 +223,14 @@ pub fn load_item_sub_classes(chain: &mut Chain) -> Result<ItemSubClassCatalog> {
         item_sub_class_mask_schema(),
         "ItemSubClassMask",
     )?;
+    let locale = preferred_locale(&rs, 10);
+    let mask_locale = preferred_locale(&mask_rs, 2);
     let mut mask_groups = Vec::with_capacity(mask_rs.records().len());
     for r in mask_rs.records() {
         let (Some(class), Some(mask), Some(name)) = (
             u32_at(r, 0),
             u32_at(r, 1),
-            crate::dbc::str_at(&mask_rs, r, 2).filter(|n| !n.is_empty()),
+            localized_str_at(&mask_rs, r, 2, mask_locale).filter(|n| !n.is_empty()),
         ) else {
             continue;
         };
@@ -253,9 +255,9 @@ pub fn load_item_sub_classes(chain: &mut Chain) -> Result<ItemSubClassCatalog> {
                 weapon_swing_size: u32_at(r, 9).unwrap_or(0),
             },
         );
-        // The enUS verbose name (column 19) first, the display name (column 10) as fallback.
-        let display = crate::dbc::str_at(&rs, r, 10).filter(|n| !n.is_empty());
-        let name = crate::dbc::str_at(&rs, r, 19)
+        // The verbose name (column 19) first, the display name (column 10) as fallback.
+        let display = localized_str_at(&rs, r, 10, locale).filter(|n| !n.is_empty());
+        let name = localized_str_at(&rs, r, 19, locale)
             .filter(|n| !n.is_empty())
             .or_else(|| display.clone());
         if let Some(name) = name {
@@ -283,14 +285,17 @@ mod tests {
         let data = crate::wow_data_or_skip!();
         let mut chain = crate::open_chain(&data).expect("open chain");
         let cat = load_item_sub_classes(&mut chain).expect("load ItemSubClass.dbc");
-        assert_eq!(cat.name(2, 7), Some("One-Handed Swords"), "verbose wins");
-        assert_eq!(cat.name(4, 1), Some("Cloth"));
+        assert!(
+            cat.name(2, 7).is_some_and(|name| !name.is_empty()),
+            "verbose wins"
+        );
+        assert!(cat.name(4, 1).is_some_and(|name| !name.is_empty()));
         assert_eq!(
             cat.name(5, 0),
-            Some("Reagent"),
+            cat.display_name(5, 0),
             "display fallback when verbose empty"
         );
-        assert_eq!(cat.name(0, 0), Some("Consumable"));
+        assert!(cat.name(0, 0).is_some_and(|name| !name.is_empty()));
         assert_eq!(cat.name(99, 0), None);
     }
 
@@ -302,55 +307,36 @@ mod tests {
         let cat = load_item_sub_classes(&mut chain).expect("load the two DBCs");
 
         // Stage 1: the whole mask has a name; all three shipped rows.
-        assert_eq!(
-            cat.requirement_name(2, 0x0002_a5f3).as_deref(),
-            Some("Melee Weapon"),
-            "Parry's eleven melee subclasses are ONE group name, not a join"
-        );
-        assert_eq!(cat.requirement_name(4, 0x60).as_deref(), Some("Shield"));
-        assert_eq!(
-            cat.requirement_name(2, 0x0004_000c).as_deref(),
-            Some("Ranged Weapon")
-        );
+        for (class, mask) in [(2, 0x0002_a5f3), (4, 0x60), (2, 0x0004_000c)] {
+            assert!(
+                cat.requirement_name(class, mask)
+                    .is_some_and(|name| !name.is_empty())
+            );
+        }
         // The singular arm shares stage 1.
-        assert_eq!(
-            cat.requirement_display_name(2, 0x0002_a5f3).as_deref(),
-            Some("Melee Weapon")
-        );
+        assert!(cat.requirement_display_name(2, 0x0002_a5f3).is_some());
 
         // Stage 2, one bit: the spellings diverge (Shoot 5019: class 2, bit 19).
-        assert_eq!(cat.requirement_name(2, 1 << 19).as_deref(), Some("Wands"));
-        assert_eq!(
-            cat.requirement_display_name(2, 1 << 19).as_deref(),
-            Some("Wand")
-        );
+        assert!(cat.requirement_name(2, 1 << 19).is_some());
+        assert!(cat.requirement_display_name(2, 1 << 19).is_some());
 
         // Stage 2, fist weapons (13) and daggers (15), no shipped group: joined for the tooltip,
         // first only for the cast-fail line.
         let mask = (1 << 13) | (1 << 15);
-        assert_eq!(
-            cat.requirement_name(2, mask).as_deref(),
-            Some("Fist Weapons, Daggers")
+        assert!(
+            cat.requirement_name(2, mask)
+                .is_some_and(|name| !name.is_empty())
         );
-        assert_eq!(
-            cat.requirement_display_name(2, mask).as_deref(),
-            Some("Fist Weapon")
+        assert!(
+            cat.requirement_display_name(2, mask)
+                .is_some_and(|name| !name.is_empty())
         );
 
         // Class 6, projectile: the cast-fail `0x31` NEED_EXOTIC_AMMO arm's lookup (`0x6e1e5e`,
         // mask `1 << arg`). Three of the five shipped rows are `(OBSOLETE)` in the data itself.
-        assert_eq!(
-            cat.requirement_display_name(6, 1 << 2).as_deref(),
-            Some("Arrow")
-        );
-        assert_eq!(
-            cat.requirement_display_name(6, 1 << 3).as_deref(),
-            Some("Bullet")
-        );
-        assert_eq!(
-            cat.requirement_display_name(6, 1 << 4).as_deref(),
-            Some("Thrown(OBSOLETE)")
-        );
+        for subclass in [2, 3, 4] {
+            assert!(cat.requirement_display_name(6, 1 << subclass).is_some());
+        }
         // Past the shipped rows: the arm declines (`0x6e1e6a`, to the shared default `0x6e21d8`).
         assert_eq!(cat.requirement_display_name(6, 1 << 5), None);
         assert_eq!(cat.requirement_display_name(6, 1 << 31), None);

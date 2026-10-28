@@ -59,7 +59,8 @@ pub(super) fn production_load_with(
     let _c = EnvGuard::unset("WOW_CAPTURE");
     let _h = EnvGuard::set("BENILLA_HOME", home.to_str().unwrap());
 
-    let mut s = UiScript::new().unwrap();
+    let locale = crate::char_select::ui_locale();
+    let mut s = UiScript::new_with_locale(&locale).unwrap();
     s.set_screen_size(1024.0, 768.0);
     s.set_unit(
         "player",

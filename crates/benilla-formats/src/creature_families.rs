@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
 use crate::chain::Chain;
-use crate::dbc::{f32_at, parse, str_at, u32_at};
+use crate::dbc::{f32_at, localized_str_at, parse, preferred_locale, str_at, u32_at};
 
 const CREATURE_FAMILY: &str = "DBFilesClient\\CreatureFamily.dbc";
 const ITEM_PET_FOOD: &str = "DBFilesClient\\ItemPetFood.dbc";
@@ -28,11 +28,11 @@ const FAMILY_MIN_SCALE_LEVEL_FIELD: usize = 2;
 const FAMILY_MAX_SCALE_FIELD: usize = 3;
 const FAMILY_MAX_SCALE_LEVEL_FIELD: usize = 4;
 const FAMILY_FOOD_MASK_FIELD: usize = 0x1c / 4;
-/// The enUS name, the localized block's first slot.
+/// The first slot of the localized name block.
 const FAMILY_NAME_FIELD: usize = 0x20 / 4;
 /// `iconFile`, after the name block's locale flags.
 const FAMILY_ICON_FIELD: usize = 0x44 / 4;
-/// `ItemPetFood.dbc`'s enUS name.
+/// `ItemPetFood.dbc`'s localized name block.
 const FOOD_NAME_FIELD: usize = 1;
 
 /// The reference tests `1 << (row - 1)` for each of the 8 food rows, so higher bits name nothing.
@@ -146,8 +146,8 @@ fn family_schema() -> Schema {
         let ty = match i {
             // minScale and maxScale, the record's only floats.
             1 | 3 => FieldType::Float32,
-            FAMILY_NAME_FIELD | FAMILY_ICON_FIELD => FieldType::String,
-            // The other locale slots, all 0 in the shipped file, read as dwords.
+            i if (FAMILY_NAME_FIELD..FAMILY_NAME_FIELD + 8).contains(&i) => FieldType::String,
+            FAMILY_ICON_FIELD => FieldType::String,
             _ => FieldType::UInt32,
         };
         s.add_field(SchemaField::new(format!("F{i}"), ty));
@@ -158,7 +158,7 @@ fn family_schema() -> Schema {
 fn food_schema() -> Schema {
     let mut s = Schema::new("ItemPetFood");
     for i in 0..FOOD_FIELDS {
-        let ty = if i == FOOD_NAME_FIELD {
+        let ty = if (FOOD_NAME_FIELD..FOOD_NAME_FIELD + 8).contains(&i) {
             FieldType::String
         } else {
             FieldType::UInt32
@@ -174,11 +174,14 @@ pub fn load_creature_families(chain: &mut Chain) -> Result<CreatureFamilies> {
         .read_file(CREATURE_FAMILY)
         .with_context(|| format!("reading {CREATURE_FAMILY}"))?;
     let rs = parse(&bytes, family_schema(), "CreatureFamily.dbc")?;
+    let locale = preferred_locale(&rs, FAMILY_NAME_FIELD);
     let mut by_id = HashMap::with_capacity(rs.records().len());
     for r in rs.records() {
         let Some(id) = u32_at(r, 0) else { continue };
         // A nameless row is dropped: `UnitCreatureFamily` answers a word or nil, never "".
-        let Some(name) = str_at(&rs, r, FAMILY_NAME_FIELD).filter(|n| !n.is_empty()) else {
+        let Some(name) =
+            localized_str_at(&rs, r, FAMILY_NAME_FIELD, locale).filter(|n| !n.is_empty())
+        else {
             continue;
         };
         by_id.insert(
@@ -203,10 +206,11 @@ pub fn load_pet_food_names(chain: &mut Chain) -> Result<PetFoodNames> {
         .read_file(ITEM_PET_FOOD)
         .with_context(|| format!("reading {ITEM_PET_FOOD}"))?;
     let rs = parse(&bytes, food_schema(), "ItemPetFood.dbc")?;
+    let locale = preferred_locale(&rs, FOOD_NAME_FIELD);
     let mut by_id = HashMap::with_capacity(rs.records().len());
     for r in rs.records() {
         let Some(id) = u32_at(r, 0) else { continue };
-        if let Some(name) = str_at(&rs, r, FOOD_NAME_FIELD) {
+        if let Some(name) = localized_str_at(&rs, r, FOOD_NAME_FIELD, locale) {
             by_id.insert(id, name);
         }
     }
@@ -222,7 +226,7 @@ mod tests {
         Some(crate::open_chain(&data).expect("open chain"))
     }
 
-    /// Field 17 sits behind locale slots typed as dwords, so a column slip reads an empty path.
+    /// Field 17 follows the localized name block, so a column slip reads an empty path.
     #[test]
     fn every_shipped_family_carries_a_pet_icon() {
         let Some(mut chain) = chain() else { return };
@@ -233,9 +237,10 @@ mod tests {
             Some("Interface\\Icons\\Ability_Hunter_Pet_Wolf")
         );
         // A warlock minion has one too, for `GetPetIcon`.
-        assert!(fams
-            .icon(15)
-            .is_some_and(|i| i.starts_with("Interface\\Icons\\")));
+        assert!(
+            fams.icon(15)
+                .is_some_and(|i| i.starts_with("Interface\\Icons\\"))
+        );
 
         for id in 1..=27 {
             let Some(f) = fams.get(id) else { continue };
@@ -264,7 +269,7 @@ mod tests {
 
         // Wolf: 0.7 at level 1 to 1.0 at 60, linear between.
         let wolf = fams.get(1).expect("Wolf");
-        assert_eq!(wolf.name, "Wolf");
+        assert!(!wolf.name.is_empty());
         assert!((wolf.scale_at(1).unwrap() - 0.7).abs() < 1e-6);
         assert!((wolf.scale_at(60).unwrap() - 1.0).abs() < 1e-6);
         let mid = wolf.scale_at(30).unwrap();
@@ -306,15 +311,12 @@ mod tests {
         let f = load_creature_families(&mut chain).expect("load CreatureFamily.dbc");
         assert_eq!(f.len(), 23, "5875 ships 23 creature families");
 
-        assert_eq!(f.name(1), Some("Wolf"));
-        assert_eq!(f.name(2), Some("Cat"));
-        assert_eq!(f.name(7), Some("Carrion Bird"));
-        assert_eq!(f.name(27), Some("Wind Serpent"));
-        assert_eq!(f.name(15), Some("Felhunter"));
-        assert_eq!(f.name(16), Some("Voidwalker"));
-        assert_eq!(f.name(17), Some("Succubus"));
-        assert_eq!(f.name(19), Some("Doomguard"));
-        assert_eq!(f.name(23), Some("Imp"));
+        for id in [1, 2, 7, 27, 15, 16, 17, 19, 23] {
+            assert!(
+                f.name(id).is_some_and(|name| !name.is_empty()),
+                "family {id}"
+            );
+        }
 
         // The id gaps: a dense 1..=23 read would shift half the table.
         for missing in [10, 13, 14, 18, 22] {
@@ -328,17 +330,11 @@ mod tests {
         let Some(mut chain) = chain() else { return };
         let n = load_pet_food_names(&mut chain).expect("load ItemPetFood.dbc");
         assert_eq!(n.len(), 8);
-        for (id, want) in [
-            (1, "Meat"),
-            (2, "Fish"),
-            (3, "Cheese"),
-            (4, "Bread"),
-            (5, "Fungus"),
-            (6, "Fruit"),
-            (7, "Raw Meat"),
-            (8, "Raw Fish"),
-        ] {
-            assert_eq!(n.name(id), Some(want), "food id {id}");
+        for id in 1..=8 {
+            assert!(
+                n.name(id).is_some_and(|name| !name.is_empty()),
+                "food id {id}"
+            );
         }
         assert_eq!(n.name(0), None, "the file is 1-based; there is no row 0");
         assert_eq!(n.name(9), None);
@@ -353,20 +349,19 @@ mod tests {
         let food = load_pet_food_names(&mut chain).expect("foods");
         let diet = |id: u32| food.for_mask(fam.get(id).expect("family").pet_food_mask);
 
-        const EVERYTHING: [&str; 6] = ["Meat", "Fish", "Cheese", "Bread", "Fungus", "Fruit"];
-        assert_eq!(diet(1), ["Meat"], "Wolf — control");
-        assert_eq!(diet(2), ["Meat", "Fish"], "Cat");
-        assert_eq!(diet(4), EVERYTHING, "Bear — control");
-        assert_eq!(diet(5), EVERYTHING, "Boar — control");
-        assert_eq!(diet(9), ["Fungus", "Fruit"], "Gorilla");
-        assert_eq!(diet(12), ["Cheese", "Fungus", "Fruit"], "Tallstrider");
-        assert_eq!(diet(27), ["Fish", "Cheese", "Bread"], "Wind Serpent");
-        // Turtle (mask 178) is the only family to set bit 7, row 8's "Raw Fish".
-        assert_eq!(
-            diet(21),
-            ["Fish", "Fungus", "Fruit", "Raw Fish"],
-            "Turtle — control"
-        );
+        let names = |ids: &[u32]| {
+            ids.iter()
+                .map(|&id| food.name(id).unwrap())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(diet(1), names(&[1]), "Wolf — control");
+        assert_eq!(diet(2), names(&[1, 2]), "Cat");
+        assert_eq!(diet(4), names(&[1, 2, 3, 4, 5, 6]), "Bear — control");
+        assert_eq!(diet(5), names(&[1, 2, 3, 4, 5, 6]), "Boar — control");
+        assert_eq!(diet(9), names(&[5, 6]), "Gorilla");
+        assert_eq!(diet(12), names(&[3, 5, 6]), "Tallstrider");
+        assert_eq!(diet(27), names(&[2, 3, 4]), "Wind Serpent");
+        assert_eq!(diet(21), names(&[2, 5, 6, 8]), "Turtle — control");
 
         // The exact empty-diet set: the diet tooltip formats `BuildListString()`'s nil for an empty
         // list and errors, so no tameable beast may join the five minions and row 28.

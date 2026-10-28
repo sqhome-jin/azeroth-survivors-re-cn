@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
 
 const ITEM_SET: &str = "DBFilesClient\\ItemSet.dbc";
 
@@ -70,9 +70,10 @@ pub fn load_item_sets(chain: &mut Chain) -> Result<ItemSetCatalog> {
         .read_file(ITEM_SET)
         .with_context(|| format!("reading {ITEM_SET}"))?;
     let rs = parse(&bytes, item_set_schema(), "ItemSet")?;
+    let locale = preferred_locale(&rs, 1);
     let mut sets = HashMap::with_capacity(rs.records().len());
     for r in rs.records() {
-        let (Some(id), Some(name)) = (u32_at(r, 0), str_at(&rs, r, 1)) else {
+        let (Some(id), Some(name)) = (u32_at(r, 0), localized_str_at(&rs, r, 1, locale)) else {
             continue;
         };
         let at = |i| u32_at(r, i).unwrap_or(0);
@@ -106,7 +107,7 @@ mod tests {
         let cat = load_item_sets(&mut chain).expect("ItemSet.dbc loads");
         assert!(!cat.is_empty());
         let devout = cat.set(182).expect("Vestments of the Devout row");
-        assert_eq!(devout.name, "Vestments of the Devout");
+        assert!(!devout.name.is_empty());
         assert_eq!(devout.items.len(), 8);
         assert!(!devout.bonuses.is_empty());
         assert!(devout.bonuses.iter().all(|&(n, s)| n >= 2 && s != 0));

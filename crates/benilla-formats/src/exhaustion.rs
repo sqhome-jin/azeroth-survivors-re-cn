@@ -6,8 +6,8 @@
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{f32_at, parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{f32_at, localized_str_at, parse, preferred_locale, u32_at};
 
 const EXHAUSTION: &str = "DBFilesClient\\Exhaustion.dbc";
 
@@ -15,7 +15,7 @@ const EXHAUSTION: &str = "DBFilesClient\\Exhaustion.dbc";
 pub struct ExhaustionRow {
     /// Also the wire's rest-state byte, which the client indexes by.
     pub id: u32,
-    /// The state name, from the enUS slot.
+    /// The state name from the selected locale.
     pub name: String,
     /// The XP multiplier.
     pub factor: f32,
@@ -42,12 +42,13 @@ pub fn load_exhaustion(chain: &mut Chain) -> Result<Vec<ExhaustionRow>> {
         .read_file(EXHAUSTION)
         .with_context(|| format!("reading {EXHAUSTION}"))?;
     let rs = parse(&bytes, exhaustion_schema(), "Exhaustion")?;
+    let locale = preferred_locale(&rs, 5);
     let mut rows = Vec::with_capacity(rs.records().len());
     for r in rs.records() {
         let (Some(id), Some(factor)) = (u32_at(r, 0), f32_at(r, 2)) else {
             continue;
         };
-        let name = str_at(&rs, r, 5).unwrap_or_default();
+        let name = localized_str_at(&rs, r, 5, locale).unwrap_or_default();
         rows.push(ExhaustionRow { id, name, factor });
     }
     Ok(rows)
@@ -66,11 +67,12 @@ mod tests {
             .iter()
             .map(|r| (r.id, (r.name.as_str(), r.factor)))
             .collect();
-        assert_eq!(by_id[&1], ("Rested", 2.0), "the ×2 is this row's data");
-        assert_eq!(by_id[&2], ("Normal", 1.0));
-        assert_eq!(by_id[&3], ("XXXTired", 1.0), "beta tier, never sent");
-        assert_eq!(by_id[&4], ("XXXTired", 0.5));
-        assert_eq!(by_id[&5], ("XXXExhausted", 0.25));
+        assert_eq!(by_id[&1].1, 2.0, "the rested state carries the double");
+        assert_eq!(by_id[&2].1, 1.0);
+        assert_eq!(by_id[&3].1, 1.0, "beta tier, never sent");
+        assert_eq!(by_id[&4].1, 0.5);
+        assert_eq!(by_id[&5].1, 0.25);
+        assert!(by_id.values().all(|(name, _)| !name.is_empty()));
         assert_eq!(rows.len(), 5, "the whole shipped table");
     }
 }

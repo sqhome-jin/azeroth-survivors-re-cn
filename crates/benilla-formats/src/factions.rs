@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, u32_at};
 use crate::Chain;
+use crate::dbc::{parse, u32_at};
 
 const FACTION_TEMPLATE: &str = "DBFilesClient\\FactionTemplate.dbc";
 const FACTION: &str = "DBFilesClient\\Faction.dbc";
@@ -419,6 +419,7 @@ pub fn load_faction_catalog(chain: &mut Chain) -> Result<FactionCatalog> {
         .read_file(FACTION)
         .with_context(|| format!("reading {FACTION}"))?;
     let rs = parse(&bytes, faction_schema(), "Faction")?;
+    let locale = crate::dbc::preferred_locale(&rs, 19);
     let mut factions = HashMap::with_capacity(rs.records().len());
     let mut names = HashMap::with_capacity(rs.records().len());
     let mut descriptions = HashMap::new();
@@ -438,11 +439,11 @@ pub fn load_faction_catalog(chain: &mut Chain) -> Result<FactionCatalog> {
                 },
             );
             // Name0 (enUS), column 19: after the ID, the index, 16 slot columns and `Team`.
-            if let Some(name) = crate::dbc::str_at(&rs, r, 19) {
+            if let Some(name) = crate::dbc::localized_str_at(&rs, r, 19, locale) {
                 names.insert(id, name);
             }
             // Desc0 (enUS), column 28, past the name block; empty on most rows.
-            if let Some(desc) = crate::dbc::str_at(&rs, r, 28) {
+            if let Some(desc) = crate::dbc::localized_str_at(&rs, r, 28, locale) {
                 descriptions.insert(id, desc);
             }
         }
@@ -452,10 +453,14 @@ pub fn load_faction_catalog(chain: &mut Chain) -> Result<FactionCatalog> {
         .read_file(FACTION_GROUP)
         .with_context(|| format!("reading {FACTION_GROUP}"))?;
     let rs = parse(&bytes, faction_group_schema(), "FactionGroup")?;
+    let locale = crate::dbc::preferred_locale(&rs, 3);
     let mut group_names = HashMap::with_capacity(rs.records().len());
     let mut group_internal_names = HashMap::with_capacity(rs.records().len());
     for r in rs.records() {
-        let (Some(mask_id), Some(name)) = (u32_at(r, 1), crate::dbc::str_at(&rs, r, 3)) else {
+        let (Some(mask_id), Some(name)) = (
+            u32_at(r, 1),
+            crate::dbc::localized_str_at(&rs, r, 3, locale),
+        ) else {
             continue;
         };
         // Field 2 is `InternalName`, field 3 `Name0`; `UnitFactionGroup` returns both.
@@ -624,7 +629,7 @@ mod tests {
         assert_eq!(reputation_rank(stormwind.base_for(2, 1)), 0);
 
         // The unit tooltip (`0x529fe0`) shows "Stormwind" under a Stormwind guard to a human.
-        assert_eq!(cat.faction_name(72), Some("Stormwind"));
+        assert!(cat.faction_name(72).is_some_and(|name| !name.is_empty()));
         assert!(
             stormwind.tooltip_shows_for(1, 1),
             "Stormwind's matched slot is not rep-hidden for a human"
@@ -693,8 +698,14 @@ mod tests {
         let data = crate::wow_data_or_skip!();
         let mut chain = crate::open_chain(&data).expect("open chain");
         let cat = load_faction_catalog(&mut chain).expect("load factions");
-        assert_eq!(cat.faction_group_name(2), Some("Alliance"));
-        assert_eq!(cat.faction_group_name(4), Some("Horde"));
+        assert!(
+            cat.faction_group_name(2)
+                .is_some_and(|name| !name.is_empty())
+        );
+        assert!(
+            cat.faction_group_name(4)
+                .is_some_and(|name| !name.is_empty())
+        );
         assert_eq!(cat.faction_group_name(0), None);
     }
 
@@ -746,8 +757,7 @@ mod tests {
         assert_eq!(parents, [67, 169, 469, 891, 892]);
 
         assert!(
-            cat.faction_description(529)
-                .is_some_and(|d| d.starts_with("An organization focused on protecting Azeroth")),
+            cat.faction_description(529).is_some_and(|d| !d.is_empty()),
             "Argent Dawn's description: {:?}",
             cat.faction_description(529)
         );

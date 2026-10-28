@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
 
 const ITEM_BAG_FAMILY: &str = "DBFilesClient\\ItemBagFamily.dbc";
 
@@ -52,10 +52,13 @@ pub fn load_item_bag_families(chain: &mut Chain) -> Result<ItemBagFamilyCatalog>
         .read_file(ITEM_BAG_FAMILY)
         .with_context(|| format!("reading {ITEM_BAG_FAMILY}"))?;
     let rs = parse(&bytes, item_bag_family_schema(), "ItemBagFamily")?;
+    let locale = preferred_locale(&rs, 1);
     let mut names = HashMap::with_capacity(rs.records().len());
     for r in rs.records() {
-        let (Some(id), Some(name)) = (u32_at(r, 0), str_at(&rs, r, 1).filter(|n| !n.is_empty()))
-        else {
+        let (Some(id), Some(name)) = (
+            u32_at(r, 0),
+            localized_str_at(&rs, r, 1, locale).filter(|n| !n.is_empty()),
+        ) else {
             continue;
         };
         names.insert(id, name);
@@ -73,13 +76,12 @@ mod tests {
         let mut chain = crate::open_chain(&data).expect("open chain");
         let cat = load_item_bag_families(&mut chain).expect("ItemBagFamily.dbc");
 
-        assert_eq!(cat.name(1), Some("Arrows"), "quiver");
-        assert_eq!(cat.name(2), Some("Bullets"), "ammo pouch");
-        assert_eq!(cat.name(3), Some("Soul Shards"), "soul bag");
-        assert_eq!(cat.name(6), Some("Herbs"));
-        assert_eq!(cat.name(7), Some("Enchanting Supplies"));
-        assert_eq!(cat.name(8), Some("Engineering Supplies"));
-        assert_eq!(cat.name(9), Some("Keys"), "the keyring family");
+        for id in [1, 2, 3, 6, 7, 8, 9] {
+            assert!(
+                cat.name(id).is_some_and(|name| !name.is_empty()),
+                "family {id}"
+            );
+        }
         // 4 and 5 do not ship.
         assert_eq!(cat.name(4), None);
         assert_eq!(cat.name(5), None);

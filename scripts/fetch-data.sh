@@ -15,7 +15,7 @@ DATA="$DATA_DIR/Data"
 # Where the game data is downloaded from. Override per-run by setting WOW_DATA_URL, or edit the
 # default below if the archive.org item ever moves. It must be a direct link to a zip that holds
 # the client's Data/*.MPQ files.
-DEFAULT_DATA_URL="https://archive.org/download/WoW_1.12.1-5875/1.12.1-5875_enUS.zip"
+DEFAULT_DATA_URL="https://archive.org/download/WoW_1.12.1-5875/1.12.1-5875_zhCN.zip"
 URL="${WOW_DATA_URL:-$DEFAULT_DATA_URL}"
 ZIP="$DATA_DIR/$(basename "${URL%%\?*}")"
 

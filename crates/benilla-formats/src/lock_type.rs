@@ -10,14 +10,14 @@ use crate::Chain;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
+use crate::dbc::{localized_str_at, parse, preferred_locale, str_at, u32_at};
 
 const LOCK_TYPE: &str = "DBFilesClient\\LockType.dbc";
 /// The file's column count, which `benilla-dbc` checks against the header.
 const LOCK_TYPE_FIELDS: usize = 29;
 /// `CursorName`, the `[row+0x70]` that `0x5f3070` reads.
 const CURSOR_NAME_FIELD: usize = 28;
-/// The `Name` block's enUS column, the toast's `[row + locale*4 + 4]` at locale 0.
+/// The `Name` block's first column, at `row + locale*4 + 4`.
 const NAME_FIELD: usize = 1;
 
 /// `LockType.Id` → `CursorName` for the three rows with one, plus every row's `Name`.
@@ -52,7 +52,7 @@ fn schema() -> Schema {
     let mut s = Schema::new("LockType");
     for i in 0..LOCK_TYPE_FIELDS {
         // The unread columns are 4-byte filler, declared so the record size matches the header.
-        let ty = if i == CURSOR_NAME_FIELD || i == NAME_FIELD {
+        let ty = if (NAME_FIELD..NAME_FIELD + 8).contains(&i) || i == CURSOR_NAME_FIELD {
             FieldType::String
         } else {
             FieldType::UInt32
@@ -68,6 +68,7 @@ pub fn load_lock_type_catalog(chain: &mut Chain) -> Result<LockTypeCatalog> {
         .read_file(LOCK_TYPE)
         .with_context(|| format!("reading {LOCK_TYPE}"))?;
     let rs = parse(&bytes, schema(), "LockType.dbc")?;
+    let locale = preferred_locale(&rs, NAME_FIELD);
     let mut cursors = HashMap::new();
     let mut names = HashMap::new();
     for r in rs.records() {
@@ -75,7 +76,7 @@ pub fn load_lock_type_catalog(chain: &mut Chain) -> Result<LockTypeCatalog> {
         if let Some(name) = str_at(&rs, r, CURSOR_NAME_FIELD) {
             cursors.insert(id, name);
         }
-        if let Some(name) = str_at(&rs, r, NAME_FIELD) {
+        if let Some(name) = localized_str_at(&rs, r, NAME_FIELD, locale) {
             names.insert(id, name);
         }
     }
@@ -107,10 +108,12 @@ mod tests {
         );
 
         // A slip to `ResourceName` (field 10) would print "Requires Herbs".
-        assert_eq!(cat.name(1), Some("Pick Lock"));
-        assert_eq!(cat.name(2), Some("Herbalism"));
-        assert_eq!(cat.name(3), Some("Mining"));
-        assert_eq!(cat.name(19), Some("Fishing"));
+        for id in [1, 2, 3, 19] {
+            assert!(
+                cat.name(id).is_some_and(|name| !name.is_empty()),
+                "lock type {id}"
+            );
+        }
         assert_eq!(cat.name(0), None);
     }
 }

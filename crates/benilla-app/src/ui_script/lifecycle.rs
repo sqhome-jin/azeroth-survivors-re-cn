@@ -9,7 +9,7 @@ use benilla_assets::LockRecover;
 use benilla_ui::script::UiScript;
 
 use super::manifest::silenced_ui_load;
-use super::{load_ingame_ui, CursorPayloadHeld, PlayerUiHover, UiClock, UiKeyboardCapture};
+use super::{CursorPayloadHeld, PlayerUiHover, UiClock, UiKeyboardCapture, load_ingame_ui};
 use crate::ui_script::addons;
 use crate::ui_script::addons::Addon;
 
@@ -33,7 +33,8 @@ fn install_boot_vm(world: &mut World) {
 /// A fresh VM on the process clock with the addon asset probes wired, or `None` (the world's VM
 /// removed) when the VM cannot start.
 fn new_vm(world: &mut World) -> Option<UiScript> {
-    let mut script = match UiScript::new() {
+    let locale = crate::char_select::ui_locale();
+    let mut script = match UiScript::new_with_locale(&locale) {
         Ok(s) => s,
         Err(e) => {
             error!("ui_script: VM init failed: {e}");

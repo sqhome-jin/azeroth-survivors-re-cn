@@ -14,7 +14,7 @@ use crate::Chain;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
+use crate::dbc::{localized_str_at, parse, preferred_locale, str_at, u32_at};
 
 const ITEM_VISUALS: &str = "DBFilesClient\\ItemVisuals.dbc";
 const ITEM_VISUAL_EFFECTS: &str = "DBFilesClient\\ItemVisualEffects.dbc";
@@ -50,7 +50,7 @@ impl ItemVisualCatalog {
     }
 }
 
-/// `SpellItemEnchantment.dbc`'s visual, enUS name and `Flags`, one load for the glow chain, the
+/// `SpellItemEnchantment.dbc`'s visual, localized name and `Flags`, one load for the glow chain, the
 /// tooltip's enchant line and the bind confirms.
 pub struct EnchantCatalog {
     visuals: HashMap<u32, i32>,
@@ -150,7 +150,7 @@ pub(crate) fn item_visual_effects_schema() -> Schema {
     s
 }
 
-/// `SpellItemEnchantment.dbc`: 24 fields, 96-byte records. The reference reads the enUS name at
+/// `SpellItemEnchantment.dbc`: 24 fields, 96-byte records. The reference reads the locale name at
 /// `+0x34` (field 13, `0x4960d0`), the visual at `+0x58` (field 22, `0x5d9be1`) and `Flags` at
 /// `+0x5c` (field 23).
 pub(crate) fn spell_item_enchantment_schema() -> Schema {
@@ -213,6 +213,7 @@ pub fn load_enchant_catalog(chain: &mut Chain) -> Result<EnchantCatalog> {
         spell_item_enchantment_schema(),
         "SpellItemEnchantment",
     )?;
+    let locale = preferred_locale(&rs, 13);
     let mut visuals = HashMap::new();
     let mut names = HashMap::new();
     let mut flags = HashMap::with_capacity(rs.records().len());
@@ -225,7 +226,7 @@ pub fn load_enchant_catalog(chain: &mut Chain) -> Result<EnchantCatalog> {
             visuals.insert(id, visual);
         }
         // `str_at` drops an empty name.
-        if let Some(name) = str_at(&rs, r, 13) {
+        if let Some(name) = localized_str_at(&rs, r, 13, locale) {
             names.insert(id, name);
         }
     }
@@ -374,12 +375,15 @@ mod tests {
         let enchants = load_enchant_catalog(&mut chain).expect("load SpellItemEnchantment");
 
         // 2564, a permanent weapon enchant: a name and a visual (125, GreenGlow_Low) on one row.
-        assert_eq!(enchants.name(2564), Some("Agility +15"));
+        assert!(enchants.name(2564).is_some_and(|name| !name.is_empty()));
         assert_eq!(enchants.visual(2564), Some(125));
         // Named, no glow: the +stat family.
-        assert_eq!(enchants.name(241), Some("Weapon Damage +2"));
-        assert_eq!(enchants.name(929), Some("Stamina +7"));
-        assert_eq!(enchants.name(1900), Some("Crusader"));
+        for id in [241, 929, 1900] {
+            assert!(
+                enchants.name(id).is_some_and(|name| !name.is_empty()),
+                "enchant {id}"
+            );
+        }
         assert_eq!(enchants.name(999_999), None);
         assert!(
             enchants.name_count() > enchants.visual_count(),
@@ -425,13 +429,15 @@ mod tests {
             (0..3000).filter(|&id| e.tooltip_hides_name(id)).collect();
         assert_eq!(
             hidden,
-            [124, 285, 303, 543, 563, 564, 1683, 1783, 1803, 1823, 1824, 1825]
-                .into_iter()
-                .collect(),
+            [
+                124, 285, 303, 543, 563, 564, 1683, 1783, 1803, 1823, 1824, 1825
+            ]
+            .into_iter()
+            .collect(),
             "the totem-granted imbues (Flametongue/Windfury Totem), Orb of Fire and Firestone 1-4"
         );
         // The name stays, for the replace confirm.
-        assert_eq!(e.name(124), Some("Flametongue Totem 1"));
+        assert!(e.name(124).is_some_and(|name| !name.is_empty()));
 
         // The row set the confirms gate on.
         assert!(e.has_row(2564) && e.has_row(1) && !e.has_row(999_999));

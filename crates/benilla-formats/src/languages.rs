@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
 use crate::Chain;
+use crate::dbc::{parse, str_at, u32_at};
 
 const LANGUAGES: &str = "DBFilesClient\\Languages.dbc";
 const CHR_RACES: &str = "DBFilesClient\\ChrRaces.dbc";
@@ -263,20 +263,24 @@ mod tests {
         let data = crate::wow_data_or_skip!();
         let mut chain = Chain::open(&data).expect("open patch chain");
         let langs = load_default_languages(&mut chain).expect("load");
+        let bytes = chain.read_file(LANGUAGES).expect("Languages.dbc");
+        let records = parse(&bytes, languages_schema(), "Languages.dbc").expect("parse Languages");
+        let locale = crate::dbc::preferred_locale(&records, 1);
 
         // All nine `ChrRaces` rows resolve: the eight playable races and the Goblin.
         assert_eq!(langs.len(), 9, "one entry per ChrRaces row");
-        // Alliance speaks Common, Horde Orcish; the racial language would give Darnassian.
+        // Alliance and Horde races still resolve to their respective faction language rows.
+        let alliance = langs.name(1, locale).expect("localized Common");
+        let horde = langs.name(2, locale).expect("localized Orcish");
+        assert_ne!(alliance, horde);
         for race in [1, 3, 4, 7] {
-            assert_eq!(langs.name(race, 0), Some("Common"), "race {race}");
+            assert_eq!(langs.name(race, locale), Some(alliance), "race {race}");
         }
         for race in [2, 5, 6, 8] {
-            assert_eq!(langs.name(race, 0), Some("Orcish"), "race {race}");
+            assert_eq!(langs.name(race, locale), Some(horde), "race {race}");
         }
         // No such race: the reference's no-record edge.
-        assert_eq!(langs.name(99, 0), None);
-        // An enUS install fills only column 0; another is empty, not a panic.
-        assert_eq!(langs.name(1, 5), None);
+        assert_eq!(langs.name(99, locale), None);
     }
 
     #[test]

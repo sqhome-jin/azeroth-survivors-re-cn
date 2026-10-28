@@ -35,6 +35,12 @@ fn get_locale_and_set_all_points() {
 }
 
 #[test]
+fn get_locale_returns_the_requested_client_locale() {
+    let s = crate::script::UiScript::new_with_locale("zhCN").unwrap();
+    assert_eq!(s.eval::<String>("return GetLocale()").unwrap(), "zhCN");
+}
+
+#[test]
 fn getpoint_reads_back_anchors() {
     let s = script();
     s.run(

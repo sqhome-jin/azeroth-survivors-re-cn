@@ -14,12 +14,19 @@ const BUILD_DATE: &str = "Sep 19 2006";
 pub(super) fn install(lua: &Lua) -> mlua::Result<()> {
     let g = lua.globals();
 
-    // `GetLocale()` (glue `0x46ce40`, in-game `0x48d8b0`) returns one string, `enUS`, as benilla
-    // is enUS-only. `IsMacClient()` (`0x48c980`) returns one nil, the PC build's answer, which
+    // `GetLocale()` (glue `0x46ce40`, in-game `0x48d8b0`) returns the configured client locale.
+    // `IsMacClient()` (`0x48c980`) returns one nil, the PC build's answer, which
     // takes FrameXML's PC key-label arm.
     g.set(
         "GetLocale",
-        lua.create_function(|lua, ()| lua.create_string("enUS"))?,
+        lua.create_function(|lua, ()| {
+            let locale = lua
+                .app_data_ref::<Model>()
+                .expect("model app_data")
+                .locale
+                .clone();
+            lua.create_string(&locale)
+        })?,
     )?;
     g.set("IsMacClient", lua.create_function(|_, ()| Ok(Value::Nil))?)?;
     // The PC build's other two platform answers: `IsWindowsClient()` (`0x48c960`) pushes the

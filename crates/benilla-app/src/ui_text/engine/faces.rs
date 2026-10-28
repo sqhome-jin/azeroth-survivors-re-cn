@@ -11,6 +11,8 @@ pub(super) const CLIENT_FONTS: &[&str] = &[
     "Fonts\\SKURRI.TTF",
 ];
 
+pub(super) const ZHCN_FONT: &str = "Fonts\\FZLBJW.TTF";
+
 /// The face's ascender as a fraction of the em, `hhea.asc / (hhea.asc + |hhea.desc|)`, off the raw
 /// sfnt bytes. The reference puts the baseline at `cellTop + round(em · ratio)` (`[CGxFont+0x17c]`,
 /// set at `0x5ca030`, reaching the placement kernel `0x5d1360` through `0x5ca160` and `0x5d1120`);

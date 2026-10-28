@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
 use crate::chain::Chain;
-use crate::dbc::{parse, str_at, u32_at};
+use crate::dbc::{localized_str_at, parse, preferred_locale, str_at, u32_at};
 
 const PACKAGE: &str = "DBFilesClient\\Package.dbc";
 
@@ -23,7 +23,7 @@ pub struct PackageRow {
     pub icon: String,
     /// Copper, read as a signed dword (`0x4ae50d` `fild`).
     pub cost: i32,
-    /// The enUS name.
+    /// The localized name.
     pub name: String,
 }
 
@@ -32,7 +32,7 @@ pub fn load_packages(chain: &mut Chain) -> Result<Vec<PackageRow>> {
     let bytes = chain.read_file(PACKAGE).context("reading Package.dbc")?;
     let mut schema = Schema::new("Package");
     for i in 0..PACKAGE_FIELDS {
-        let ty = if i == 1 || i == 3 {
+        let ty = if i == 1 || (3..11).contains(&i) {
             FieldType::String
         } else {
             FieldType::UInt32
@@ -40,6 +40,7 @@ pub fn load_packages(chain: &mut Chain) -> Result<Vec<PackageRow>> {
         schema.add_field(SchemaField::new(format!("F{i}"), ty));
     }
     let set = parse(&bytes, schema, "Package.dbc")?;
+    let locale = preferred_locale(&set, 3);
     Ok(set
         .records()
         .iter()
@@ -48,7 +49,7 @@ pub fn load_packages(chain: &mut Chain) -> Result<Vec<PackageRow>> {
                 id: u32_at(r, 0)?,
                 icon: str_at(&set, r, 1).unwrap_or_default(),
                 cost: u32_at(r, 2)? as i32,
-                name: str_at(&set, r, 3).unwrap_or_default(),
+                name: localized_str_at(&set, r, 3, locale).unwrap_or_default(),
             })
         })
         .collect())
@@ -63,14 +64,10 @@ mod tests {
         let data = crate::wow_data_or_skip!();
         let mut chain = crate::open_chain(&data).expect("open chain");
         let rows = load_packages(&mut chain).expect("load Package.dbc");
-        assert_eq!(
-            rows,
-            [PackageRow {
-                id: 2,
-                icon: "INV_BOX_04".into(),
-                cost: 10,
-                name: "Test Package".into(),
-            }]
-        );
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, 2);
+        assert_eq!(rows[0].icon, "INV_BOX_04");
+        assert_eq!(rows[0].cost, 10);
+        assert!(!rows[0].name.is_empty());
     }
 }

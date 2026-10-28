@@ -9,7 +9,7 @@ use crate::Chain;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::dbc::{parse, str_at, u32_at};
+use crate::dbc::{localized_str_at, parse, preferred_locale, str_at, u32_at};
 
 /// The audio-relevant slice of one `AreaTable` row.
 pub struct AreaEntry {
@@ -27,7 +27,7 @@ pub struct AreaEntry {
     pub sound_provider: u32,
     /// The preset while the listener is submerged (11 is "Underwater"), `0` to inherit.
     pub sound_provider_underwater: u32,
-    /// The zone/subzone display name (enUS column).
+    /// The zone/subzone display name in the most populated locale.
     pub name: String,
 }
 
@@ -163,8 +163,10 @@ fn area_schema() -> Schema {
         debug_assert!(i < 11);
         s.add_field(SchemaField::new(name, FieldType::UInt32));
     }
-    s.add_field(SchemaField::new("AreaName", FieldType::String));
-    for i in 12..25 {
+    for i in 11..19 {
+        s.add_field(SchemaField::new(format!("AreaName{i}"), FieldType::String));
+    }
+    for i in 19..25 {
         s.add_field(SchemaField::new(format!("_pad{i}"), FieldType::UInt32));
     }
     s
@@ -220,6 +222,7 @@ pub fn load_area_sound_catalog(chain: &mut Chain) -> Result<AreaSoundCatalog> {
         area_schema(),
         "AreaTable",
     )?;
+    let locale = preferred_locale(&rs, 11);
     let mut areas = HashMap::with_capacity(rs.records().len());
     for r in rs.records() {
         let Some(id) = u32_at(r, 0) else { continue };
@@ -233,7 +236,7 @@ pub fn load_area_sound_catalog(chain: &mut Chain) -> Result<AreaSoundCatalog> {
                 intro_sound: u32_at(r, 9).unwrap_or(0),
                 sound_provider: u32_at(r, 5).unwrap_or(0),
                 sound_provider_underwater: u32_at(r, 6).unwrap_or(0),
-                name: str_at(&rs, r, 11).unwrap_or_default(),
+                name: localized_str_at(&rs, r, 11, locale).unwrap_or_default(),
             },
         );
     }
@@ -318,7 +321,7 @@ mod tests {
         assert_eq!(cat.len(), 1081, "all AreaTable rows load");
 
         let elwynn = cat.resolve(12).expect("Elwynn resolves");
-        assert_eq!(elwynn.area_name, "Elwynn Forest");
+        assert!(!elwynn.area_name.is_empty());
         assert_eq!(
             elwynn.sound_provider,
             [0, 11],

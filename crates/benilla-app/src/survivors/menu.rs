@@ -9,7 +9,7 @@ use bevy::prelude::*;
 use bevy::ui_render::ui_material::MaterialNode;
 
 use super::hud::{looks_for, rgb, start_run, HudFont, MenuRoot};
-use super::{data, Phase, Rng, Run, Selection};
+use super::{data, localization, Phase, Rng, Run, Selection};
 use crate::char_select::race_name;
 use crate::glue::art::{class_tc, race_tc, tc_rect, GlueArt, DIM, GOLD, NAME_EDGE};
 use crate::glue::backdrop::{backdrop_border, tiled_bg_node};
@@ -197,7 +197,7 @@ pub(super) fn build_menu(
                 &art,
                 f,
                 MenuAction::Enter,
-                "Enter World",
+                localization::text("Enter World", "进入世界"),
                 200.0,
                 60.0,
                 GlueBtnKind::Normal,
@@ -257,7 +257,10 @@ fn tower(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
                 abs(1.0, -27.0, 60.0, 256.0, 259.0),
             ));
         }
-        for (label, center) in [("Alliance", 51.0), ("Horde", 151.0)] {
+        for (label, center) in [
+            (localization::text("Alliance", "联盟"), 51.0),
+            (localization::text("Horde", "部落"), 151.0),
+        ] {
             outlined_text(
                 tower,
                 Node {
@@ -299,7 +302,7 @@ fn tower(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
                             Some(RaceFace(race)),
                             face,
                             None::<()>,
-                            race_name(race),
+                            localization::race_name(race, race_name(race)),
                             art,
                             1.0,
                         );
@@ -317,7 +320,10 @@ fn tower(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
                 ..default()
             })
             .with_children(|g| {
-                for (sex, label) in [(0u8, "Male"), (1u8, "Female")] {
+                for (sex, label) in [
+                    (0u8, localization::text("Male", "男性")),
+                    (1u8, localization::text("Female", "女性")),
+                ] {
                     let face = art.gender.as_ref().map(|(sheet, size)| {
                         let half = if sex == 0 {
                             [0.0, 0.5, 0.0, 1.0]
@@ -366,7 +372,7 @@ fn tower(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
                         None::<()>,
                         face,
                         None::<()>,
-                        class.name,
+                        localization::class_name(class.id, class.name),
                         art,
                         1.0,
                     );
@@ -386,7 +392,7 @@ fn tower(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
                     art,
                     f,
                     MenuAction::Randomize,
-                    "Randomize",
+                    localization::text("Randomize", "随机选择"),
                     146.0,
                     30.0,
                     GlueBtnKind::Small,
@@ -447,7 +453,7 @@ fn zone_frame(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
             (),
             (),
             GlueText {
-                text: "Choose a Zone",
+                text: localization::text("Choose a Zone", "选择战场"),
                 size: 18.0,
                 color: DIM,
                 wrap: false,
@@ -486,7 +492,7 @@ fn zone_frame(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
                         (),
                         (),
                         GlueText {
-                            text: map.name,
+                            text: localization::map_name(map.name),
                             size: 15.0,
                             color: GOLD,
                             wrap: false,
@@ -495,9 +501,9 @@ fn zone_frame(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
                         1.0,
                     );
                     let levels = if lo == hi {
-                        format!("Level {lo}")
+                        format!("{} {lo}", localization::text("Level", "等级"))
                     } else {
-                        format!("Level {lo}-{hi}")
+                        format!("{} {lo}-{hi}", localization::text("Level", "等级"))
                     };
                     outlined_text(
                         b,
@@ -505,7 +511,7 @@ fn zone_frame(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
                         (),
                         (),
                         GlueText {
-                            text: &format!("{levels}  {}", map.zone),
+                            text: &format!("{levels}  {}", localization::zone_name(map.zone)),
                             size: 12.0,
                             color: Color::WHITE,
                             wrap: false,
@@ -711,7 +717,11 @@ pub(super) fn refresh_menu_ui(
     let class = selection.class_def();
     if let Ok((mut t, mut color)) = name.single_mut() {
         let want = match (class, cur) {
-            (Some(c), Some((r, _))) => format!("{} {}", race_name(r), c.name),
+            (Some(c), Some((r, _))) => format!(
+                "{} {}",
+                localization::race_name(r, race_name(r)),
+                localization::class_name(c.id, c.name)
+            ),
             _ => String::new(),
         };
         if t.0 != want {

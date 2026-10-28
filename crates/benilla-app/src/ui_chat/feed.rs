@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 
 use benilla_protocol::messages::{
-    channel_notice, ChannelNoticeTail, ChatMessage, LevelUpInfo, XpGain, MACRO_EXPANDED_TYPES,
+    ChannelNoticeTail, ChatMessage, LevelUpInfo, MACRO_EXPANDED_TYPES, XpGain, channel_notice,
 };
 
 use benilla_assets::{LockRecover, WorldAssets};
@@ -14,8 +14,8 @@ use crate::names::NameCache;
 use crate::net::{GuidIndex, NetCommands, ObjectStore, SelfGuid};
 
 use super::edit::ChannelState;
-use super::event::{flag_of_tag, kind_of_wire, language_name, ChatEvent, ChatEventKind};
-use super::frames::{route, ChatWindows};
+use super::event::{ChatEvent, ChatEventKind, flag_of_tag, kind_of_wire, language_name};
+use super::frames::{ChatWindows, route};
 
 /// Frames a line waits on a name, about 2 s at 60 fps, before it gives up.
 const NAME_MAX_TRIES: u16 = 120;
@@ -23,9 +23,6 @@ const NAME_MAX_TRIES: u16 = 120;
 /// The text-emote sentence tables, read once off the patch chain.
 #[derive(Resource)]
 pub(crate) struct EmoteTexts(pub(crate) EmoteTextCatalog);
-
-/// The DBC string column: 0, enUS; the reference reads its locale slot `[0xc0e080]`.
-const LOCALE: usize = 0;
 
 /// Load `EmotesText.dbc` with `EmotesTextData.dbc`; before `AssetSet::Open` it loads nothing.
 pub(super) fn load_emote_texts(mut commands: Commands, assets: Option<Res<WorldAssets>>) {
@@ -132,7 +129,7 @@ pub(super) fn text_emote_event(
 ) -> Option<ChatEvent> {
     Some(ChatEvent {
         kind: Some(ChatEventKind::TextEmote),
-        text: cat.compose(text_id, line, LOCALE)?,
+        text: cat.compose(text_id, line, crate::char_select::ui_locale_index())?,
         sender: line.performer.to_string(),
         ..Default::default()
     })
