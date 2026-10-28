@@ -17,7 +17,7 @@
 This repository, [sqhome-jin/azeroth-survivors-re-cn](https://github.com/sqhome-jin/azeroth-survivors-re-cn),
 is a fork of [OutThisLife/azeroth-survivors-re](https://github.com/OutThisLife/azeroth-survivors-re)
 for local development and future extensions, with Simplified Chinese as the default documentation language.
-**Chinese documentation does not mean the game UI is fully localized or planned features are already implemented.**
+This branch adds zhCN localization: Chinese character/battleground selection, the Survivors combat HUD and upgrade cards by default, plus locale-aware DBC and FrameXML text. Some custom or legacy hard-coded strings may still appear in English; changing the UI locale also requires matching client data.
 
 > **Original Game and Credits:** The original Azeroth Survivors is by **[Aethus](https://wow.aethus.pl/)**.
 > Play the online version at [the original website](https://wow.aethus.pl/), read the
@@ -35,6 +35,7 @@ to serve the page and game assets; the initial build downloads dependencies and 
 - [Current Features](#current-features)
 - [Quick Start](#quick-start)
 - [Controls](#controls)
+- [Client Locale](#client-locale)
 - [Game Data](#game-data)
 - [Architecture and Development Docs](#architecture-and-development-docs)
 - [Documentation Languages](#documentation-languages)
@@ -61,6 +62,7 @@ to serve the page and game assets; the initial build downloads dependencies and 
 - **Class mobility:** unlocked at level 5 and activated with F toward the cursor, including Blink, Charge, Sprint, and more.
 - **Camera controls:** locked top-down by default; C unlocks rotation and tilt, and the wheel zooms out to 70 yards.
 - **Post-processing:** G toggles sharpening and color adjustment.
+- **Chinese localization:** zhCN is the default for Survivors UI and client-provided localized text; some custom strings may remain in English.
 
 ## Quick Start
 
@@ -88,6 +90,7 @@ make start
 
 Open <http://127.0.0.1:8090/>. The initial game-data download is about 5.5 GB,
 in addition to build dependencies and tools.
+The browser build defaults to zhCN; append `?locale=enUS` to use the English UI. Provide client data for the matching locale as well.
 
 `make build` runs these repeatable steps in order, skipping the relevant downloads or installations when already complete:
 
@@ -126,12 +129,16 @@ Run `make help` for all targets. **Use `make clean` carefully: it deletes downlo
 
 See [CONTROLS.md](CONTROLS.md) for the full English reference.
 
+## Client Locale
+
+The client defaults to `zhCN`. Select a browser locale with `?locale=zhCN` or `?locale=enUS`; on desktop, set `WOW_LOCALE=zhCN` or `WOW_LOCALE=enUS`. The locale selects which strings the UI reads; it does not convert client assets. Match `WOW_LOCALE` to the client data passed through `WOW_DATA` or `--data`. Individual DBC strings missing in the selected locale fall back to enUS.
+
 ## Game Data
 
 The repository includes no Blizzard game asset files: models, textures, sounds, maps,
 MPQ contents, and FrameXML are not bundled. Runtime requires a WoW 1.12.1 client's `Data` directory.
 
-The default script downloads the **English WoW 1.12.1 (build 5875)** client from
+The default script downloads the **Simplified Chinese WoW 1.12.1 (build 5875, zhCN)** client from
 [archive.org](https://archive.org/details/WoW_1.12.1-5875) and extracts MPQs into `wow-data/Data/`.
 That directory is Git-ignored; downloads are resumable and skipped when data is already present.
 You are responsible for ensuring you have permission to obtain and use game data from any source.
