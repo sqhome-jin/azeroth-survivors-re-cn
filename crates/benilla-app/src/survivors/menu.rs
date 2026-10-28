@@ -1,41 +1,18 @@
-//! The run's pick screen, laid out like the 1.12 character create and select glue screens and built
-//! from their own widgets and art ([`crate::glue`]): the race, gender and class tower on the left,
-//! the zone list in the character-select frame on the right, Enter World at the bottom.
-//!
-//! The survivors HUD lays out on the 768-unit canvas through `UiScale`, so every glue builder here
-//! takes a unit scale.
+//! Class, appearance, destination and talent selection for the offline launcher.
 
+use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
-use bevy::ui_render::ui_material::MaterialNode;
 
-use super::hud::{looks_for, rgb, start_run, HudFont, MenuRoot};
-use super::{data, localization, Phase, Rng, Run, Selection};
-use crate::char_select::race_name;
-use crate::glue::art::{class_tc, race_tc, tc_rect, GlueArt, DIM, GOLD, NAME_EDGE};
-use crate::glue::backdrop::{backdrop_border, tiled_bg_node};
-use crate::glue::widgets::{
-    abs, glue_button, icon_button, outlined_text, GlueBtnKind, GlueDisabled, GlueText, Hilight,
-    HoverLabel, LockHighlight,
+use super::hud::{HudFont, MenuRoot, SpellIcon, UiArt, looks_for, rgb, start_run};
+use super::menu_layout::{
+    self as layout, AppearanceRoot, ClassBadge, NoticeRoot, NoticeText, PoolIcon, RaceBadge,
+    ZoneList, ZoneScrollThumb, ZoneThumb,
 };
+use super::{Phase, Rng, Run, Selection, data, localization};
+use crate::char_select::race_name;
 use crate::glue::GlueClicks;
-
-/// The create screen's two race columns.
-const ALLIANCE: [u8; 4] = [1, 3, 4, 7];
-const HORDE: [u8; 4] = [2, 5, 6, 8];
-
-/// `CharacterSelectCharacterFrame`'s border and fill tints.
-const FRAME_BORDER: Color = Color::srgb(0.8, 0.8, 0.8);
-const FRAME_FILL: Color = Color::srgba(0.09, 0.09, 0.09, 0.85);
-
-/// The tower ends under the class grid and Randomize, where the create screen's appearance dials
-/// would start: there is nothing to customise here.
-const TOWER_H: f32 = 590.0;
-
-/// The zone rows: the character-select row, compacted so every zone fits the 642-tall frame.
-const ROW_TOP: f32 = 44.0;
-const ROW_PITCH: f32 = 36.0;
-const ROW_H: f32 = 34.0;
-const ROW_W: f32 = 228.0;
+use crate::glue::art::{DIM, GOLD, GlueArt, class_tc, race_tc, tc_rect};
+use crate::glue::widgets::{HoverLabel, LockHighlight};
 
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum MenuAction {
@@ -44,22 +21,52 @@ pub(super) enum MenuAction {
     Class(usize),
     Map(usize),
     Randomize,
+    RandomName,
+    Talents,
     Enter,
+    Character,
+    Appearance,
+    Close,
+    Feature(&'static str, &'static str),
 }
 
-/// On [`MenuRoot`] once the glue art is in and the screen is built.
+#[derive(Resource, Default)]
+pub(super) struct MenuState {
+    pub notice: Option<String>,
+    pub appearance: bool,
+    name_index: usize,
+}
+
+impl MenuState {
+    pub fn modal_open(&self) -> bool {
+        self.notice.is_some() || self.appearance
+    }
+}
+
 #[derive(Component)]
 pub(super) struct MenuBuilt;
 
-/// A race button's face, re-cropped to the picked gender.
 #[derive(Component)]
-pub(super) struct RaceFace(u8);
+pub(super) struct RaceFace(pub u8);
 
 #[derive(Component)]
-pub(super) struct PickName;
+pub(super) enum MenuCopy {
+    Name,
+    Champion,
+    Faction,
+    ClassName,
+    ClassDetails,
+    TalentSummary,
+    Destination,
+    PersistenceError,
+    Health,
+    StartingAbility,
+    ZoneCount,
+    RaceName,
+    ZoneName,
+    ZoneDetails,
+}
 
-/// The saved pick, `benilla-config/survivors-pick.txt` (`localStorage` on the page):
-/// `class race sex map`, restored at the menu so a reload keeps the last hero and zone.
 fn pick_path() -> Option<std::path::PathBuf> {
     crate::local_state::home().map(|h| h.join("survivors-pick.txt"))
 }
@@ -75,8 +82,6 @@ fn save_pick(sel: &Selection) {
     }
 }
 
-/// Restore the saved pick once the creature data can resolve its looks; a stale or missing file
-/// leaves the default.
 pub(super) fn restore_pick(
     creatures: Option<Res<crate::entities::Creatures>>,
     mut selection: ResMut<Selection>,
@@ -112,7 +117,6 @@ pub(super) fn restore_pick(
     }
 }
 
-/// Every class's looks, `(display, race, sex)`, indexed like [`data::CLASSES`].
 fn all_looks(creatures: &crate::entities::Creatures) -> Vec<Vec<(u32, u8, u8)>> {
     data::CLASSES
         .iter()
@@ -133,7 +137,6 @@ fn set(sel: &mut Selection, all: &[Vec<(u32, u8, u8)>], class: usize, look: usiz
     sel.version += 1;
 }
 
-/// Build the screen into [`MenuRoot`] once the archives are readable, so the glue art is there.
 pub(super) fn build_menu(
     mut commands: Commands,
     roots: Query<Entity, (With<MenuRoot>, Without<MenuBuilt>)>,
@@ -146,382 +149,10 @@ pub(super) fn build_menu(
     let Ok(root) = roots.single() else { return };
     let Some(mut assets) = assets else { return };
     art.ensure_loaded(&mut assets, &mut images, &mut add_mats);
-    let f = &font.0;
-    commands.entity(root).insert(MenuBuilt).with_children(|ui| {
-        tower(ui, &art, f);
-        // `CharacterCreateWoWLogo`, 256×128 at TOPLEFT (3,-7), after the tower so it draws over
-        // the border art, as the create screen orders it.
-        if let Some(logo) = &art.logo {
-            ui.spawn((
-                ImageNode::new(logo.clone()),
-                abs(1.0, 3.0, 7.0, 256.0, 128.0),
-            ));
-        }
-        zone_frame(ui, &art, f);
-
-        // `CharSelectCharacterName`, GlueFontNormalHuge at BOTTOM (0,100).
-        ui.spawn(Node {
-            position_type: PositionType::Absolute,
-            bottom: Val::Px(100.0),
-            width: Val::Percent(100.0),
-            justify_content: JustifyContent::Center,
-            ..default()
-        })
-        .with_children(|c| {
-            outlined_text(
-                c,
-                Node::default(),
-                (),
-                PickName,
-                GlueText {
-                    text: "",
-                    size: 22.0,
-                    color: GOLD,
-                    wrap: false,
-                },
-                f,
-                1.0,
-            );
-        });
-        // `CharSelectEnterWorldButton`, 200×60 at BOTTOM (0,30).
-        ui.spawn(Node {
-            position_type: PositionType::Absolute,
-            bottom: Val::Px(30.0),
-            width: Val::Percent(100.0),
-            justify_content: JustifyContent::Center,
-            ..default()
-        })
-        .with_children(|c| {
-            glue_button(
-                c,
-                &art,
-                f,
-                MenuAction::Enter,
-                localization::text("Enter World", "进入世界"),
-                200.0,
-                60.0,
-                GlueBtnKind::Normal,
-                1.0,
-            );
-        });
-    });
-}
-
-/// `CharacterCreateConfigurationFrame`, 206×600 at TOPLEFT (28,-74): the race columns under the
-/// faction banners, the gender pair, the class grid, the class text and Randomize.
-fn tower(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
-    let px = Val::Px;
-    ui.spawn(Node {
-        position_type: PositionType::Absolute,
-        left: px(28.0),
-        top: px(74.0),
-        width: px(206.0),
-        height: px(TOWER_H),
-        ..default()
-    })
-    .with_children(|tower| {
-        if let Some(bg) = &art.tower_bg {
-            tower.spawn((
-                ImageNode::new(bg.clone()),
-                abs(1.0, -3.0, 0.0, 218.0, TOWER_H + 6.0),
-            ));
-        }
-        // The create tower's top piece, then its foot piece cut to end where the class grid does.
-        if let Some((border, size)) = &art.tower_border {
-            for (top, height, tc) in [
-                (0.0, 236.0, [0.0, 0.875, 0.0, 0.9375]),
-                (
-                    236.0,
-                    TOWER_H - 236.0 + 6.0,
-                    [
-                        0.0,
-                        0.875,
-                        1.0 - (TOWER_H - 236.0 + 6.0) / 256.0 * 0.8203125 / (210.0 / 256.0),
-                        1.0,
-                    ],
-                ),
-            ] {
-                tower.spawn((
-                    ImageNode {
-                        image: border.clone(),
-                        rect: Some(tc_rect(*size, tc)),
-                        ..default()
-                    },
-                    abs(1.0, -9.0, top, 224.0, height),
-                ));
-            }
-        }
-        if let Some(banners) = &art.banners {
-            tower.spawn((
-                ImageNode::new(banners.clone()),
-                abs(1.0, -27.0, 60.0, 256.0, 259.0),
-            ));
-        }
-        for (label, center) in [
-            (localization::text("Alliance", "联盟"), 51.0),
-            (localization::text("Horde", "部落"), 151.0),
-        ] {
-            outlined_text(
-                tower,
-                Node {
-                    justify_content: JustifyContent::Center,
-                    ..abs(1.0, center - 60.0, 40.0, 120.0, 17.0)
-                },
-                (),
-                (),
-                GlueText {
-                    text: label,
-                    size: 15.0,
-                    color: GOLD,
-                    wrap: false,
-                },
-                f,
-                1.0,
-            );
-        }
-
-        for (faction, left) in [(ALLIANCE, 33.0), (HORDE, 127.0)] {
-            tower
-                .spawn(Node {
-                    position_type: PositionType::Absolute,
-                    left: px(left),
-                    top: px(68.0),
-                    flex_direction: FlexDirection::Column,
-                    row_gap: px(5.0),
-                    ..default()
-                })
-                .with_children(|col| {
-                    for race in faction {
-                        let face = art.races.as_ref().and_then(|(sheet, size)| {
-                            race_tc(race, 0).map(|tc| (sheet.clone(), tc_rect(*size, tc)))
-                        });
-                        icon_button(
-                            col,
-                            f,
-                            MenuAction::Race(race),
-                            Some(RaceFace(race)),
-                            face,
-                            None::<()>,
-                            localization::race_name(race, race_name(race)),
-                            art,
-                            1.0,
-                        );
-                    }
-                });
-        }
-
-        tower
-            .spawn(Node {
-                position_type: PositionType::Absolute,
-                left: px(53.0),
-                top: px(303.0),
-                flex_direction: FlexDirection::Row,
-                column_gap: px(5.0),
-                ..default()
-            })
-            .with_children(|g| {
-                for (sex, label) in [
-                    (0u8, localization::text("Male", "男性")),
-                    (1u8, localization::text("Female", "女性")),
-                ] {
-                    let face = art.gender.as_ref().map(|(sheet, size)| {
-                        let half = if sex == 0 {
-                            [0.0, 0.5, 0.0, 1.0]
-                        } else {
-                            [0.5, 1.0, 0.0, 1.0]
-                        };
-                        (sheet.clone(), tc_rect(*size, half))
-                    });
-                    icon_button(
-                        g,
-                        f,
-                        MenuAction::Sex(sex),
-                        None::<()>,
-                        face,
-                        None::<()>,
-                        label,
-                        art,
-                        1.0,
-                    );
-                }
-            });
-
-        tower
-            .spawn(Node {
-                position_type: PositionType::Absolute,
-                // The gender pair's centre line: 53 + (2·48 + 5)/2 ≈ 103.
-                left: px(103.0 - (3.0 * 48.0 + 2.0 * 4.0) / 2.0),
-                width: px(3.0 * 48.0 + 2.0 * 4.0),
-                top: px(368.0),
-                flex_direction: FlexDirection::Row,
-                flex_wrap: FlexWrap::Wrap,
-                justify_content: JustifyContent::Center,
-                column_gap: px(4.0),
-                row_gap: px(4.0),
-                ..default()
-            })
-            .with_children(|grid| {
-                for (i, class) in data::CLASSES.iter().enumerate() {
-                    let face = art.classes.as_ref().and_then(|(sheet, size)| {
-                        class_tc(class.id).map(|tc| (sheet.clone(), tc_rect(*size, tc)))
-                    });
-                    icon_button(
-                        grid,
-                        f,
-                        MenuAction::Class(i),
-                        None::<()>,
-                        face,
-                        None::<()>,
-                        localization::class_name(class.id, class.name),
-                        art,
-                        1.0,
-                    );
-                }
-            });
-
-        tower
-            .spawn(Node {
-                position_type: PositionType::Absolute,
-                left: px(30.0),
-                top: px(TOWER_H - 46.0),
-                ..default()
-            })
-            .with_children(|r| {
-                glue_button(
-                    r,
-                    art,
-                    f,
-                    MenuAction::Randomize,
-                    localization::text("Randomize", "随机选择"),
-                    146.0,
-                    30.0,
-                    GlueBtnKind::Small,
-                    1.0,
-                );
-            });
-    });
-}
-
-/// The zone list in `CharacterSelectCharacterFrame` (260×642 at TOPRIGHT (-5,-15)), one
-/// character-row per zone, lowest level first.
-fn zone_frame(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
-    let px = Val::Px;
-    let mut order: Vec<(usize, u32, u32)> = (0..data::MAPS.len())
-        .map(|i| {
-            let levels = data::roster(i).enemies.iter().map(|e| e.level);
-            let lo = levels.clone().min().unwrap_or(1);
-            let hi = levels.max().unwrap_or(lo);
-            (i, lo, hi)
-        })
-        .collect();
-    order.sort_by_key(|&(i, lo, _)| (lo, data::MAPS[i].name));
-
-    ui.spawn(Node {
-        position_type: PositionType::Absolute,
-        right: px(5.0),
-        top: px(15.0),
-        width: px(260.0),
-        height: px(642.0),
-        ..default()
-    })
-    .with_children(|frame| {
-        if let (Some(bg), Some(border)) = (&art.tooltip_bg, &art.name_border) {
-            frame.spawn((
-                tiled_bg_node(bg.clone(), NAME_EDGE, 1.0, FRAME_FILL),
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: px(10.0),
-                    right: px(5.0),
-                    top: px(4.0),
-                    bottom: px(9.0),
-                    ..default()
-                },
-            ));
-            backdrop_border(frame, border, NAME_EDGE, FRAME_BORDER);
-        } else {
-            frame.spawn((BackgroundColor(FRAME_FILL), crate::glue::widgets::overlay()));
-        }
-        outlined_text(
-            frame,
-            Node {
-                position_type: PositionType::Absolute,
-                top: px(12.0),
-                width: Val::Percent(100.0),
-                justify_content: JustifyContent::Center,
-                ..default()
-            },
-            (),
-            (),
-            GlueText {
-                text: localization::text("Choose a Zone", "选择战场"),
-                size: 18.0,
-                color: DIM,
-                wrap: false,
-            },
-            f,
-            1.0,
-        );
-        for (row, &(i, lo, hi)) in order.iter().enumerate() {
-            let map = &data::MAPS[i];
-            frame
-                .spawn((
-                    MenuAction::Map(i),
-                    Button,
-                    LockHighlight::default(),
-                    Node {
-                        position_type: PositionType::Absolute,
-                        left: px(24.0),
-                        top: px(ROW_TOP + row as f32 * ROW_PITCH),
-                        width: px(ROW_W),
-                        height: px(ROW_H),
-                        ..default()
-                    },
-                ))
-                .with_children(|b| {
-                    if let Some(hi) = &art.select_highlight {
-                        b.spawn((
-                            Hilight,
-                            Visibility::Hidden,
-                            MaterialNode(hi.clone()),
-                            abs(1.0, -20.0, -6.0, ROW_W + 20.0, ROW_H + 12.0),
-                        ));
-                    }
-                    outlined_text(
-                        b,
-                        abs(1.0, 0.0, 2.0, ROW_W, 16.0),
-                        (),
-                        (),
-                        GlueText {
-                            text: localization::map_name(map.name),
-                            size: 15.0,
-                            color: GOLD,
-                            wrap: false,
-                        },
-                        f,
-                        1.0,
-                    );
-                    let levels = if lo == hi {
-                        format!("{} {lo}", localization::text("Level", "等级"))
-                    } else {
-                        format!("{} {lo}-{hi}", localization::text("Level", "等级"))
-                    };
-                    outlined_text(
-                        b,
-                        abs(1.0, 0.0, 19.0, ROW_W, 14.0),
-                        (),
-                        (),
-                        GlueText {
-                            text: &format!("{levels}  {}", localization::zone_name(map.zone)),
-                            size: 12.0,
-                            color: Color::WHITE,
-                            wrap: false,
-                        },
-                        f,
-                        1.0,
-                    );
-                });
-        }
-    });
+    commands
+        .entity(root)
+        .insert(MenuBuilt)
+        .with_children(|ui| layout::build(ui, &art, &font.0));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -534,18 +165,65 @@ pub(super) fn menu_clicks(
     mut run: ResMut<Run>,
     mut rng: ResMut<Rng>,
     mut next: ResMut<NextState<Phase>>,
+    mut talents: ResMut<super::talents::TalentUi>,
+    mut menu: ResMut<MenuState>,
+    keys: Res<ButtonInput<KeyCode>>,
 ) {
-    if *phase.get() != Phase::Menu {
+    if *phase.get() != Phase::Menu || talents.open {
         return;
     }
-    let Some(creatures) = creatures.as_deref() else {
+    if keys.just_pressed(KeyCode::Escape) {
+        menu.notice = None;
+        menu.appearance = false;
         return;
-    };
+    }
     let Some(action) = actions
         .iter()
         .find(|(e, _)| clicks.hit(*e))
         .map(|(_, a)| *a)
     else {
+        return;
+    };
+    if !action_allowed(action, &menu) {
+        return;
+    }
+    match action {
+        MenuAction::Close => {
+            menu.notice = None;
+            menu.appearance = false;
+            return;
+        }
+        MenuAction::Feature(en, zh) => {
+            menu.notice = Some(format!(
+                "{}\n\n{}",
+                localization::text(en, zh),
+                localization::text(
+                    "Not yet available. This entrance is reserved for a future update.",
+                    "尚未开放，入口已预留，敬请期待。"
+                )
+            ));
+            return;
+        }
+        MenuAction::Character | MenuAction::Appearance => {
+            menu.appearance = true;
+            return;
+        }
+        MenuAction::RandomName => {
+            menu.name_index = (menu.name_index + 1) % 8;
+            return;
+        }
+        MenuAction::Talents => {
+            if selection.class_def().is_some_and(|c| c.id == 9) {
+                talents.open = true;
+            } else {
+                menu.notice = Some(localization::text("Talents\n\nWarlock talents are available. Other classes are coming soon; their kill progress is already saved.",
+                    "天赋\n\n术士天赋已开放；其他职业正在筹备中，击杀成长照常独立保存。").into());
+            }
+            return;
+        }
+        _ => {}
+    }
+    let Some(creatures) = creatures.as_deref() else {
         return;
     };
     let all = all_looks(creatures);
@@ -567,7 +245,7 @@ pub(super) fn menu_clicks(
             }
         }
         MenuAction::Randomize => {
-            let picks: Vec<(usize, usize)> = all
+            let picks: Vec<_> = all
                 .iter()
                 .enumerate()
                 .flat_map(|(c, looks)| (0..looks.len()).map(move |l| (c, l)))
@@ -577,7 +255,6 @@ pub(super) fn menu_clicks(
                 set(&mut selection, &all, c, l);
             }
         }
-        // The class keeps the race and gender where it can.
         MenuAction::Class(c) => {
             let looks = &all[c];
             let l = find(looks, race, Some(sex))
@@ -588,10 +265,8 @@ pub(super) fn menu_clicks(
                 set(&mut selection, &all, c, l);
             }
         }
-        // The race keeps the class where it can, else takes the first class it has.
         MenuAction::Race(r) => {
-            let classes = selection.class.into_iter().chain(0..all.len());
-            for c in classes {
+            for c in selection.class.into_iter().chain(0..all.len()) {
                 let l = find(&all[c], Some(r), Some(sex)).or_else(|| find(&all[c], Some(r), None));
                 if let Some(l) = l {
                     set(&mut selection, &all, c, l);
@@ -606,131 +281,415 @@ pub(super) fn menu_clicks(
                 }
             }
         }
+        _ => {}
     }
     save_pick(&selection);
 }
 
-/// The screen's per-frame state: the locked highlights, hover labels, which races and classes
-/// the pick allows, the gender on the race faces, the name line and Enter World.
+fn action_allowed(action: MenuAction, menu: &MenuState) -> bool {
+    if menu.notice.is_some() {
+        return action == MenuAction::Close;
+    }
+    !menu.appearance
+        || matches!(
+            action,
+            MenuAction::Race(_) | MenuAction::Sex(_) | MenuAction::Randomize | MenuAction::Close
+        )
+}
+
+fn class_description(id: u8) -> &'static str {
+    match id {
+        1 => localization::text(
+            "A frontline fighter who cleaves through crowds.",
+            "近战战士，以强健体魄与横扫攻击突破敌阵。",
+        ),
+        2 => localization::text(
+            "A holy defender who burns the undead with sacred light.",
+            "圣光卫士，以神圣法术与坚韧体魄迎战敌潮。",
+        ),
+        3 => localization::text(
+            "A ranged marksman with traps and precision shots.",
+            "远程猎手，以精准射击与陷阱掌控战场。",
+        ),
+        4 => localization::text(
+            "A swift assassin who strikes with blades and poison.",
+            "敏捷刺客，以利刃、毒药和连击迅速清场。",
+        ),
+        5 => localization::text(
+            "A spellcaster wielding both holy light and shadow.",
+            "驾驭圣光与暗影，以精神之力对抗无尽敌潮。",
+        ),
+        7 => localization::text(
+            "An elemental warrior wielding storms and totems.",
+            "元素使者，以闪电、烈焰和图腾席卷战场。",
+        ),
+        8 => localization::text(
+            "A master of arcane, fire and frost area spells.",
+            "奥术大师，以烈焰、冰霜与奥术范围法术歼敌。",
+        ),
+        9 => localization::text(
+            "A dark caster who wears enemies down with curses and fire.",
+            "暗影法师，以诅咒、持续伤害和邪焰逐步吞噬敌人。",
+        ),
+        _ => localization::text(
+            "A guardian of nature commanding moonlight and thorns.",
+            "自然守护者，以月光、荆棘和自然法术清扫战场。",
+        ),
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(super) fn refresh_menu_ui(
+    mut commands: Commands,
     selection: Res<Selection>,
-    creatures: Option<Res<crate::entities::Creatures>>,
     art: Res<GlueArt>,
+    progression: Res<super::talents::Progression>,
+    menu: Res<MenuState>,
+    spells: Option<Res<crate::ui_action::Spells>>,
     mut buttons: Query<(
         &MenuAction,
         &Interaction,
-        &Children,
         Option<&mut LockHighlight>,
-        Option<&mut GlueDisabled>,
-        &mut Node,
-        &mut Visibility,
+        Option<&mut BorderColor>,
+        Option<&mut BackgroundColor>,
     )>,
-    mut labels: Query<&mut Visibility, (With<HoverLabel>, Without<MenuAction>)>,
-    mut faces: Query<(&RaceFace, &mut ImageNode)>,
-    mut name: Query<(&mut Text, &mut TextColor), With<PickName>>,
-    mut cache: Local<(Option<u32>, bool, Vec<Vec<(u32, u8, u8)>>)>,
+    mut labels: Query<&mut Visibility, With<HoverLabel>>,
+    mut faces: Query<(&RaceFace, &mut ImageNode), (Without<RaceBadge>, Without<ClassBadge>)>,
+    mut race_badges: Query<
+        &mut ImageNode,
+        (With<RaceBadge>, Without<RaceFace>, Without<ClassBadge>),
+    >,
+    mut class_badges: Query<
+        &mut ImageNode,
+        (With<ClassBadge>, Without<RaceFace>, Without<RaceBadge>),
+    >,
+    mut pool: Query<
+        (Entity, &PoolIcon, &mut SpellIcon, &mut Node),
+        (Without<NoticeRoot>, Without<AppearanceRoot>),
+    >,
+    mut copy: Query<(&MenuCopy, &mut Text, &mut TextColor), Without<NoticeText>>,
+    mut modals: Query<
+        (&mut Node, Has<NoticeRoot>, Has<AppearanceRoot>),
+        Or<(With<NoticeRoot>, With<AppearanceRoot>)>,
+    >,
+    mut notice: Query<&mut Text, (With<NoticeText>, Without<MenuCopy>)>,
+    mut zone_art: Query<(Entity, &mut UiArt), With<ZoneThumb>>,
 ) {
-    let have = creatures.is_some();
-    if cache.0 != Some(selection.version) || cache.1 != have {
-        *cache = (
-            Some(selection.version),
-            have,
-            creatures.as_deref().map(all_looks).unwrap_or_default(),
-        );
-    }
-    let all = &cache.2;
     let cur = selection
         .look
         .and_then(|i| selection.looks.get(i))
         .map(|&(_, r, s)| (r, s));
-
-    for (action, interaction, children, lock, disabled, mut node, mut vis) in &mut buttons {
+    let class = selection.class_def();
+    for (action, interaction, lock, border, background) in &mut buttons {
         let selected = match *action {
             MenuAction::Race(r) => cur.is_some_and(|c| c.0 == r),
             MenuAction::Sex(s) => cur.is_some_and(|c| c.1 == s),
             MenuAction::Class(i) => selection.class == Some(i),
             MenuAction::Map(i) => selection.map == i,
-            MenuAction::Randomize | MenuAction::Enter => false,
+            _ => false,
         };
         if let Some(mut lock) = lock {
-            if lock.0 != selected {
-                lock.0 = selected;
-            }
+            lock.0 = selected;
         }
-        if let Some(mut disabled) = disabled {
-            let off = *action == MenuAction::Enter && cur.is_none();
-            if disabled.0 != off {
-                disabled.0 = off;
-            }
+        if let Some(mut border) = border {
+            *border = BorderColor::all(if selected || *interaction != Interaction::None {
+                GOLD
+            } else {
+                Color::srgb(0.39, 0.30, 0.11)
+            });
         }
-        match *action {
-            // As on the create screen, a class the race cannot be leaves the grid.
-            MenuAction::Class(i) => {
-                let ok = cur.is_none_or(|(r, _)| {
-                    all.get(i).is_some_and(|l| find(l, Some(r), None).is_some())
-                });
-                let display = if ok { Display::Flex } else { Display::None };
-                if node.display != display {
-                    node.display = display;
-                }
-            }
-            MenuAction::Race(r) => {
-                let ok = all.is_empty() || all.iter().any(|l| find(l, Some(r), None).is_some());
-                let want = if ok {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
-                };
-                if *vis != want {
-                    *vis = want;
-                }
-            }
-            _ => {}
-        }
-        let show = selected || *interaction != Interaction::None || art.races.is_none();
-        for child in children {
-            if let Ok(mut label) = labels.get_mut(*child) {
-                let want = if show {
-                    Visibility::Inherited
-                } else {
-                    Visibility::Hidden
-                };
-                if *label != want {
-                    *label = want;
-                }
-            }
+        if let Some(mut bg) = background {
+            bg.0 = if selected {
+                Color::srgba(0.6, 0.4, 0.12, 0.20)
+            } else if *interaction != Interaction::None {
+                Color::srgba(0.65, 0.49, 0.24, 0.12)
+            } else {
+                Color::NONE
+            };
         }
     }
-
-    if let (Some((_, size)), Some((_, sex))) = (&art.races, cur) {
+    // Keep icon hover labels out of the permanently-labelled class grid.
+    for mut visibility in &mut labels {
+        *visibility = Visibility::Hidden;
+    }
+    if let (Some((_, size)), Some((race, sex))) = (&art.races, cur) {
         for (face, mut img) in &mut faces {
-            if let Some(tc) = race_tc(face.0, sex) {
-                let rect = Some(tc_rect(*size, tc));
-                if img.rect != rect {
-                    img.rect = rect;
+            img.rect = race_tc(face.0, sex).map(|tc| tc_rect(*size, tc));
+        }
+        for mut img in &mut race_badges {
+            img.rect = race_tc(race, sex).map(|tc| tc_rect(*size, tc));
+        }
+    }
+    if let (Some((_, size)), Some(c)) = (&art.classes, class) {
+        for mut img in &mut class_badges {
+            img.rect = class_tc(c.id).map(|tc| tc_rect(*size, tc));
+        }
+    }
+    for (entity, slot, mut icon, mut node) in &mut pool {
+        let ability = class.and_then(|c| c.pool.get(slot.0));
+        node.display = if ability.is_some() {
+            Display::Flex
+        } else {
+            Display::None
+        };
+        if let Some(id) = ability {
+            let spell = data::ability(id).spell;
+            if icon.0 != spell {
+                icon.0 = spell;
+                commands.entity(entity).remove::<super::hud::IconDone>();
+            }
+        }
+    }
+    for (mut node, is_notice, is_appearance) in &mut modals {
+        node.display = if (is_notice && menu.notice.is_some()) || (is_appearance && menu.appearance)
+        {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+    for mut text in &mut notice {
+        text.0 = menu.notice.clone().unwrap_or_default();
+    }
+    let map = &data::MAPS[selection.map];
+    for (entity, mut art) in &mut zone_art {
+        if selection.is_changed() || art.is_added() {
+            *art = UiArt::crop(
+                if map.map == 1 {
+                    "Interface\\Glues\\LoadingScreens\\LoadScreenKalimdor"
+                } else {
+                    "Interface\\Glues\\LoadingScreens\\LoadScreenEasternKingdom"
+                },
+                [0.0, 1.0, 0.0, 1.0],
+            );
+            commands.entity(entity).remove::<super::hud::ArtDone>();
+        }
+    }
+    let roster = data::roster(selection.map);
+    for (marker, mut text, mut color) in &mut copy {
+        let want = match marker {
+            MenuCopy::Name => format!(
+                "{}  ⟳",
+                localization::text(
+                    [
+                        "Aeloria", "Thalion", "Sylvara", "Darian", "Morwen", "Kaelan", "Aldric",
+                        "Serenna"
+                    ][menu.name_index],
+                    [
+                        "艾洛莉娅",
+                        "萨里昂",
+                        "希尔瓦拉",
+                        "达里安",
+                        "莫温",
+                        "凯兰",
+                        "奥尔德里克",
+                        "塞蕾娜"
+                    ][menu.name_index]
+                )
+            ),
+            MenuCopy::Champion => match (class, cur) {
+                (Some(c), Some((r, s))) => format!(
+                    "{} · {} · {}",
+                    localization::race_name(r, race_name(r)),
+                    localization::class_name(c.id, c.name),
+                    if s == 0 {
+                        localization::text("Male", "男")
+                    } else {
+                        localization::text("Female", "女")
+                    }
+                ),
+                _ => localization::text("Choose a class", "请选择职业").into(),
+            },
+            MenuCopy::Faction => cur.map_or_else(String::new, |(r, _)| {
+                if matches!(r, 1 | 3 | 4 | 7) {
+                    localization::text("ALLIANCE", "联盟")
+                } else {
+                    localization::text("HORDE", "部落")
                 }
+                .into()
+            }),
+            MenuCopy::ClassName => class.map_or_else(String::new, |c| {
+                localization::class_name(c.id, c.name).into()
+            }),
+            MenuCopy::ClassDetails => {
+                class.map_or_else(String::new, |c| class_description(c.id).into())
+            }
+            MenuCopy::TalentSummary => class.map_or_else(String::new, |c| {
+                if c.id == 9 {
+                    format!(
+                        "{}: {}/{} · {}/51",
+                        localization::text("Spent", "已投入"),
+                        progression.spent(c.id),
+                        progression.points(c.id),
+                        progression.points(c.id)
+                    )
+                } else {
+                    localization::text("Coming soon", "尚未开放").into()
+                }
+            }),
+            MenuCopy::Destination => format!(
+                "{}{}",
+                localization::text("Enter ", "进入"),
+                localization::map_name(map.name)
+            ),
+            MenuCopy::PersistenceError => progression.error.clone().unwrap_or_default(),
+            MenuCopy::Health => class.map_or_else(String::new, |c| {
+                let preview = Run {
+                    class: c,
+                    talents: progression.loadout(c.id),
+                    ..Run::default()
+                };
+                format!("{:.0}", preview.stats().max_hp)
+            }),
+            MenuCopy::StartingAbility => class.map_or_else(String::new, |c| {
+                spells
+                    .as_deref()
+                    .and_then(|s| s.catalog.get(data::ability(c.start).spell))
+                    .map(|s| s.name.clone())
+                    .unwrap_or_else(|| c.start.replace('_', " "))
+            }),
+            MenuCopy::ZoneCount => data::MAPS.len().to_string(),
+            MenuCopy::RaceName => cur.map_or_else(String::new, |(r, _)| {
+                localization::race_name(r, race_name(r)).into()
+            }),
+            MenuCopy::ZoneName => localization::map_name(map.name).into(),
+            MenuCopy::ZoneDetails => {
+                let min = roster.enemies.iter().map(|e| e.level).min().unwrap_or(1);
+                let max = roster.enemies.iter().map(|e| e.level).max().unwrap_or(min);
+                format!(
+                    "{} · Lv.{min}–{max}\n{}\n\n{}\n{}",
+                    localization::zone_name(map.zone),
+                    localization::map_blurb(map.name),
+                    localization::text("Boss arrivals", "首领出现时间"),
+                    "2:15  ·  4:30  ·  6:45\n9:00  ·  11:15  ·  13:30"
+                )
+            }
+        };
+        if text.0 != want {
+            text.0 = want;
+        }
+        color.0 = match marker {
+            MenuCopy::Champion | MenuCopy::ClassName => class.map_or(GOLD, |c| rgb(c.color)),
+            MenuCopy::PersistenceError => Color::srgb(1.0, 0.38, 0.3),
+            MenuCopy::Faction => {
+                if cur.is_some_and(|(r, _)| matches!(r, 1 | 3 | 4 | 7)) {
+                    Color::srgb(0.35, 0.65, 1.0)
+                } else {
+                    Color::srgb(1.0, 0.35, 0.25)
+                }
+            }
+            MenuCopy::ClassDetails | MenuCopy::TalentSummary | MenuCopy::ZoneDetails => DIM,
+            _ => GOLD,
+        };
+    }
+}
+
+pub(super) fn scroll_zones(
+    mut wheel: MessageReader<MouseWheel>,
+    phase: Res<State<Phase>>,
+    menu: Res<MenuState>,
+    talents: Res<super::talents::TalentUi>,
+    mut lists: Query<(&Interaction, &ComputedNode, &mut ScrollPosition), With<ZoneList>>,
+    mut thumbs: Query<&mut Node, With<ZoneScrollThumb>>,
+    rows: Query<(&MenuAction, &Interaction)>,
+) {
+    for ev in wheel.read() {
+        if *phase.get() != Phase::Menu || menu.modal_open() || talents.open {
+            continue;
+        }
+        for (interaction, node, mut pos) in &mut lists {
+            if *interaction == Interaction::None
+                && !rows
+                    .iter()
+                    .any(|(a, i)| matches!(a, MenuAction::Map(_)) && *i != Interaction::None)
+            {
+                continue;
+            }
+            let max = ((node.content_size.y - node.size.y) * node.inverse_scale_factor).max(0.0);
+            let delta = if ev.unit == MouseScrollUnit::Line {
+                ev.y * 42.0
+            } else {
+                ev.y
+            };
+            pos.0.y = (pos.0.y - delta).clamp(0.0, max);
+        }
+    }
+    for (_, computed, pos) in &lists {
+        let ratio = (computed.size.y / computed.content_size.y.max(1.0)).clamp(0.05, 1.0);
+        let max =
+            ((computed.content_size.y - computed.size.y) * computed.inverse_scale_factor).max(0.0);
+        for mut thumb in &mut thumbs {
+            thumb.height = Val::Percent(ratio * 100.0);
+            thumb.top = Val::Percent(if max > 0.0 {
+                pos.0.y / max * (1.0 - ratio) * 100.0
+            } else {
+                0.0
+            });
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+    #[test]
+    fn launcher_builds_nine_classes_and_refreshes_icons_and_modals() {
+        let mut app = App::new();
+        app.init_resource::<Selection>()
+            .init_resource::<GlueArt>()
+            .init_resource::<super::super::talents::Progression>()
+            .init_resource::<MenuState>()
+            .add_systems(Update, refresh_menu_ui);
+        app.world_mut()
+            .run_system_once(|mut commands: Commands, art: Res<GlueArt>| {
+                commands.spawn(Node::default()).with_children(|ui| {
+                    layout::build(ui, &art, &Handle::default());
+                });
+            })
+            .unwrap();
+        app.update();
+        let world = app.world_mut();
+        let mut actions = world.query::<&MenuAction>();
+        assert_eq!(
+            actions
+                .iter(world)
+                .filter(|a| matches!(a, MenuAction::Class(_)))
+                .count(),
+            9
+        );
+        let mut state = world.resource_mut::<MenuState>();
+        state.notice = Some("Not yet available".into());
+        app.update();
+        let world = app.world_mut();
+        let mut panels = world.query_filtered::<&Node, With<NoticeRoot>>();
+        assert_eq!(panels.single(world).unwrap().display, Display::Flex);
+        let warlock = data::CLASSES.iter().position(|c| c.id == 9).unwrap();
+        world.resource_mut::<Selection>().class = Some(warlock);
+        app.update();
+        let world = app.world_mut();
+        let mut icons = world.query::<(&PoolIcon, &SpellIcon, &Node)>();
+        for (slot, icon, node) in icons.iter(world) {
+            if let Some(id) = data::CLASSES[warlock].pool.get(slot.0) {
+                assert_eq!(icon.0, data::ability(id).spell);
+                assert_eq!(node.display, Display::Flex);
+            } else {
+                assert_eq!(node.display, Display::None);
             }
         }
     }
 
-    let class = selection.class_def();
-    if let Ok((mut t, mut color)) = name.single_mut() {
-        let want = match (class, cur) {
-            (Some(c), Some((r, _))) => format!(
-                "{} {}",
-                localization::race_name(r, race_name(r)),
-                localization::class_name(c.id, c.name)
-            ),
-            _ => String::new(),
-        };
-        if t.0 != want {
-            t.0 = want;
-        }
-        // In the class's own colour, as the game's raid frames and chat show it.
-        let want = class.map_or(GOLD, |c| rgb(c.color));
-        if color.0 != want {
-            color.0 = want;
-        }
+    #[test]
+    fn modal_actions_do_not_start_or_mutate_a_run() {
+        let mut menu = MenuState::default();
+        assert!(action_allowed(MenuAction::Enter, &menu));
+        menu.appearance = true;
+        assert!(!action_allowed(MenuAction::Enter, &menu));
+        assert!(!action_allowed(MenuAction::Class(0), &menu));
+        assert!(action_allowed(MenuAction::Race(1), &menu));
+        menu.notice = Some("Coming soon".into());
+        assert!(!action_allowed(MenuAction::Race(1), &menu));
+        assert!(!action_allowed(MenuAction::Talents, &menu));
+        assert!(action_allowed(MenuAction::Close, &menu));
     }
 }

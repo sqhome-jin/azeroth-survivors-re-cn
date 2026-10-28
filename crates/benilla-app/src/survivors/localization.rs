@@ -101,6 +101,81 @@ fn map_name_for(locale: &str, english: &'static str) -> &'static str {
     choose(locale, english, chinese)
 }
 
+pub(super) fn map_blurb(english: &'static str) -> &'static str {
+    map_blurb_for(&ui_locale(), english)
+}
+
+fn map_blurb_for(locale: &str, english: &'static str) -> &'static str {
+    let (en, zh) = match english {
+        "The Barrens" => (
+            "Endless plains where raptors and quillboar roam. A gentle first stand with no named bosses.",
+            "一望无际的平原，迅猛龙与野猪人四处游荡。节奏平缓，适合热身，没有专属首领。",
+        ),
+        "The Dark Portal" => (
+            "Fel beasts and demons pour through the Portal. Wave bosses end with Lord Kazzak.",
+            "邪能野兽与恶魔不断涌出黑暗之门，最终首领为末日领主卡扎克。",
+        ),
+        "Gates of Ahn'Qiraj" => (
+            "Silithid swarms before the sealed temple. Fight on to Ossirian the Unscarred.",
+            "封印神殿前虫群汹涌，一路杀至无疤者奥斯里安。",
+        ),
+        "Fire Plume Ridge" => (
+            "Devilsaurs and fire elementals in Un'Goro's volcano. King Mosh waits at the end.",
+            "安戈洛火山中恐暴龙与火焰元素横行，终点是莫什王。",
+        ),
+        "Gurubashi Arena" => (
+            "Troll bloodlords and beasts of Zul'Gurub. Survive until Hakkar, the Soulflayer.",
+            "祖尔格拉布的巨魔与野兽齐聚，坚持到魔灵哈卡降临。",
+        ),
+        "Elwynn Forest" => (
+            "Gnolls, bandits and wolves near Goldshire. Hogger leads the bosses.",
+            "闪金镇周边的豺狼人、盗贼与野狼，首领包括霍格。",
+        ),
+        "Durotar" => (
+            "Scorching badlands of the Razormane and Burning Blade. A fast, aggressive early zone.",
+            "剃刀沼泽与燃烧刀锋盘踞的灼热荒地，前期节奏偏快。",
+        ),
+        "Teldrassil" => (
+            "The world tree's forest, haunted by Gnarlpine furbolgs and corrupted wildlife.",
+            "世界之树的森林，被乌鸦爪熊怪与受腐蚀的野兽侵扰。",
+        ),
+        "Dun Morogh" => (
+            "Frozen peaks with wolves, bears and troggs. Beware Great Father Arctikus.",
+            "冰封山岭中狼、熊与穴居怪出没，小心大熊阿尔蒂库斯。",
+        ),
+        "Mulgore" => (
+            "Rolling plains of the Tauren. Beasts roam in packs and bosses arrive one by one.",
+            "牛头人的连绵草原，鸟类与野兽成群，首领将随波次逐一登场。",
+        ),
+        "Tirisfal Glades" => (
+            "Undead-haunted farmland and graveyards. Ghosts and ghouls wait for the unwary.",
+            "亡灵出没的农田与坟地，幽魂与食尸鬼潜伏在暗处。",
+        ),
+        "Westfall" => (
+            "Defias thieves and wild beasts across the farmlands. Marisa and Lupos lead the bosses.",
+            "迪菲亚盗贼与野兽遍布农田，首领包括玛里萨与狼人卢波斯。",
+        ),
+        "Duskwood" => (
+            "Gloomy woods of worgen, spiders and the undead. Face Nefaru at the climax.",
+            "幽暗的密林里有狼人、蜘蛛与亡灵，最终面对尼法鲁。",
+        ),
+        "Redridge Mountains" => (
+            "Blackrock orcs and gnolls hold the red cliffs. Waves of bosses test your burst damage.",
+            "黑石兽人与豺狼人占据赤红山崖，一波接一波的首领考验你的爆发。",
+        ),
+        "Mount Hyjal" => (
+            "Corrupted dragons and fel demons. The four Emerald Dragons arrive as bosses.",
+            "腐化的龙族与邪能恶魔横行，四位翡翠巨龙将作为首领登场。",
+        ),
+        "Naxxramas" => (
+            "The floating necropolis. Arachnids, abominations and Kel'Thuzad, the hardest finale.",
+            "漂浮的亡灵要塞，蛛魔与憎恶遍布，终点是最强的克尔苏加德。",
+        ),
+        _ => ("", ""),
+    };
+    choose(locale, en, zh)
+}
+
 pub(super) fn zone_name(english: &'static str) -> &'static str {
     zone_name_for(&ui_locale(), english)
 }

@@ -6,9 +6,9 @@ use bevy::input::mouse::{AccumulatedMouseMotion, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 
 use super::data::{self, ClassDef};
-use super::units::{self, flat, wow_to_bevy, yaw_toward, Fx, Marks, UnitSpec};
+use super::units::{self, Fx, Marks, UnitSpec, flat, wow_to_bevy, yaw_toward};
 use super::{Phase, Run, Selection};
-use crate::creature_anim::{move_flags, MovementState};
+use crate::creature_anim::{MovementState, move_flags};
 use crate::net::{FieldChanged, Guid, ObjectStore};
 
 #[derive(Component)]
@@ -368,8 +368,8 @@ pub(super) fn place_camera(
         rig.dist = (rig.dist * (1.0 - 0.12 * notches).clamp(0.5, 1.5)).clamp(ZOOM_MIN, ZOOM_MAX);
     }
     let (eye, look) = if *phase.get() == Phase::Menu {
-        rig.orbit += time.delta_secs() * 0.2;
-        let d = 7.0;
+        rig.orbit += time.delta_secs() * 0.04;
+        let d = 10.0;
         (
             focus + Vec3::new(rig.orbit.sin() * d, 2.4, rig.orbit.cos() * d),
             focus + Vec3::Y * 1.1,
@@ -403,7 +403,7 @@ pub(super) fn hurt_hero(run: &mut Run, raw: f32) -> f32 {
     if run.immune_t > 0.0 || run.dead_t.is_some() {
         return 0.0;
     }
-    let mut dmg = (raw - run.stats().armor).max(1.0);
+    let mut dmg = (raw - run.stats().armor).max(1.0) * run.talents.incoming();
     if run.shield_t > 0.0 && run.shield > 0.0 {
         let absorbed = dmg.min(run.shield);
         run.shield -= absorbed;
@@ -525,7 +525,9 @@ mod tests {
     }
 
     fn left_held(world: &World) -> bool {
-        world.resource::<ButtonInput<MouseButton>>().pressed(MouseButton::Left)
+        world
+            .resource::<ButtonInput<MouseButton>>()
+            .pressed(MouseButton::Left)
     }
 
     #[test]
@@ -533,10 +535,16 @@ mod tests {
         let mut world = held_left();
         world.run_system_once(drop_stray_buttons).unwrap();
         assert!(left_held(&world), "nothing happened: the drag goes on");
-        world.write_message(WindowFocused { window: Entity::PLACEHOLDER, focused: true });
+        world.write_message(WindowFocused {
+            window: Entity::PLACEHOLDER,
+            focused: true,
+        });
         world.run_system_once(drop_stray_buttons).unwrap();
         assert!(left_held(&world), "gaining focus is no release");
-        world.write_message(WindowFocused { window: Entity::PLACEHOLDER, focused: false });
+        world.write_message(WindowFocused {
+            window: Entity::PLACEHOLDER,
+            focused: false,
+        });
         world.run_system_once(drop_stray_buttons).unwrap();
         assert!(!left_held(&world));
     }
@@ -544,7 +552,9 @@ mod tests {
     #[test]
     fn a_held_button_is_dropped_when_the_pointer_leaves_the_page() {
         let mut world = held_left();
-        world.write_message(CursorLeft { window: Entity::PLACEHOLDER });
+        world.write_message(CursorLeft {
+            window: Entity::PLACEHOLDER,
+        });
         world.run_system_once(drop_stray_buttons).unwrap();
         assert!(!left_held(&world));
     }

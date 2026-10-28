@@ -15,8 +15,11 @@ mod hero;
 mod hud;
 mod localization;
 mod menu;
+mod menu_layout;
 mod minimap;
 mod mobility;
+mod preview;
+mod talents;
 mod units;
 
 use benilla_world::schedule::WorldStage;
@@ -41,9 +44,11 @@ impl Plugin for SurvivorsPlugin {
         // Present before `OnEnter(InWorld)`, where the UI lifecycle decides not to load FrameXML.
         app.insert_resource(crate::run_mode::CaptureMode)
             .add_plugins(grade::plugin)
+            .add_plugins(talents::plugin)
             .init_state::<Phase>()
             .init_resource::<Rng>()
             .init_resource::<Selection>()
+            .init_resource::<menu::MenuState>()
             .init_resource::<Run>()
             .init_resource::<hero::CamRig>()
             .init_resource::<hero::AimPoint>()
@@ -55,7 +60,8 @@ impl Plugin for SurvivorsPlugin {
             .add_message::<enemies::Loot>()
             .add_plugins(bevy::ui_render::UiMaterialPlugin::<hud::SweepUiMaterial>::default())
             .add_plugins(bevy::ui_render::UiMaterialPlugin::<fill::FillMaterial>::default())
-            .add_systems(Startup, hud::setup_hud)
+            .add_plugins(preview::plugin)
+            .add_systems(Startup, (hud::setup_hud, preview::setup))
             .add_systems(Update, hero::daylight)
             .add_systems(
                 Update,
@@ -65,6 +71,9 @@ impl Plugin for SurvivorsPlugin {
                     mobility::cast_mobility,
                     hero::drive_hero,
                     hero::place_camera,
+                    preview::assign_layer,
+                    preview::frame,
+                    preview::fill_view,
                 )
                     .chain()
                     .in_set(WorldStage::Input),
@@ -103,6 +112,7 @@ impl Plugin for SurvivorsPlugin {
                     menu::restore_pick,
                     menu::build_menu,
                     menu::menu_clicks,
+                    menu::scroll_zones,
                     menu::refresh_menu_ui.before(crate::glue::GlueVisuals),
                     cards::deal_cards,
                     cards::choose_card,
@@ -224,6 +234,7 @@ impl Owned {
 /// The hero's derived numbers, from the base and the passives.
 #[derive(Clone, Copy)]
 pub(super) struct Stats {
+    talents: talents::Loadout,
     pub might: f32,
     pub max_hp: f32,
     pub speed: f32,
@@ -247,6 +258,13 @@ pub(super) struct Run {
     pub race: u8,
     pub elapsed: f32,
     pub kills: u32,
+    pub boss_kills: u32,
+    pub credited_kills: u32,
+    pub credited_bosses: u32,
+    pub talent_points_gained: u8,
+    talents: talents::Loadout,
+    pub talent_leech_budget: f32,
+    pub talents_locked: bool,
     pub level: u32,
     pub xp: f32,
     pub hp: f32,
@@ -283,6 +301,13 @@ impl Default for Run {
             race: 0,
             elapsed: 0.0,
             kills: 0,
+            boss_kills: 0,
+            credited_kills: 0,
+            credited_bosses: 0,
+            talent_points_gained: 0,
+            talents: talents::Loadout::default(),
+            talent_leech_budget: 0.0,
+            talents_locked: false,
             level: 1,
             xp: 0.0,
             hp: BASE_HP,
@@ -313,6 +338,7 @@ impl Default for Run {
 impl Run {
     pub fn stats(&self) -> Stats {
         let mut s = Stats {
+            talents: self.talents,
             might: 1.0,
             max_hp: BASE_HP,
             speed: BASE_SPEED,
@@ -345,6 +371,7 @@ impl Run {
                 Stat::Crit => s.crit += v,
             }
         }
+        talents::modify_stats(&mut s);
         s
     }
 
