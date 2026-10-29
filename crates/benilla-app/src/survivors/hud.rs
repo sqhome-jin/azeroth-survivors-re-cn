@@ -1200,8 +1200,7 @@ pub(super) fn describe_card(
     let new = Color::srgb(0.3, 1.0, 0.3);
     match choice {
         Choice::NewAbility(def) => {
-            let stats = run.stats();
-            let c = cast_at(def, 1, &stats);
+            let c = super::talents::cast_for_run(def, 1, run);
             CardText {
                 spell: def.spell,
                 name: spell_name(spells, def.spell, def.key),
@@ -1214,10 +1213,9 @@ pub(super) fn describe_card(
         Choice::Upgrade(k) => {
             let o = &run.abilities[k];
             let next = o.level + 1;
-            let stats = run.stats();
             let (a, b) = (
-                cast_at(o.def, o.level, &stats),
-                cast_at(o.def, next, &stats),
+                super::talents::cast_for_run(o.def, o.level, run),
+                super::talents::cast_for_run(o.def, next, run),
             );
             // What actually changes, as before → after.
             let mut lines = Vec::new();
@@ -1372,7 +1370,11 @@ pub(super) fn refresh_hud(
     let banner = match run.banner.as_mut() {
         Some((msg, t)) => {
             *t -= time.delta_secs();
-            if *t > 0.0 { msg.clone() } else { String::new() }
+            if *t > 0.0 {
+                msg.clone()
+            } else {
+                String::new()
+            }
         }
         None => String::new(),
     };
@@ -1585,12 +1587,13 @@ pub(super) fn update_cooldown_sweeps(
     mut mats: ResMut<Assets<SweepUiMaterial>>,
     sweeps: Query<&AbilitySweep>,
 ) {
-    let stats = run.stats();
     for s in &sweeps {
         let Some(o) = run.abilities.get(s.index) else {
             continue;
         };
-        let total = cast_at(o.def, o.level, &stats).cooldown.max(0.01);
+        let total = super::talents::cast_for_run(o.def, o.level, &run)
+            .cooldown
+            .max(0.01);
         let f = (o.cd / total).clamp(0.0, 1.0);
         if let Some(m) = mats.get_mut(&s.handle) {
             m.sweep = f;
@@ -1662,8 +1665,8 @@ pub(super) fn hero_plate(
     mut level: Query<(&mut Text, &mut TextFont), With<HpLevel>>,
 ) {
     use crate::vplates::{
-        BAR_H, BAR_OFF_X, BAR_OFF_Y, BAR_W, LEVEL_H, LEVEL_OFF_X, LEVEL_OFF_Y, PLATE_H, PLATE_W,
-        gx_px, plate_basis, text_px,
+        gx_px, plate_basis, text_px, BAR_H, BAR_OFF_X, BAR_OFF_Y, BAR_W, LEVEL_H, LEVEL_OFF_X,
+        LEVEL_OFF_Y, PLATE_H, PLATE_W,
     };
     let seat = hero.single().ok().and_then(|h| {
         let (cam, tf) = cams.single().ok()?;
@@ -1847,10 +1850,6 @@ fn pct(v: f32) -> String {
 /// The numbers an ability casts with at a level, as [`super::abilities::cast_abilities`] takes
 /// them from [`Owned`].
 type Cast = super::talents::Cast;
-
-fn cast_at(def: &'static AbilityDef, level: u8, stats: &Stats) -> Cast {
-    super::talents::cast(def, level, stats)
-}
 
 fn effect_text(effect: Effect) -> Option<String> {
     if localization::is_zh_cn() {
@@ -2229,9 +2228,10 @@ fn ability_tip(
     o: &Owned,
     stats: &Stats,
     spells: Option<&crate::ui_action::Spells>,
+    run: &Run,
 ) -> Vec<TipLine> {
     let def = o.def;
-    let now = cast_at(def, o.level, stats);
+    let now = super::talents::cast_for_run(def, o.level, run);
     let mut lines = vec![
         TipLine::new(spell_name(spells, def.spell, def.key), Color::WHITE)
             .header()
@@ -2271,10 +2271,19 @@ fn ability_tip(
         ),
     );
     lines.push(TipLine::new(ability_body(def, &now), GOLD));
-    if !matches!(
-        def.kind,
-        Kind::Shield | Kind::Immune | Kind::Heal | Kind::Dot
-    ) {
+    let periodic_crit = super::talents::periodic_crits(
+        stats,
+        super::skill_effects::Source {
+            ability: Some(def.key),
+            ..default()
+        },
+    );
+    if periodic_crit
+        || !matches!(
+            def.kind,
+            Kind::Shield | Kind::Immune | Kind::Heal | Kind::Dot
+        )
+    {
         lines.push(TipLine::new(
             if localization::is_zh_cn() {
                 format!(
@@ -2292,8 +2301,17 @@ fn ability_tip(
             DIM,
         ));
     }
+    if periodic_crit {
+        lines.push(TipLine::new(
+            localization::text(
+                "Dark Pact: each damage-over-time tick rolls its own critical strike.",
+                "黑暗契约：每次持续伤害独立判定暴击。",
+            ),
+            DIM,
+        ));
+    }
     if o.level < data::MAX_ABILITY_LEVEL {
-        let next = cast_at(def, o.level + 1, stats);
+        let next = super::talents::cast_for_run(def, o.level + 1, run);
         lines.push(TipLine::new(
             localization::text("Next rank:", "下一级："),
             Color::WHITE,
@@ -2512,7 +2530,7 @@ pub(super) fn icon_tooltip(
     )>,
     mut frames: Query<(&mut Node, &mut Visibility), With<GameTooltip>>,
     mut built: Local<Option<(Entity, Entity)>>,
-    mut shown: Local<Option<(TipFor, u32)>>,
+    mut shown: Local<Option<(TipFor, u32, u32)>>,
 ) {
     let Some((frame, body)) = *built else {
         if let Some(assets) = assets.as_deref_mut() {
@@ -2549,10 +2567,9 @@ pub(super) fn icon_tooltip(
         node.left = left;
         node.top = top;
     }
-    if *shown == Some((tip, run.version)) {
-        if *vis != Visibility::Inherited {
-            *vis = Visibility::Inherited;
-        }
+    let revision = (tip, run.version, (run.elapsed * 5.0) as u32);
+    if *shown == Some(revision) {
+        *vis = Visibility::Inherited;
         return;
     }
     let stats = run.stats();
@@ -2560,7 +2577,7 @@ pub(super) fn icon_tooltip(
         TipFor::Ability(i) => run
             .abilities
             .get(i)
-            .map(|o| ability_tip(o, &stats, spells.as_deref())),
+            .map(|o| ability_tip(o, &stats, spells.as_deref(), &run)),
         TipFor::Passive(i) => run
             .passives
             .get(i)
@@ -2577,7 +2594,7 @@ pub(super) fn icon_tooltip(
         }),
     };
     let Some(lines) = lines else { return };
-    *shown = Some((tip, run.version));
+    *shown = Some(revision);
     // Shown from the next frame, once the new lines have laid out.
     *vis = Visibility::Hidden;
     let f = &font.0;

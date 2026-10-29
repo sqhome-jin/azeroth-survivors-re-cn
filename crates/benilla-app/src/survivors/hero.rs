@@ -6,9 +6,9 @@ use bevy::input::mouse::{AccumulatedMouseMotion, MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 
 use super::data::{self, ClassDef};
-use super::units::{self, Fx, Marks, UnitSpec, flat, wow_to_bevy, yaw_toward};
+use super::units::{self, flat, wow_to_bevy, yaw_toward, Fx, Marks, UnitSpec};
 use super::{Phase, Run, Selection};
-use crate::creature_anim::{MovementState, move_flags};
+use crate::creature_anim::{move_flags, MovementState};
 use crate::net::{FieldChanged, Guid, ObjectStore};
 
 #[derive(Component)]
@@ -398,20 +398,25 @@ pub(super) fn place_camera(
     }
 }
 
-/// Damage the hero takes from one blow, after immunity, armour and the shield; returns what got
-/// through.
-pub(super) fn hurt_hero(run: &mut Run, raw: f32) -> f32 {
-    if run.immune_t > 0.0 || run.dead_t.is_some() {
-        return 0.0;
+/// Returns damage through immunity, armour and shields, plus nonrecursive shield retaliation.
+pub(super) fn hurt_hero(run: &mut Run, raw: f32) -> (f32, f32) {
+    if run.immune_t > 0.0 || run.dead_t.is_some() || run.hp <= 0.0 {
+        return (0.0, 0.0);
     }
-    let mut dmg = (raw - run.stats().armor).max(1.0) * run.incoming();
+    let armored = (raw - run.stats().armor).max(1.0);
+    let projected = run.hp
+        - (armored * run.incoming() - if run.shield_t > 0.0 { run.shield } else { 0.0 }).max(0.0);
+    super::class_mechanics::before_contact(run, projected);
+    let mut dmg = armored * run.incoming();
+    let mut absorbed = 0.0;
     if run.shield_t > 0.0 && run.shield > 0.0 {
-        let absorbed = dmg.min(run.shield);
+        absorbed = dmg.min(run.shield);
         run.shield -= absorbed;
         dmg -= absorbed;
     }
     run.hp -= dmg;
-    dmg
+    let reflect = super::class_mechanics::on_contact(run, absorbed, dmg);
+    (dmg, reflect)
 }
 
 /// The clock, regeneration, the timed buffs and their visuals, death and victory.
@@ -440,12 +445,19 @@ pub(super) fn hero_vitals(
     for t in [&mut r.shield_t, &mut r.immune_t, &mut r.thorns_t] {
         *t = (*t - dt).max(0.0);
     }
+    let was_healing = run.heal_t > 0.0;
+    let mut hot = 0.0;
     let mut heal = stats.regen * dt;
     if run.heal_t > 0.0 {
-        heal += run.heal_rate * dt.min(run.heal_t);
+        hot = run.heal_rate * dt.min(run.heal_t);
+        heal += hot;
         run.heal_t = (run.heal_t - dt).max(0.0);
     }
-    run.hp = (run.hp + heal).min(stats.max_hp);
+    if run.hp > 0.0 {
+        let effective_hot = hot.min((stats.max_hp - run.hp - stats.regen * dt).max(0.0));
+        run.hp = (run.hp + heal).min(stats.max_hp);
+        super::class_mechanics::tick_healing(&mut run, dt, effective_hot, was_healing);
+    }
 
     // The buffs show as their own state kits: the shield bubble, the immunity glow, the orbs.
     let mut shown: Vec<u32> = Vec::new();

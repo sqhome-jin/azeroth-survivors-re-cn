@@ -9,10 +9,10 @@ use bevy::prelude::*;
 
 use super::abilities::Hit;
 use super::data::{self, EnemyDef};
-use super::hero::{self, HERO_RADIUS, Hero};
-use super::units::{self, COLOR_HURT, Fx, Marks, UnitSpec, flat, yaw_toward};
+use super::hero::{self, Hero, HERO_RADIUS};
+use super::units::{self, flat, yaw_toward, Fx, Marks, UnitSpec, COLOR_HURT};
 use super::{Phase, Rng, Run, Selection};
-use crate::creature_anim::{MovementState, move_flags};
+use crate::creature_anim::{move_flags, MovementState};
 use crate::net::{FieldChanged, Guid, ObjectStore};
 
 #[derive(Component)]
@@ -34,6 +34,8 @@ pub(super) struct Enemy {
     pub weaken: f32,
     pub weaken_t: f32,
     pub dots: Vec<Dot>,
+    pub warlock: super::warlock::Debuffs,
+    pub class_effects: super::class_mechanics::Debuffs,
     pub dead: bool,
 }
 
@@ -42,7 +44,27 @@ pub(super) struct Dot {
     pub left: f64,
     pub tick: f64,
     pub every: f64,
+    pub extension_left: f64,
     pub source: super::skill_effects::Source,
+}
+
+impl Dot {
+    pub fn next_tick(&mut self, frame_left: &mut f64) -> bool {
+        let active = self.left.max(0.0).min(*frame_left);
+        if active <= 0.0 {
+            return false;
+        }
+        let step = self.tick.max(0.0).min(active);
+        self.left = (self.left - step).max(0.0);
+        *frame_left = (*frame_left - step).max(0.0);
+        self.tick -= step;
+        if self.tick <= 1e-9 {
+            self.tick += self.every;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 /// A corpse playing its death before it fades.
@@ -146,6 +168,8 @@ fn spawn_enemy(
             weaken: 1.0,
             weaken_t: 0.0,
             dots: Vec::new(),
+            warlock: super::warlock::Debuffs::default(),
+            class_effects: super::class_mechanics::Debuffs::default(),
             dead: false,
         },
         Marks::debuffs(),
@@ -371,13 +395,18 @@ pub(super) fn move_enemies(
         {
             e.attack_cd = if e.boss { 1.0 } else { 1.3 };
             let raw = e.damage * e.weaken;
-            let taken = hero::hurt_hero(&mut run, raw);
+            let (taken, reflected) = hero::hurt_hero(&mut run, raw);
+            if reflected > 0.0 {
+                let mut hit = Hit::direct(ent, reflected, false);
+                hit.source.secondary = true;
+                hits.write(hit);
+            }
             fx.swing(ent, hero_e, taken);
             if taken > 0.0 {
                 fx.number(hero_e, taken, false, COLOR_HURT);
             }
             if run.thorns_t > 0.0 {
-                let mut hit = Hit::direct(ent, run.thorns, false);
+                let mut hit = Hit::direct(ent, super::class_mechanics::thorns_damage(&run), false);
                 hit.source = run.thorns_source;
                 hit.source.batch = run.guid();
                 hits.write(hit);

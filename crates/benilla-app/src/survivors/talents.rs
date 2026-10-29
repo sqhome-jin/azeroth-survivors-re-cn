@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::hud::{HudFont, UiArt, text_bundle};
-use super::{Owned, Phase, Run, Selection, Stats, data, localization};
+use super::hud::{text_bundle, HudFont, UiArt};
+use super::{data, localization, Owned, Phase, Run, Selection, Stats};
 
 pub(super) const MAX_POINTS: u8 = 51;
 const WARLOCK: u8 = 9;
@@ -15,7 +15,7 @@ const GOLD: Color = Color::srgb(0.94, 0.76, 0.34);
 const EDGE: Color = Color::srgb(0.42, 0.32, 0.12);
 const EFFECT_MULTIPLIER: f32 = 2.0;
 
-#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Loadout(pub [u8; NODE_COUNT]);
 
 #[derive(Clone, Copy)]
@@ -63,8 +63,8 @@ pub(super) const NODES: [NodeDef; NODE_COUNT] = [
         "Fel Concentration",
         "恶魔专注",
         "Spell_Shadow_FingerOfDeath",
-        "Damage-over-time duration +8% per rank.",
-        "每级使腐蚀术、痛苦诅咒和献祭的持续伤害时间延长8%。"
+        "Each Corruption, Curse of Agony or Immolate tick has a 4% chance per rank to extend that effect by 1 second; total extension is capped at 50% of its initial duration.",
+        "腐蚀术、痛苦诅咒和献祭每跳有每级4%概率使自身延长1秒；每个效果累计最多延长初始持续时间的50%。"
     ),
     node!(
         "grim_reach",
@@ -84,27 +84,27 @@ pub(super) const NODES: [NodeDef; NODE_COUNT] = [
     ),
     node!(
         "shadow_mastery",
-        "Shadow Mastery",
-        "暗影掌握",
+        "Nightfall",
+        "夜幕",
         "Spell_Shadow_ShadeTrueSight",
-        "Shadow spell damage +6% per rank.",
-        "每级使暗影箭、腐蚀术、痛苦诅咒、死亡缠绕和暗影灼烧伤害提高6%。"
+        "Affliction ticks have a 2% chance per rank to reset the learned direct spell with the longest remaining cooldown. Shared 3-second internal cooldown; no extra cast.",
+        "腐蚀术、痛苦诅咒和献祭每跳有每级2%概率刷新已学直伤法术中剩余冷却最长的一个；共用3秒内置冷却，不额外复制施法。"
     ),
     node!(
         "contagion",
         "Contagion",
         "蔓延痛苦",
         "Spell_Shadow_PlagueCloud",
-        "Corruption, Curse of Agony and Immolate periodic damage +6% per rank.",
-        "每级使腐蚀术、痛苦诅咒和献祭的持续伤害提高6%。"
+        "Corruption, Curse of Agony and Immolate ticks slow their target by 4% per rank for 3 seconds. Half strength on bosses; refreshes, never stacks.",
+        "腐蚀术、痛苦诅咒和献祭每跳使目标减速每级4%，持续3秒；首领效果减半，仅刷新、不叠加。"
     ),
     node!(
         "dark_pact",
         "Dark Pact",
         "黑暗契约",
         "Spell_Shadow_DarkRitual",
-        "Periodic damage +30%; periodic damage heals for an additional 2%, sharing the leech cap.",
-        "持续伤害提高30%，额外将持续伤害有效值的2%转化为生命，与生命虹吸共享恢复上限。"
+        "Corruption, Curse of Agony and Immolate ticks can crit using the same chance and multiplier as direct spells (including Ruin and gear). Periodic leech +2%, sharing the healing cap.",
+        "腐蚀术、痛苦诅咒和献祭每跳可暴击，与直伤共用暴击率和倍率（含毁灭之力与装备）；持续伤害额外吸血2%，共享恢复上限。"
     ),
     node!(
         "demonic_embrace",
@@ -159,40 +159,40 @@ pub(super) const NODES: [NodeDef; NODE_COUNT] = [
         "Master Demonologist",
         "恶魔学识大师",
         "Spell_Shadow_AntiShadow",
-        "Incoming damage -4% per rank after armor, before shields.",
-        "每级使护甲结算后、护盾吸收前的所受伤害降低4%。"
+        "Your spell damage weakens its target, reducing its damage by 2% per rank for 6 seconds. Refreshes, never stacks.",
+        "法术造成伤害时使目标虚弱，伤害降低每级2%，持续6秒；仅刷新、不叠加。"
     ),
     node!(
         "soul_link",
         "Soul Link",
         "灵魂链接",
         "Spell_Shadow_GatherShadows",
-        "Incoming damage -20%; no pet required. Multiplicative with Master Demonologist.",
-        "所受伤害降低20%，不需要宠物；与恶魔学识大师乘算。"
+        "Incoming damage -20%; no pet required. Combines multiplicatively with enemy weakness.",
+        "所受伤害降低20%，不需要宠物；与敌人的虚弱减伤乘算。"
     ),
     node!(
         "improved_shadow_bolt",
         "Improved Shadow Bolt",
         "强化暗影箭",
         "Spell_Shadow_ShadowBolt",
-        "Shadow Bolt damage +6% per rank.",
-        "每级使暗影箭伤害提高6%。"
+        "Shadow Bolt critical hits make the target take 3% more damage per rank from your primary spells for 6 seconds. Applies after the triggering hit; refreshes, never stacks.",
+        "暗影箭暴击后，使目标受到你的主要法术伤害提高每级3%，持续6秒；触发该效果的一击不受益，仅刷新、不叠加。"
     ),
     node!(
         "improved_immolate",
         "Improved Immolate",
         "强化献祭",
         "Spell_Fire_Immolation",
-        "Immolate damage +6% per rank.",
-        "每级使献祭的直接和持续伤害提高6%。"
+        "Direct spells deal 4% more damage per rank to targets already affected by your Immolate. Does not amplify periodic or equipment secondary damage.",
+        "直伤法术命中已受献祭持续伤害影响的目标时，伤害提高每级4%；不放大持续伤害与装备派生伤害。"
     ),
     node!(
         "devastation",
         "Devastation",
         "毁灭",
         "Spell_Fire_FlameShock",
-        "Direct damage critical strike chance +2 percentage points per rank.",
-        "每级使直接伤害暴击率提高2个百分点；持续伤害不暴击。"
+        "Spell critical strike chance +2 percentage points per rank. Also applies to Affliction ticks when Dark Pact is learned.",
+        "每级使法术暴击率提高2个百分点；学习黑暗契约后，持续伤害同样受益。"
     ),
     node!(
         "bane",
@@ -223,18 +223,30 @@ pub(super) const NODES: [NodeDef; NODE_COUNT] = [
         "Emberstorm",
         "琥珀风暴",
         "Spell_Fire_Volcano",
-        "Fire spell damage +6% per rank.",
-        "每级使献祭、火焰之雨、地狱烈焰和灼热之痛伤害提高6%。"
+        "Critical direct hits from Immolate or Searing Pain grant 3% haste per rank for 6 seconds. Shared 8-second internal cooldown; does not stack.",
+        "献祭直伤或灼热之痛暴击时，获得每级3%急速，持续6秒；共用8秒内置冷却，不叠加。"
     ),
     node!(
         "ruin",
         "Ruin",
         "毁灭之力",
         "Spell_Shadow_ShadowWordPain",
-        "Direct damage critical multiplier increases from 2.0 to 3.0. Periodic damage cannot crit.",
-        "直接伤害暴击倍率从2.0提高至3.0，持续伤害仍不暴击。"
+        "Spell critical multiplier increases from 2.0 to 3.0. Affliction ticks use this multiplier when Dark Pact is learned.",
+        "法术暴击倍率从2.0提高至3.0；学习黑暗契约后，持续伤害使用相同倍率。"
     ),
 ];
+
+pub(super) fn nodes(class: u8) -> Option<&'static [NodeDef; NODE_COUNT]> {
+    if class == WARLOCK {
+        Some(&NODES)
+    } else {
+        super::talent_catalog::for_class(class).map(|c| &c.nodes)
+    }
+}
+
+fn trees(class: u8) -> [(&'static str, &'static str); 3] {
+    super::talent_catalog::for_class(class).map_or(TREES, |c| c.trees)
+}
 
 const TIERS: [u8; 8] = [0, 0, 1, 2, 3, 4, 5, 6];
 const TREES: [(&str, &str); 3] = [
@@ -244,7 +256,11 @@ const TREES: [(&str, &str); 3] = [
 ];
 
 fn max_rank(index: usize) -> u8 {
-    if index % 8 == 7 { 1 } else { 5 }
+    if index % 8 == 7 {
+        1
+    } else {
+        5
+    }
 }
 
 impl Loadout {
@@ -297,7 +313,7 @@ impl Loadout {
     }
 
     pub fn incoming(self) -> f32 {
-        (1.0 - 0.02 * self.rank(14)) * (1.0 - 0.10 * self.rank(15))
+        1.0 - 0.10 * self.rank(15)
     }
 
     pub fn mobility_cooldown(self) -> f32 {
@@ -387,9 +403,9 @@ impl Progression {
 
     pub fn loadout(&self, class: u8) -> Loadout {
         let mut result = Loadout::default();
-        if class == WARLOCK {
+        if let Some(nodes) = nodes(class) {
             if let Some(saved) = self.save.classes.get(&class.to_string()) {
-                for (i, def) in NODES.iter().enumerate() {
+                for (i, def) in nodes.iter().enumerate() {
                     result.0[i] = saved.talents.get(def.id).copied().unwrap_or(0);
                 }
             }
@@ -398,11 +414,14 @@ impl Progression {
     }
 
     fn apply(&mut self, class: u8, loadout: Loadout) -> bool {
-        if self.read_only || class != WARLOCK || !loadout.valid(self.points(class)) {
+        let Some(nodes) = nodes(class) else {
+            return false;
+        };
+        if self.read_only || !loadout.valid(self.points(class)) {
             return false;
         }
         let entry = self.save.classes.entry(class.to_string()).or_default();
-        entry.talents = NODES
+        entry.talents = nodes
             .iter()
             .zip(loadout.0)
             .filter(|(_, rank)| *rank > 0)
@@ -410,6 +429,28 @@ impl Progression {
             .collect();
         self.dirty = true;
         true
+    }
+
+    fn validate_allocations(&mut self) {
+        for class in data::CLASSES.iter().map(|c| c.id) {
+            let Some(nodes) = nodes(class) else { continue };
+            let unknown = self
+                .save
+                .classes
+                .get(&class.to_string())
+                .is_some_and(|p| p.talents.keys().any(|id| !nodes.iter().any(|n| n.id == id)));
+            if unknown || !self.loadout(class).valid(self.points(class)) {
+                self.apply(class, Loadout::default());
+                self.error = Some(
+                    localization::text(
+                        "Talents changed; points refunded.",
+                        "天赋数据已变更，配点已返还，击杀进度保留。",
+                    )
+                    .into(),
+                );
+                warn!("survivors talents: incompatible allocation refunded for class {class}");
+            }
+        }
     }
 }
 
@@ -424,6 +465,15 @@ pub(super) struct TalentUi {
 #[derive(Component)]
 struct TalentRoot;
 
+#[derive(Component)]
+struct PanelClass(u8);
+
+#[derive(Component)]
+enum PanelArt {
+    Icon(usize),
+    Background(usize, usize, [f32; 4]),
+}
+
 #[derive(Component, Clone, Copy)]
 enum Action {
     Select(usize),
@@ -436,6 +486,8 @@ enum Action {
 
 #[derive(Component)]
 enum Label {
+    Class,
+    Legend(usize, u8),
     Summary,
     Detail,
     Rank(usize),
@@ -506,7 +558,7 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(Update, persist.after(credit))
         .add_systems(
             Update,
-            (build_panel, panel_input, refresh_panel)
+            (build_panel, refresh_art, panel_input, refresh_panel)
                 .chain()
                 .after(super::menu::menu_clicks),
         );
@@ -523,23 +575,7 @@ fn load(mut progression: ResMut<Progression>) {
         Ok(text) => match toml::from_str::<Save>(&text) {
             Ok(save) if save.version == 1 => {
                 progression.save = save;
-                let loadout = progression.loadout(WARLOCK);
-                let unknown = progression
-                    .save
-                    .classes
-                    .get(&WARLOCK.to_string())
-                    .is_some_and(|p| p.talents.keys().any(|id| !NODES.iter().any(|n| n.id == id)));
-                if unknown || !loadout.valid(progression.points(WARLOCK)) {
-                    progression.apply(WARLOCK, Loadout::default());
-                    progression.error = Some(
-                        localization::text(
-                            "Talents changed; points refunded.",
-                            "天赋数据已变更，配点已返还，击杀进度保留。",
-                        )
-                        .into(),
-                    );
-                    warn!("survivors talents: incompatible allocation refunded");
-                }
+                progression.validate_allocations();
             }
             Ok(_) => fail_load(&mut progression, "unsupported save version"),
             Err(error) => fail_load(&mut progression, &error.to_string()),
@@ -667,26 +703,19 @@ pub(super) fn cast(def: &'static data::AbilityDef, level: u8, stats: &Stats) -> 
         cd: 0.0,
     };
     let t = stats.talents;
-    let r = |i| t.rank(i);
-    let shadow = matches!(
-        def.key,
-        "shadow_bolt" | "corruption" | "curse_of_agony" | "death_coil" | "shadowburn"
-    );
-    let fire = matches!(
-        def.key,
-        "immolate" | "rain_of_fire" | "hellfire" | "searing_pain"
-    );
+    let r = |i| {
+        if stats.class == WARLOCK {
+            t.rank(i)
+        } else {
+            0.0
+        }
+    };
     let damage = 1.0
-        + if shadow { 0.03 * r(5) } else { 0.0 }
-        + if fire { 0.03 * r(22) } else { 0.0 }
         + match def.key {
             "curse_of_agony" => 0.04 * r(1),
-            "shadow_bolt" => 0.03 * r(16),
-            "immolate" => 0.03 * r(17),
             "shadowburn" => 0.04 * r(21),
             _ => 0.0,
         };
-    let periodic = matches!(def.key, "corruption" | "curse_of_agony" | "immolate");
     let cooldown = match def.key {
         "corruption" => 0.03 * r(0),
         "death_coil" => 0.04 * r(12),
@@ -695,15 +724,9 @@ pub(super) fn cast(def: &'static data::AbilityDef, level: u8, stats: &Stats) -> 
     };
     let modifiers = super::skill_effects::Modifiers::from_stats(stats, def);
     let mult = owned.damage_mult() * stats.might * damage * (1.0 + modifiers.damage);
-    Cast {
+    let mut cast = Cast {
         dmg: def.damage * mult,
-        dot: def.dot
-            * mult
-            * if periodic {
-                1.0 + 0.03 * r(6) + 0.15 * r(7)
-            } else {
-                1.0
-            },
+        dot: def.dot * mult,
         count: owned.count() + modifiers.count,
         radius: owned.radius(stats)
             * (1.0 + modifiers.radius)
@@ -712,14 +735,13 @@ pub(super) fn cast(def: &'static data::AbilityDef, level: u8, stats: &Stats) -> 
             } else {
                 1.0
             },
-        duration: (owned.duration()
-            * (1.0 + modifiers.duration)
-            * if periodic { 1.0 + 0.04 * r(2) } else { 1.0 })
-        .min(if def.kind == data::Kind::Immune {
-            owned.cooldown(stats) * (1.0 - modifiers.cooldown) * 0.5
-        } else {
-            f32::INFINITY
-        }),
+        duration: (owned.duration() * (1.0 + modifiers.duration)).min(
+            if def.kind == data::Kind::Immune {
+                owned.cooldown(stats) * (1.0 - modifiers.cooldown) * 0.5
+            } else {
+                f32::INFINITY
+            },
+        ),
         cooldown: (owned.cooldown(stats) * (1.0 - cooldown) * (1.0 - modifiers.cooldown)).max(0.2),
         range: def.range * (1.0 + modifiers.range)
             + if matches!(def.key, "corruption" | "curse_of_agony") {
@@ -728,16 +750,47 @@ pub(super) fn cast(def: &'static data::AbilityDef, level: u8, stats: &Stats) -> 
                 0.0
             },
         modifiers,
+    };
+    super::talent_catalog::modify_cast(stats.class, def.key, stats, &mut cast);
+    cast.cooldown = cast.cooldown.max(0.2);
+    if def.kind == data::Kind::Immune {
+        cast.duration = cast.duration.min(cast.cooldown * 0.5);
     }
+    cast
 }
 
 pub(super) fn modify_stats(stats: &mut Stats) {
+    if stats.class != WARLOCK {
+        super::talent_catalog::modify_stats(stats.class, stats);
+        return;
+    }
     let t = stats.talents;
     stats.max_hp *= 1.0 + 0.03 * t.rank(8);
     stats.armor += 0.4 * t.rank(9);
     stats.regen += 0.15 * t.rank(10);
     stats.speed *= 1.0 + 0.02 * t.rank(11);
     stats.crit = (stats.crit + 0.01 * t.rank(18)).min(1.0);
+}
+
+pub(super) fn cast_for_run(def: &'static data::AbilityDef, level: u8, run: &Run) -> Cast {
+    let mut stats = run.stats();
+    let mut cast = cast(def, level, &stats);
+    super::class_mechanics::modify_cast(run, def.key, &mut cast, &mut stats);
+    cast
+}
+
+pub(super) fn periodic_crits(stats: &Stats, source: super::skill_effects::Source) -> bool {
+    if stats.class == WARLOCK {
+        super::warlock::periodic_crits(stats.talents, source)
+    } else {
+        !source.secondary
+            && match (stats.class, source.ability) {
+                (3, Some("serpent_sting")) => stats.talents.0[23] > 0,
+                (4, Some("rupture")) => stats.talents.0[7] > 0,
+                (11, Some("moonfire" | "insect_swarm")) => stats.talents.0[7] > 0,
+                _ => false,
+            }
+    }
 }
 
 pub(super) fn periodic_heal(run: &mut Run, effective_damage: f32, dt: f32) {
@@ -774,7 +827,12 @@ fn build_panel(
     mut commands: Commands,
     font: Option<Res<HudFont>>,
     roots: Query<(), With<TalentRoot>>,
+    selection: Res<Selection>,
 ) {
+    let Some(class) = selection.class_def() else {
+        return;
+    };
+    let Some(nodes) = nodes(class.id) else { return };
     if !roots.is_empty() {
         return;
     }
@@ -782,6 +840,7 @@ fn build_panel(
     let f = &font.0;
     commands.spawn((
         TalentRoot,
+        PanelClass(class.id),
         Node {
             position_type: PositionType::Absolute,
             width: Val::Percent(100.0), height: Val::Percent(100.0),
@@ -796,7 +855,7 @@ fn build_panel(
             .with_children(|header| {
                 header.spawn(Node { flex_direction: FlexDirection::Column, ..default() }).with_children(|title| {
                     title.spawn(text_bundle(f, localization::text("TALENTS", "天赋"), 32.0, GOLD));
-                    title.spawn(text_bundle(f, localization::text("WARLOCK · Free respec · Applies next run", "术士 · 免费重置 · 下一局生效"), 12.0, GOLD));
+                    title.spawn((Label::Class, text_bundle(f, "", 12.0, GOLD)));
                 });
                 header.spawn(Node { column_gap: Val::Px(10.0), ..default() }).with_children(|buttons| {
                     button(buttons, f, Action::Cancel, localization::text("Back", "返回"));
@@ -816,7 +875,7 @@ fn build_panel(
                         BackgroundColor(Color::srgb(0.035, 0.027, 0.017)), BorderColor::all(EDGE),
                     )).with_children(|column| {
                         column.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(8.0), ..default() }).with_children(|head| {
-                            head.spawn((UiArt::crop(NODES[tree * 8].icon, [0.0, 1.0, 0.0, 1.0]), ImageNode::default(),
+                            head.spawn((PanelArt::Icon(tree * 8), UiArt::crop(nodes[tree * 8].icon, [0.0, 1.0, 0.0, 1.0]), ImageNode::default(),
                                 Node { width: Val::Px(26.0), height: Val::Px(26.0), ..default() }));
                             head.spawn((Label::Tree(tree), text_bundle(f, "", 18.0, GOLD)));
                         });
@@ -825,7 +884,7 @@ fn build_panel(
                                 border: UiRect::all(Val::Px(1.0)), overflow: Overflow::clip(), ..default() },
                             BorderColor::all(EDGE),
                         )).with_children(|field| {
-                            background(field, tree);
+                            background(field, class.id, tree);
                             // Lines indicate tier progression, not extra node prerequisites.
                             for tier in 1..=6 {
                                 field.spawn((
@@ -859,7 +918,7 @@ fn build_panel(
                                         ..default() },
                                     BackgroundColor(Color::BLACK), BorderColor::all(EDGE),
                                 )).with_children(|b| {
-                                    b.spawn((TalentIcon(i), UiArt::crop(NODES[i].icon, [0.0, 1.0, 0.0, 1.0]), ImageNode::default(),
+                                    b.spawn((TalentIcon(i), PanelArt::Icon(i), UiArt::crop(nodes[i].icon, [0.0, 1.0, 0.0, 1.0]), ImageNode::default(),
                                         Node { width: Val::Percent(100.0), height: Val::Percent(100.0), ..default() }));
                                     b.spawn((Node { position_type: PositionType::Absolute,
                                         right: Val::Px(-5.0), bottom: Val::Px(-8.0),
@@ -871,11 +930,11 @@ fn build_panel(
                             }
                         });
                         for (tier, j) in [(10, 3), (20, 5), (30, 7)] {
-                            let def = &NODES[tree * 8 + j];
+                            let def = &nodes[tree * 8 + j];
                             column.spawn(Node { align_items: AlignItems::Center, column_gap: Val::Px(6.0), ..default() }).with_children(|legend| {
-                                legend.spawn((UiArt::crop(def.icon, [0.0, 1.0, 0.0, 1.0]), ImageNode::default(),
+                                legend.spawn((PanelArt::Icon(tree * 8 + j), UiArt::crop(def.icon, [0.0, 1.0, 0.0, 1.0]), ImageNode::default(),
                                     Node { width: Val::Px(20.0), height: Val::Px(20.0), ..default() }));
-                                legend.spawn(text_bundle(f, format!("{tier}{} · {}", localization::text(" pts", "点"), localization::text(def.name, def.zh)), 11.0, GOLD));
+                                legend.spawn((Label::Legend(tree * 8 + j, tier), text_bundle(f, "", 11.0, GOLD)));
                             });
                         }
                     });
@@ -897,8 +956,8 @@ fn build_panel(
                     side.spawn((Node { height: Val::Px(1.0), margin: UiRect::vertical(Val::Px(4.0)), ..default() }, BackgroundColor(EDGE)));
                     side.spawn(Node { min_height: Val::Px(42.0), column_gap: Val::Px(10.0), align_items: AlignItems::Center, ..default() }).with_children(|head| {
                         head.spawn(Node { width: Val::Px(40.0), height: Val::Px(40.0), flex_shrink: 0.0, ..default() }).with_children(|icons| {
-                            for (i, def) in NODES.iter().enumerate() {
-                                icons.spawn((DetailIcon(i), UiArt::crop(def.icon, [0.0, 1.0, 0.0, 1.0]), ImageNode::default(),
+                            for (i, def) in nodes.iter().enumerate() {
+                                icons.spawn((DetailIcon(i), PanelArt::Icon(i), UiArt::crop(def.icon, [0.0, 1.0, 0.0, 1.0]), ImageNode::default(),
                                     Node { width: Val::Px(40.0), height: Val::Px(40.0), display: Display::None, ..default() }));
                             }
                         });
@@ -915,7 +974,8 @@ fn build_panel(
     });
 }
 
-fn background(parent: &mut ChildSpawnerCommands, tree: usize) {
+fn background(parent: &mut ChildSpawnerCommands, class: u8, tree: usize) {
+    let paths = super::talent_catalog::for_class(class).map_or(&BACKGROUNDS, |c| &c.backgrounds);
     // The original 300x331 canvas is tiled into padded power-of-two textures.
     for (part, (left, top, width, height, crop)) in [
         (0.0, 0.0, 256.0 / 300.0, 256.0 / 331.0, [0.0, 1.0, 0.0, 1.0]),
@@ -945,7 +1005,8 @@ fn background(parent: &mut ChildSpawnerCommands, tree: usize) {
     .enumerate()
     {
         parent.spawn((
-            UiArt::crop(BACKGROUNDS[tree][part], crop),
+            PanelArt::Background(tree, part, crop),
+            UiArt::crop(paths[tree][part], crop),
             ImageNode::default(),
             Node {
                 position_type: PositionType::Absolute,
@@ -968,6 +1029,40 @@ fn background(parent: &mut ChildSpawnerCommands, tree: usize) {
     ));
 }
 
+fn refresh_art(
+    mut commands: Commands,
+    selection: Res<Selection>,
+    mut roots: Query<&mut PanelClass>,
+    art: Query<(Entity, &PanelArt)>,
+) {
+    let Some(class) = selection.class_def() else {
+        return;
+    };
+    let Some(nodes) = nodes(class.id) else { return };
+    let mut changed = false;
+    for mut panel in &mut roots {
+        if panel.0 != class.id {
+            panel.0 = class.id;
+            changed = true;
+        }
+    }
+    if !changed {
+        return;
+    }
+    let backgrounds =
+        super::talent_catalog::for_class(class.id).map_or(&BACKGROUNDS, |c| &c.backgrounds);
+    for (entity, slot) in &art {
+        let art = match *slot {
+            PanelArt::Icon(i) => UiArt::crop(nodes[i].icon, [0.0, 1.0, 0.0, 1.0]),
+            PanelArt::Background(tree, part, crop) => UiArt::crop(backgrounds[tree][part], crop),
+        };
+        commands
+            .entity(entity)
+            .remove::<super::hud::ArtDone>()
+            .insert(art);
+    }
+}
+
 fn panel_input(
     mut ui: ResMut<TalentUi>,
     mut progression: ResMut<Progression>,
@@ -975,22 +1070,26 @@ fn panel_input(
     selection: Res<Selection>,
     keys: Res<ButtonInput<KeyCode>>,
     presses: Query<(&Interaction, &Action), Changed<Interaction>>,
-    mut was_open: Local<bool>,
+    mut opened_class: Local<Option<u8>>,
 ) {
-    if *phase.get() != Phase::Menu || selection.class_def().is_none_or(|c| c.id != WARLOCK) {
+    let class = selection.class_def().map(|c| c.id);
+    if *phase.get() != Phase::Menu || class.is_none_or(|c| nodes(c).is_none()) {
         ui.open = false;
     }
-    if ui.open && !*was_open {
-        ui.draft = progression.loadout(WARLOCK);
-        ui.message.clear();
-    }
-    *was_open = ui.open;
     if !ui.open {
+        *opened_class = None;
         return;
+    }
+    let Some(class) = class else { return };
+    if *opened_class != Some(class) {
+        ui.draft = progression.loadout(class);
+        ui.selected = 0;
+        ui.message.clear();
+        *opened_class = Some(class);
     }
     if keys.just_pressed(KeyCode::Escape) {
         ui.open = false;
-        *was_open = false;
+        *opened_class = None;
         return;
     }
     for (interaction, action) in &presses {
@@ -1004,7 +1103,7 @@ fn panel_input(
             }
             Action::Learn => {
                 let i = ui.selected;
-                if !ui.draft.learn(i, progression.points(WARLOCK)) {
+                if !ui.draft.learn(i, progression.points(class)) {
                     ui.message = localization::text(
                         "Cannot learn: check points, rank and lower tiers.",
                         "无法学习：请检查可用点数、等级上限和低层投入。",
@@ -1024,7 +1123,7 @@ fn panel_input(
                 ui.message.clear();
             }
             Action::Apply => {
-                if progression.apply(WARLOCK, ui.draft) {
+                if progression.apply(class, ui.draft) {
                     progression.save_elapsed = 5.0;
                     ui.open = false;
                 } else {
@@ -1038,12 +1137,16 @@ fn panel_input(
             Action::Cancel => ui.open = false,
         }
     }
-    *was_open = ui.open;
+    if !ui.open {
+        *opened_class = None;
+    }
 }
 
+#[allow(clippy::type_complexity)]
 fn refresh_panel(
     ui: Res<TalentUi>,
     progression: Res<Progression>,
+    selection: Res<Selection>,
     mut roots: Query<&mut Node, With<TalentRoot>>,
     mut labels: Query<(&Label, &mut Text, &mut TextColor)>,
     mut buttons: Query<(&Action, &mut BorderColor, &mut BackgroundColor)>,
@@ -1065,8 +1168,13 @@ fn refresh_panel(
     if !ui.open {
         return;
     }
-    let points = progression.points(WARLOCK);
-    let score = progression.score(WARLOCK);
+    let Some(class) = selection.class_def() else {
+        return;
+    };
+    let Some(nodes) = nodes(class.id) else { return };
+    let trees = trees(class.id);
+    let points = progression.points(class.id);
+    let score = progression.score(class.id);
     let next = if points < MAX_POINTS {
         threshold(points + 1).saturating_sub(score).to_string()
     } else {
@@ -1074,6 +1182,16 @@ fn refresh_panel(
     };
     for (label, mut text, mut color) in &mut labels {
         let value = match *label {
+            Label::Class => format!(
+                "{} · {}",
+                localization::class_name(class.id, class.name),
+                localization::text("Free respec · Applies next run", "免费重置 · 下一局生效")
+            ),
+            Label::Legend(i, tier) => format!(
+                "{tier}{} · {}",
+                localization::text(" pts", "点"),
+                localization::text(nodes[i].name, nodes[i].zh)
+            ),
             Label::Summary => format!(
                 "{} {}/51 · {} {}\n{}/{}/{}\n{} {score}\n{} {next}\n{}",
                 localization::text("Earned", "已获得"),
@@ -1089,7 +1207,7 @@ fn refresh_panel(
             ),
             Label::NodeName => {
                 let i = ui.selected;
-                let def = &NODES[i];
+                let def = &nodes[i];
                 format!(
                     "{}\n{} {}/{}",
                     localization::text(def.name, def.zh),
@@ -1099,7 +1217,7 @@ fn refresh_panel(
                 )
             }
             Label::Detail => {
-                localization::text(NODES[ui.selected].desc, NODES[ui.selected].desc_zh).into()
+                localization::text(nodes[ui.selected].desc, nodes[ui.selected].desc_zh).into()
             }
             Label::Requirement => {
                 let i = ui.selected;
@@ -1132,7 +1250,7 @@ fn refresh_panel(
             }
             Label::Tree(i) => format!(
                 "{} · {}",
-                localization::text(TREES[i].0, TREES[i].1),
+                localization::text(trees[i].0, trees[i].1),
                 ui.draft.tree_spent(i)
             ),
             Label::Available => format!(
@@ -1202,6 +1320,130 @@ fn refresh_panel(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn warlock() -> Run {
+        Run {
+            class: data::CLASSES.iter().find(|c| c.id == WARLOCK).unwrap(),
+            ..Run::default()
+        }
+    }
+
+    #[test]
+    fn all_classes_have_independent_roundtrippable_allocations_and_refunds() {
+        let mut p = Progression::default();
+        for class in data::CLASSES {
+            let nodes = nodes(class.id).expect("every playable class has talents");
+            let ids: std::collections::BTreeSet<_> = nodes.iter().map(|n| n.id).collect();
+            assert_eq!(ids.len(), NODE_COUNT);
+            assert!(nodes.iter().all(|n| !n.name.is_empty()
+                && !n.zh.is_empty()
+                && !n.desc.is_empty()
+                && !n.desc_zh.is_empty()
+                && n.icon.starts_with("Interface\\Icons\\")));
+            p.save.classes.insert(
+                class.id.to_string(),
+                ClassProgress {
+                    normal_kills: 89_000,
+                    ..default()
+                },
+            );
+            let mut t = Loadout::default();
+            t.0[0] = 5;
+            t.0[8] = 3;
+            assert!(p.apply(class.id, t));
+        }
+        let text = toml::to_string(&p.save).unwrap();
+        let mut p = Progression {
+            save: toml::from_str(&text).unwrap(),
+            ..default()
+        };
+        p.save
+            .classes
+            .get_mut("1")
+            .unwrap()
+            .talents
+            .insert("unknown".into(), 1);
+        p.validate_allocations();
+        assert_eq!(p.loadout(1), Loadout::default());
+        assert_eq!(p.points(1), MAX_POINTS);
+        for class in data::CLASSES.iter().filter(|c| c.id != 1) {
+            assert_eq!(p.loadout(class.id).0[0], 5);
+            assert_eq!(p.loadout(class.id).0[8], 3);
+        }
+        assert!(p.error.is_some());
+        assert!(!p.apply(255, Loadout::default()));
+        p.read_only = true;
+        assert!(!p.apply(9, Loadout::default()));
+    }
+
+    #[test]
+    fn warlock_rank_slots_never_grant_warlock_bonuses_to_other_classes() {
+        for class in data::CLASSES.iter().filter(|c| c.id != WARLOCK) {
+            let mut run = Run {
+                class,
+                ..Run::default()
+            };
+            run.talents.0[23] = 1;
+            assert_eq!(run.stats().crit_multiplier(), 2.0, "{}", class.name);
+            assert_eq!(run.leech(), 0.0, "{}", class.name);
+            let mut stats = run.stats();
+            stats.talents.0[0] = 5;
+            let result = cast(data::ability("corruption"), 1, &stats);
+            assert_eq!(
+                result.cooldown,
+                Owned {
+                    def: data::ability("corruption"),
+                    level: 1,
+                    cd: 0.0,
+                }
+                .cooldown(&stats)
+            );
+        }
+    }
+
+    #[test]
+    fn panel_reuses_entities_for_selected_class_and_uses_its_own_points() {
+        let mut app = App::new();
+        app.insert_resource(State::new(Phase::Menu))
+            .init_resource::<Selection>()
+            .init_resource::<Progression>()
+            .init_resource::<TalentUi>()
+            .init_resource::<ButtonInput<KeyCode>>()
+            .insert_resource(HudFont(Handle::default()))
+            .add_systems(
+                Update,
+                (build_panel, refresh_art, panel_input, refresh_panel).chain(),
+            );
+        let mut panel_entity = None;
+        for (index, class) in data::CLASSES.iter().enumerate() {
+            app.world_mut().resource_mut::<Selection>().class = Some(index);
+            {
+                let mut p = app.world_mut().resource_mut::<Progression>();
+                p.save.classes.insert(
+                    class.id.to_string(),
+                    ClassProgress {
+                        normal_kills: 89_000,
+                        ..default()
+                    },
+                );
+                let mut t = Loadout::default();
+                t.0[0] = 2;
+                assert!(p.apply(class.id, t));
+            }
+            app.world_mut().resource_mut::<TalentUi>().open = true;
+            app.update();
+            let world = app.world_mut();
+            let mut panels =
+                world.query_filtered::<(Entity, &PanelClass, &Node), With<TalentRoot>>();
+            let (entity, panel, node) = panels.single(world).unwrap();
+            assert_eq!(*panel_entity.get_or_insert(entity), entity);
+            assert_eq!(panel.0, class.id);
+            assert_eq!(node.display, Display::Flex);
+            assert_eq!(world.resource::<TalentUi>().draft.0[0], 2);
+            let mut icons = world.query::<&TalentIcon>();
+            assert_eq!(icons.iter(world).count(), NODE_COUNT);
+        }
+    }
 
     #[test]
     fn talent_icons_are_unique_asset_paths() {
@@ -1285,7 +1527,7 @@ mod tests {
 
     #[test]
     fn casts_keep_zero_talent_behavior_and_modify_only_target_skills() {
-        let run = Run::default();
+        let run = warlock();
         let mut stats = run.stats();
         let def = data::ability("corruption");
         let plain = cast(def, 3, &stats);
@@ -1352,11 +1594,10 @@ mod tests {
         let hp = app.world().resource::<Run>().hp;
         assert!(hp > super::super::BASE_HP);
         app.world_mut().resource_mut::<Run>().hp = 20.0;
-        assert!(
-            app.world_mut()
-                .resource_mut::<Progression>()
-                .apply(WARLOCK, Loadout::default())
-        );
+        assert!(app
+            .world_mut()
+            .resource_mut::<Progression>()
+            .apply(WARLOCK, Loadout::default()));
         app.update();
         assert_eq!(app.world().resource::<Run>().hp, 20.0);
         assert_eq!(app.world().resource::<Run>().talents.0[8], 5);
@@ -1378,10 +1619,14 @@ mod tests {
     }
 
     #[test]
-    fn every_node_has_a_measurable_effect() {
-        let run = Run::default();
+    fn unconditional_nodes_keep_their_advertised_effects() {
+        let run = warlock();
         let base = run.stats();
-        for i in 0..NODE_COUNT {
+        for (i, node) in NODES
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| ![2, 5, 6, 7, 14, 16, 17, 22].contains(i))
+        {
             let mut stats = base;
             stats.talents.0[i] = 1;
             modify_stats(&mut stats);
@@ -1394,23 +1639,11 @@ mod tests {
                     cast(data::ability("curse_of_agony"), 1, &stats).dot
                         > cast(data::ability("curse_of_agony"), 1, &base).dot
                 }
-                2 => {
-                    cast(data::ability("corruption"), 1, &stats).duration
-                        > cast(data::ability("corruption"), 1, &base).duration
-                }
                 3 => {
                     cast(data::ability("corruption"), 1, &stats).range
                         > cast(data::ability("corruption"), 1, &base).range
                 }
                 4 => stats.talents.leech() > 0.0,
-                5 | 16 => {
-                    cast(data::ability("shadow_bolt"), 1, &stats).dmg
-                        > cast(data::ability("shadow_bolt"), 1, &base).dmg
-                }
-                6 | 7 => {
-                    cast(data::ability("corruption"), 1, &stats).dot
-                        > cast(data::ability("corruption"), 1, &base).dot
-                }
                 8 => stats.max_hp > base.max_hp,
                 9 => stats.armor > base.armor,
                 10 => stats.regen > base.regen,
@@ -1420,11 +1653,7 @@ mod tests {
                         < cast(data::ability("death_coil"), 1, &base).cooldown
                 }
                 13 => stats.talents.mobility_cooldown() < 1.0,
-                14 | 15 => stats.talents.incoming() < 1.0,
-                17 => {
-                    cast(data::ability("immolate"), 1, &stats).dmg
-                        > cast(data::ability("immolate"), 1, &base).dmg
-                }
+                15 => stats.talents.incoming() < 1.0,
                 18 => stats.crit > base.crit,
                 19 => {
                     cast(data::ability("shadow_bolt"), 1, &stats).cooldown
@@ -1438,17 +1667,13 @@ mod tests {
                     cast(data::ability("shadowburn"), 1, &stats).dmg
                         > cast(data::ability("shadowburn"), 1, &base).dmg
                 }
-                22 => {
-                    cast(data::ability("rain_of_fire"), 1, &stats).dmg
-                        > cast(data::ability("rain_of_fire"), 1, &base).dmg
-                }
                 23 => stats.talents.critical_multiplier() == 3.0,
                 _ => unreachable!(),
             };
             assert!(
                 changed,
                 "talent {} must affect its advertised mechanic",
-                NODES[i].id
+                node.id
             );
         }
     }
@@ -1457,7 +1682,7 @@ mod tests {
     fn leech_has_a_one_second_budget_and_does_not_revive() {
         let mut run = Run {
             hp: 1.0,
-            ..default()
+            ..warlock()
         };
         run.talents.0[4] = 5;
         run.talents.0[7] = 1;
@@ -1477,11 +1702,11 @@ mod tests {
     }
 
     #[test]
-    fn all_twenty_four_bonuses_are_doubled_exactly() {
-        let base = Run::default().stats();
+    fn static_bonuses_remain_balanced_and_mechanic_nodes_no_longer_give_flat_damage() {
+        let base = warlock().stats();
         let expected = [
-            0.94, 1.08, 1.08, 2.0, 0.004, 1.06, 1.06, 1.30, 1.06, 0.8, 0.30, 1.04, 0.92, 0.92,
-            0.96, 0.80, 1.06, 1.06, 0.02, 0.96, 1.06, 1.08, 1.06, 3.0,
+            0.94, 1.08, 1.0, 2.0, 0.004, 1.0, 1.0, 1.0, 1.06, 0.8, 0.30, 1.04, 0.92, 0.92, 1.0,
+            0.80, 1.0, 1.0, 0.02, 0.96, 1.06, 1.08, 1.0, 3.0,
         ];
         for (i, &want) in expected.iter().enumerate() {
             let mut stats = base;
