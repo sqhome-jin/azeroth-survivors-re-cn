@@ -12,7 +12,7 @@ const EDGE: Color = Color::srgb(0.42, 0.32, 0.12);
 const DIM: Color = Color::srgb(0.65, 0.60, 0.43);
 const PAGE: usize = 64;
 const COLUMNS: usize = 8;
-const LINES: usize = 15;
+const LINES: usize = 14;
 
 #[derive(Resource, Default)]
 pub(super) struct GearUi {
@@ -79,6 +79,49 @@ fn current_class(phase: Phase, selection: &Selection, run: &Run) -> u8 {
     } else {
         run.class.id
     }
+}
+
+fn enhancement_status(
+    item: &gear::Item,
+    gear: &Gear,
+    class: u8,
+    phase: Phase,
+    run: &Run,
+    enh: &gear::EnhRoll,
+) -> &'static str {
+    if gear.wearer(item.id) != Some(class) {
+        return localization::text(
+            "Enhancement inactive: equip this item",
+            "强化未生效：请先穿戴装备",
+        );
+    }
+    let kind = gear::ENH_KINDS[usize::from(enh.kind)];
+    let available = super::data::CLASSES.iter().any(|c| {
+        c.id == class && (c.start == enh.ability || c.pool.contains(&enh.ability.as_str()))
+    }) || enh.ability.is_empty();
+    if !available {
+        return localization::text(
+            "Enhancement inactive: skill belongs to another class",
+            "强化未生效：当前职业无法学习该技能",
+        );
+    }
+    if phase == Phase::Menu {
+        return localization::text(
+            "Enhancement activates after learning the skill in a run",
+            "局内习得对应技能后，强化自动生效",
+        );
+    }
+    if !run
+        .abilities
+        .iter()
+        .any(|o| (enh.ability.is_empty() || o.def.key == enh.ability) && kind.supports(o.def))
+    {
+        return localization::text(
+            "Enhancement inactive: skill not learned in this run",
+            "强化未生效：本局尚未习得对应技能",
+        );
+    }
+    localization::text("Skill enhancement active", "技能强化已生效")
 }
 
 fn button(parent: &mut ChildSpawnerCommands, font: &Handle<Font>, action: Action, label: &str) {
@@ -409,7 +452,7 @@ fn panel_input(
     }
     // Keep the hero's numbers current in the paused run.
     if *phase.get() == Phase::Paused {
-        run.gear = gear.bonuses(class);
+        gear::apply_to_run(&mut run, gear.bonuses(class));
     }
 }
 
@@ -540,13 +583,18 @@ fn refresh_panel(
         for roll in &item.affixes {
             lines.push((gear::describe(roll), Color::srgb(0.75, 0.85, 1.0)));
         }
-        if let Some(enh) = &item.enhancement {
+        for enh in &item.enhancements {
             let name = data_name(spells.as_deref(), &enh.ability);
             lines.push((
-                gear::describe_enhancement(enh, &name),
-                gear::RARITY_COLORS[5],
+                format!(
+                    "{}\n{}",
+                    gear::describe_enhancement(enh, &name),
+                    enhancement_status(item, &gear, class, *phase.get(), &run, enh)
+                ),
+                GOLD,
             ));
         }
+
         let note = match gear.wearer(item.id) {
             Some(c) if c == class => localization::text("Worn by this class", "当前职业已穿戴"),
             Some(_) => localization::text(
@@ -618,5 +666,48 @@ fn refresh_menu_slots(
             &mut assets,
             &mut images,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn enhancement_status_explains_each_activation_requirement() {
+        let mage = super::super::data::CLASSES
+            .iter()
+            .find(|c| c.start == "frostbolt")
+            .unwrap();
+        let mut rng = super::super::Rng(12345);
+        let mut gear = Gear::default();
+        let mut item = gear::roll_item(&mut rng, mage, 5);
+        item.enhancements[0].ability = mage.start.to_owned();
+        item.enhancements[0].kind = 0;
+        let id = gear.add(item);
+        let mut run = Run {
+            class: mage,
+            ..default()
+        };
+        let status = |gear: &Gear, class, phase, run: &Run| {
+            let item = gear.item(id).unwrap();
+            enhancement_status(item, gear, class, phase, run, &item.enhancements[0])
+        };
+        let unequipped = status(&gear, mage.id, Phase::Menu, &run);
+        gear.equip(mage.id, id);
+        let menu = status(&gear, mage.id, Phase::Menu, &run);
+        let unlearned = status(&gear, mage.id, Phase::Paused, &run);
+        run.abilities.push(super::super::Owned {
+            def: super::super::data::ability(mage.start),
+            level: 1,
+            cd: 0.0,
+        });
+        let active = status(&gear, mage.id, Phase::Paused, &run);
+        gear.equip(1, id);
+        let incompatible = status(&gear, 1, Phase::Paused, &run);
+        let mut states = vec![unequipped, menu, unlearned, active, incompatible];
+        states.sort_unstable();
+        states.dedup();
+        assert_eq!(states.len(), 5);
     }
 }

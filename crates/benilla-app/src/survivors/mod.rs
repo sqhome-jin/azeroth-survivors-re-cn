@@ -21,6 +21,7 @@ mod menu_layout;
 mod minimap;
 mod mobility;
 mod preview;
+mod skill_effects;
 mod talents;
 mod units;
 
@@ -49,6 +50,7 @@ impl Plugin for SurvivorsPlugin {
             .add_plugins(talents::plugin)
             .add_plugins(gear::plugin)
             .add_plugins(gear_ui::plugin)
+            .add_plugins(skill_effects::plugin)
             .init_state::<Phase>()
             .init_resource::<Rng>()
             .init_resource::<Selection>()
@@ -270,6 +272,7 @@ pub(super) struct Run {
     talents: talents::Loadout,
     pub talent_leech_budget: f32,
     gear: gear::Bonuses,
+    effects: skill_effects::Runtime,
     pub talents_locked: bool,
     pub level: u32,
     pub xp: f32,
@@ -282,6 +285,7 @@ pub(super) struct Run {
     pub thorns: f32,
     pub thorns_t: f32,
     pub thorns_spell: u32,
+    thorns_source: skill_effects::Source,
     pub heal_rate: f32,
     pub heal_t: f32,
     /// The class mobility's cooldown and running effect.
@@ -314,6 +318,7 @@ impl Default for Run {
             talents: talents::Loadout::default(),
             talent_leech_budget: 0.0,
             gear: gear::Bonuses::default(),
+            effects: skill_effects::Runtime::default(),
             talents_locked: false,
             level: 1,
             xp: 0.0,
@@ -326,6 +331,7 @@ impl Default for Run {
             thorns: 0.0,
             thorns_t: 0.0,
             thorns_spell: 0,
+            thorns_source: skill_effects::Source::default(),
             heal_rate: 0.0,
             heal_t: 0.0,
             mobile: mobility::MobilityState::default(),
@@ -350,7 +356,9 @@ impl Stats {
 
 impl Run {
     pub fn incoming(&self) -> f32 {
-        self.talents.incoming() * self.gear.incoming()
+        self.talents.incoming()
+            * self.gear.incoming()
+            * (1.0 - self.effects.bonus(gear::EnhKind::BuffDefense, self.elapsed))
     }
 
     pub fn mobility_cooldown(&self) -> f32 {
@@ -399,6 +407,10 @@ impl Run {
         }
         talents::modify_stats(&mut s);
         gear::modify_stats(&mut s, &self.gear);
+        s.might *= 1.0 + self.effects.bonus(gear::EnhKind::BuffDamage, self.elapsed);
+        s.haste += self.effects.bonus(gear::EnhKind::BuffHaste, self.elapsed);
+        s.crit = (s.crit + self.effects.bonus(gear::EnhKind::BuffCrit, self.elapsed)).min(1.0);
+        s.speed *= 1.0 + self.effects.bonus(gear::EnhKind::BuffSpeed, self.elapsed);
         s
     }
 

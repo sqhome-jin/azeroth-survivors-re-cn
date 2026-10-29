@@ -9,10 +9,10 @@ use bevy::prelude::*;
 
 use super::abilities::Hit;
 use super::data::{self, EnemyDef};
-use super::hero::{self, Hero, HERO_RADIUS};
-use super::units::{self, flat, yaw_toward, Fx, Marks, UnitSpec, COLOR_HURT};
+use super::hero::{self, HERO_RADIUS, Hero};
+use super::units::{self, COLOR_HURT, Fx, Marks, UnitSpec, flat, yaw_toward};
 use super::{Phase, Rng, Run, Selection};
-use crate::creature_anim::{move_flags, MovementState};
+use crate::creature_anim::{MovementState, move_flags};
 use crate::net::{FieldChanged, Guid, ObjectStore};
 
 #[derive(Component)]
@@ -39,8 +39,10 @@ pub(super) struct Enemy {
 
 pub(super) struct Dot {
     pub dps: f32,
-    pub left: f32,
-    pub tick: f32,
+    pub left: f64,
+    pub tick: f64,
+    pub every: f64,
+    pub source: super::skill_effects::Source,
 }
 
 /// A corpse playing its death before it fades.
@@ -375,7 +377,10 @@ pub(super) fn move_enemies(
                 fx.number(hero_e, taken, false, COLOR_HURT);
             }
             if run.thorns_t > 0.0 {
-                hits.write(Hit::direct(ent, run.thorns * run.stats().might, false));
+                let mut hit = Hit::direct(ent, run.thorns, false);
+                hit.source = run.thorns_source;
+                hit.source.batch = run.guid();
+                hits.write(hit);
             }
         }
     }
@@ -427,14 +432,8 @@ pub(super) fn drop_loot(
 ) {
     let mut count = gems.iter().count();
     for d in drops.read() {
-        let items = if d.boss {
-            1 + u32::from(rng.f32() < super::gear::BOSS_EXTRA_CHANCE)
-        } else {
-            u32::from(rng.f32() < super::gear::NORMAL_DROP_CHANCE)
-        };
-        for n in 0..items {
-            let rarity = super::gear::roll_rarity(&mut rng, d.boss);
-            let at = d.pos + Vec3::new(-0.8 - 0.8 * n as f32, 0.0, 0.8);
+        if let Some(rarity) = super::gear::roll_drop_rarity(&mut rng, d.boss) {
+            let at = d.pos + Vec3::new(-0.8, 0.0, 0.8);
             spawn_gem(&mut commands, run.guid(), at, GemKind::Item(rarity));
         }
         if d.boss || rng.f32() < 0.015 {
