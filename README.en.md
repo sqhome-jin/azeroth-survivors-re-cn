@@ -33,6 +33,7 @@ to serve the page and game assets; the initial build downloads dependencies and 
 ## Contents
 
 - [Current Features](#current-features)
+- [Classes](#classes)
 - [Quick Start](#quick-start)
 - [Controls](#controls)
 - [Client Locale](#client-locale)
@@ -60,9 +61,34 @@ to serve the page and game assets; the initial build downloads dependencies and 
   with themed enemy and boss rosters for each battleground.
 - **Level-up cards:** ability and passive upgrades, rarity colors, before/after values, and deal-in and hover animations.
 - **Class mobility:** unlocked at level 5 and activated with F toward the cursor, including Blink, Charge, Sprint, and more.
+- **Out-of-run talents:** all nine classes have three trees and 24 nodes each, with class-local kill progress, minions worth 1 and bosses worth 10, up to 51 points and free out-of-run resets. Includes periodic crits, cooldown resets, shields, retaliation, and F-ability interactions.
+- **Persistent equipment:** nine slots, six rarities, a shared bag, and class-local loadouts. Skill affixes begin at Rare quality; minions have a 0.2% drop chance and bosses drop exactly one item.
+- **Updated launcher:** a separate character preview, slowly rotating map background, map descriptions, and equipment/talent entry points.
 - **Camera controls:** locked top-down by default; C unlocks rotation and tilt, and the wheel zooms out to 70 yards.
 - **Post-processing:** G toggles sharpening and color adjustment.
 - **Chinese localization:** zhCN is the default for Survivors UI and client-provided localized text; some custom strings may remain in English.
+
+## Classes
+
+All nine classes use automatic abilities, movement, and in-run upgrade cards.
+Class links lead to the current **Chinese** skill and talent READMEs; shared rules are in the
+[class guide](docs/classes/README.md).
+
+| Class | Starting ability and playstyle | F ability | Skills / talents |
+| --- | --- | --- | --- |
+| [Warrior](docs/classes/warrior/README.md) | Cleave; close-range area damage and executes | Charge | 9 skills; Arms / Fury / Protection |
+| [Paladin](docs/classes/paladin/README.md) | Hammer of Wrath; Consecration and immunity windows | Blessing of Freedom | 8 skills; Holy / Protection / Retribution |
+| [Hunter](docs/classes/hunter/README.md) | Arcane Shot; ranged multi-target attacks and traps | Aspect of the Cheetah | 7 skills; Beast Mastery / Marksmanship / Survival |
+| [Rogue](docs/classes/rogue/README.md) | Sinister Strike; fast melee, bleeding, and stuns | Sprint | 6 skills; Assassination / Combat / Subtlety |
+| [Priest](docs/classes/priest/README.md) | Smite; shields, fear, and damage-based healing | Fade | 7 skills; Discipline / Holy / Shadow |
+| [Shaman](docs/classes/shaman/README.md) | Lightning Bolt; chains, shocks, and totems | Ghost Wolf | 8 skills; Elemental / Enhancement / Restoration |
+| [Mage](docs/classes/mage/README.md) | Frostbolt; frost control and fire bursts | Blink | 11 skills; Arcane / Fire / Frost |
+| [Warlock](docs/classes/warlock/README.md) | Shadow Bolt; interactions between periodic and direct damage | Howl of Terror | 9 skills; 24 talent nodes, 51 points |
+| [Druid](docs/classes/druid/README.md) | Wrath; roots, periodic damage, and recovery | Dash | 8 skills; Balance / Feral Combat / Restoration |
+
+Each run can hold up to six automatic abilities, each at rank 8 or below.
+The full class pool is not granted at the start. These are Survivors-specific mechanics,
+not the complete resource, pet, or talent systems of original WoW.
 
 ## Quick Start
 
@@ -124,6 +150,7 @@ Run `make help` for all targets. **Use `make clean` carefully: it deletes downlo
 | Mouse wheel | Zoom |
 | C | Toggle camera lock |
 | Esc | Pause |
+| B | Open equipment during a run |
 | 1 / 2 / 3 | Choose a level-up card |
 | G | Toggle post-processing |
 
@@ -172,6 +199,7 @@ Desktop and browser launchers share the same Rust logic, built on two upstream p
 
 | Document | Contents |
 | --- | --- |
+| [Class, Skill, and Talent Guide (Chinese)](docs/classes/README.md) | All nine class pools, mobility, and complete talent trees |
 | [Chinese Developer Guide](docs/PROJECT-GUIDE.zh-CN.md) | Architecture, modules, runtime flow, extension points, and verification guidance |
 | [AGENTS.md](AGENTS.md) | Repository working conventions |
 | [docs/METHOD.md](docs/METHOD.md) | Engine development methods and constraints |

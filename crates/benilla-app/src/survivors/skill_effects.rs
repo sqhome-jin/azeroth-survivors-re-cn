@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use bevy::prelude::*;
 
 use super::gear::{Bonuses, EnhKind, SkillRoll};
-use super::{Run, Stats, data, localization};
+use super::{data, localization, Run, Stats};
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct Modifiers {
@@ -92,6 +92,7 @@ pub(super) struct Source {
     pub secondary: bool,
     pub echo: bool,
     pub periodic: bool,
+    pub talent_frozen: bool,
 }
 
 /// Returns every scheduled tick in the active part of this frame, including the final tick.
@@ -222,7 +223,12 @@ struct BuffRow;
 pub(super) fn plugin(app: &mut App) {
     app.add_systems(
         Update,
-        (build_hud, refresh_hud)
+        (
+            build_hud,
+            refresh_hud,
+            refresh_warlock_buff,
+            refresh_class_buffs,
+        )
             .chain()
             .after(super::hud::refresh_hud),
     );
@@ -254,6 +260,64 @@ fn build_hud(
                 },
             ))
             .with_children(|list| {
+                for slot in 0..8 {
+                    list.spawn((
+                        ClassBuff(slot),
+                        Node {
+                            display: Display::None,
+                            column_gap: Val::Px(6.0),
+                            align_items: AlignItems::Center,
+                            ..default()
+                        },
+                    ))
+                    .with_children(|row| {
+                        row.spawn((
+                            ClassBuffIcon { slot, shown: None },
+                            ImageNode::default(),
+                            Node {
+                                width: Val::Px(24.0),
+                                height: Val::Px(24.0),
+                                ..default()
+                            },
+                        ));
+                        row.spawn((
+                            ClassBuffLabel(slot),
+                            super::hud::text_bundle(
+                                &font.0,
+                                "",
+                                13.0,
+                                Color::srgb(0.94, 0.76, 0.34),
+                            ),
+                        ));
+                    });
+                }
+                list.spawn((
+                    WarlockBuff,
+                    Node {
+                        display: Display::None,
+                        column_gap: Val::Px(6.0),
+                        align_items: AlignItems::Center,
+                        ..default()
+                    },
+                ))
+                .with_children(|row| {
+                    row.spawn((
+                        super::hud::UiArt::crop(
+                            super::talents::NODES[22].icon,
+                            [0.0, 1.0, 0.0, 1.0],
+                        ),
+                        ImageNode::default(),
+                        Node {
+                            width: Val::Px(24.0),
+                            height: Val::Px(24.0),
+                            ..default()
+                        },
+                    ));
+                    row.spawn((
+                        WarlockBuffLabel,
+                        super::hud::text_bundle(&font.0, "", 13.0, Color::srgb(0.94, 0.76, 0.34)),
+                    ));
+                });
                 for kind in super::gear::ENH_KINDS.into_iter().filter(|k| k.is_buff()) {
                     list.spawn((
                         BuffIcon(kind),
@@ -295,6 +359,89 @@ struct BuffLabel(EnhKind);
 
 #[derive(Component)]
 struct BuffIcon(EnhKind);
+
+#[derive(Component)]
+struct WarlockBuff;
+
+#[derive(Component)]
+struct WarlockBuffLabel;
+
+#[derive(Component)]
+struct ClassBuff(usize);
+
+#[derive(Component)]
+struct ClassBuffLabel(usize);
+
+#[derive(Component)]
+struct ClassBuffIcon {
+    slot: usize,
+    shown: Option<(u8, usize)>,
+}
+
+fn refresh_class_buffs(
+    mut commands: Commands,
+    run: Res<Run>,
+    mut rows: Query<(&ClassBuff, &mut Node)>,
+    mut labels: Query<(&ClassBuffLabel, &mut Text)>,
+    mut icons: Query<(Entity, &mut ClassBuffIcon)>,
+) {
+    let buffs = super::class_mechanics::buffs(&run);
+    for (row, mut node) in &mut rows {
+        node.display = if buffs.get(row.0).is_some() {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+    for (slot, mut text) in &mut labels {
+        if let Some((_, en, zh, left)) = buffs.get(slot.0) {
+            let value = format!("{} · {:.0}s", localization::text(en, zh), left.ceil());
+            if text.0 != value {
+                text.0 = value;
+            }
+        }
+    }
+    for (entity, mut icon) in &mut icons {
+        if let Some(&(index, _, _, _)) = buffs.get(icon.slot) {
+            let identity = (run.class.id, index);
+            if icon.shown != Some(identity) {
+                if let Some(nodes) = super::talents::nodes(run.class.id) {
+                    commands
+                        .entity(entity)
+                        .remove::<super::hud::ArtDone>()
+                        .insert(super::hud::UiArt::crop(
+                            nodes[index].icon,
+                            [0.0, 1.0, 0.0, 1.0],
+                        ));
+                    icon.shown = Some(identity);
+                }
+            }
+        }
+    }
+}
+
+fn refresh_warlock_buff(
+    run: Res<Run>,
+    mut labels: Query<&mut Text, With<WarlockBuffLabel>>,
+    mut rows: Query<&mut Node, With<WarlockBuff>>,
+) {
+    let haste = super::warlock::haste(&run);
+    for mut node in &mut rows {
+        node.display = if haste > 0.0 {
+            Display::Flex
+        } else {
+            Display::None
+        };
+    }
+    for mut text in &mut labels {
+        text.0 = format!(
+            "{} +{:.0}% / {:.0}s",
+            localization::text("Emberstorm: haste", "琥珀风暴：急速"),
+            haste * 100.0,
+            super::warlock::haste_remaining(&run).ceil()
+        );
+    }
+}
 
 fn refresh_hud(
     run: Res<Run>,
@@ -338,7 +485,7 @@ fn refresh_hud(
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Rng, gear};
+    use super::super::{gear, Rng};
     use super::*;
 
     fn roll(kind: EnhKind, ability: Option<&'static str>, value: f32, item: u64) -> SkillRoll {

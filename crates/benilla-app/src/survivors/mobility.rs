@@ -275,4 +275,5 @@ pub(super) fn cast_mobility(
         }
     }
     run.mobile.cd = def.cooldown * run.mobility_cooldown();
+    super::class_mechanics::on_mobility(&mut run);
 }

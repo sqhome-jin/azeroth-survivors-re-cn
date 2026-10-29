@@ -7,8 +7,8 @@ use super::data::{AbilityDef, Effect, Kind};
 use super::enemies::{self, Enemy, Loot};
 use super::hero::{self, Hero};
 use super::skill_effects::{self, Source};
-use super::units::{self, COLOR_HEAL, COLOR_MELEE, COLOR_SPELL, Fx, Marks, UnitSpec, flat};
-use super::{Rng, Run, RunEntity, Stats};
+use super::units::{self, flat, Fx, Marks, UnitSpec, COLOR_HEAL, COLOR_MELEE, COLOR_SPELL};
+use super::{class_mechanics, warlock, Rng, Run, RunEntity, Stats};
 use crate::net::{FieldChanged, Guid, ObjectStore};
 
 /// One blow landing on one enemy.
@@ -243,7 +243,6 @@ pub(super) fn cast_abilities(
     }
     let Ok((me, htf)) = hero.single() else { return };
     let hpos = htf.translation;
-    let stats = run.stats();
     let now = run.elapsed;
     let mut foes: Vec<Foe> = enemies
         .iter()
@@ -271,12 +270,15 @@ pub(super) fn cast_abilities(
         }
         let o = &run.abilities[i];
         let def = o.def;
-        let cast = super::talents::cast(def, o.level, &stats);
+        let mut stats = run.stats();
+        let mut cast = super::talents::cast(def, o.level, &stats);
+        class_mechanics::modify_cast(&run, def.key, &mut cast, &mut stats);
         let source = Source {
             ability: Some(def.key),
             batch: run.guid(),
             modifiers: cast.modifiers,
             echo: cast.modifiers.echo > 0.0 && rng.f32() < cast.modifiers.echo,
+            talent_frozen: class_mechanics::frozen_cast(&run, def.key),
             ..default()
         };
         let p = Params {
@@ -586,8 +588,29 @@ pub(super) fn cast_abilities(
                 }
             }
         };
+        if fired {
+            class_mechanics::on_cast(&mut run, def.key, source.batch);
+        }
         run.abilities[i].cd = if fired { p.cooldown } else { 0.2 };
     }
+}
+
+pub(super) fn update_talent_environment(
+    mut run: ResMut<Run>,
+    hero: Query<&Transform, With<Hero>>,
+    areas: Query<(&Transform, &GroundArea)>,
+    totems: Query<(&Transform, &Totem)>,
+) {
+    let Ok(hero) = hero.single() else { return };
+    let consecration = areas.iter().any(|(at, a)| {
+        a.left > 0.0
+            && a.source.ability == Some("consecration")
+            && hero::reach(hero.translation, at.translation) <= a.radius
+    });
+    let totem = totems
+        .iter()
+        .any(|(at, t)| t.left > 0.0 && hero::reach(hero.translation, at.translation) <= 10.0);
+    class_mechanics::set_environment(&mut run, consecration, totem);
 }
 
 /// Ground areas tick, and totems fight, until they run out.
@@ -798,7 +821,11 @@ pub(super) fn apply_hits(
         if en.dead {
             continue;
         }
-        let mut dmg = h.damage;
+        let (damage, critical) =
+            class_mechanics::adjust_critical(&run, h.source, &en, h.damage, h.crit, &mut rng);
+        let mut dmg = damage
+            * warlock::damage_multiplier(&run, h.source, &en)
+            * class_mechanics::damage_multiplier(&run, h.source, &en);
         if !h.source.secondary && en.hp / en.max_hp < 0.3 {
             dmg *= 1.0 + h.source.modifiers.execute;
         }
@@ -811,12 +838,22 @@ pub(super) fn apply_hits(
             let effective = dmg.min(en.hp.max(0.0));
             en.hp -= dmg;
             run.damage_done += f64::from(dmg);
-            fx.number(e, dmg, h.crit, h.color);
+            fx.number(e, dmg, critical, h.color);
             if let Effect::Drain(frac) = h.effect {
+                let frac = class_mechanics::drain_fraction(&run, h.source.ability, frac);
+                let heal = class_mechanics::cap_drain(&mut run, h.source, effective * frac);
                 let max = run.stats().max_hp;
-                run.hp = (run.hp + effective * frac).min(max);
+                if run.dead_t.is_none() && run.hp > 0.0 {
+                    run.hp = (run.hp + heal).min(max);
+                }
             }
             skill_effects::damage_effects(&mut run, h.source, effective, &mut rng);
+            warlock::on_damage(&mut run, h.source, critical, &mut en, &mut marks, &mut rng);
+            if let Some(extra) = class_mechanics::on_damage(
+                &mut run, h.source, critical, e, &mut en, effective, &mut rng,
+            ) {
+                pending.0.push((now, extra));
+            }
             if !h.source.secondary && h.source.modifiers.ember > 0.0 && en.hp > 0.0 {
                 if en.dots.len() >= 6 {
                     en.dots.remove(0);
@@ -826,6 +863,7 @@ pub(super) fn apply_hits(
                     left: 3.0,
                     tick: 1.0,
                     every: 1.0,
+                    extension_left: 0.0,
                     source: Source {
                         secondary: true,
                         ..h.source
@@ -842,6 +880,7 @@ pub(super) fn apply_hits(
                 left: f64::from(h.dot_dur),
                 tick: f64::from(h.interval),
                 every: f64::from(h.interval),
+                extension_left: f64::from(h.dot_dur) * 0.5,
                 source: h.source,
             });
         }
@@ -856,8 +895,12 @@ pub(super) fn apply_hits(
             Effect::Stun(t) => en.stun_t = en.stun_t.max(if boss { t * 0.3 } else { t }),
             Effect::Fear(t) if !boss => en.fear_t = en.fear_t.max(t),
             Effect::Weaken(m, t) => {
-                en.weaken = m;
-                en.weaken_t = t;
+                en.weaken = if en.weaken_t > 0.0 {
+                    en.weaken.min(m)
+                } else {
+                    m
+                };
+                en.weaken_t = en.weaken_t.max(t);
             }
             _ => {}
         }
@@ -877,49 +920,81 @@ pub(super) fn apply_hits(
         if en.dead || en.dots.is_empty() {
             continue;
         }
-        let mut hp = en.hp;
         let max_hp = en.max_hp;
         let mut dealt = 0.0;
-        for d in &mut en.dots {
-            let count = skill_effects::ticks(&mut d.left, &mut d.tick, d.every, dt);
-            for _ in 0..count {
-                if hp <= 0.0 {
+        let mut dots = std::mem::take(&mut en.dots);
+        for d in &mut dots {
+            let mut frame_left = f64::from(dt);
+            while d.next_tick(&mut frame_left) {
+                if en.hp <= 0.0 {
                     break;
                 }
                 d.source.pulse += 1;
                 d.source.periodic = true;
-                let damage = d.dps
-                    * if !d.source.secondary && hp / max_hp < 0.3 {
+                let base = d.dps
+                    * warlock::damage_multiplier(&run, d.source, &en)
+                    * class_mechanics::damage_multiplier(&run, d.source, &en)
+                    * if !d.source.secondary && en.hp / max_hp < 0.3 {
                         1.0 + d.source.modifiers.execute
                     } else {
                         1.0
                     };
-                let effective = damage.min(hp.max(0.0));
-                hp -= damage;
+                let (damage, crit) = if (run.class.id == 9
+                    && warlock::periodic_crits(run.talents, d.source))
+                    || class_mechanics::periodic_crits(&run, d.source)
+                {
+                    roll(&mut rng, &run.stats(), base)
+                } else {
+                    (base, false)
+                };
+                let effective = damage.min(en.hp.max(0.0));
+                en.hp -= damage;
                 dealt += damage;
+                fx.number(e, damage, crit, COLOR_SPELL);
                 skill_effects::damage_effects(&mut run, d.source, effective, &mut rng);
+                if effective > 0.0 {
+                    warlock::on_damage(&mut run, d.source, crit, &mut en, &mut marks, &mut rng);
+                    if let Some(extra) = class_mechanics::on_damage(
+                        &mut run, d.source, crit, e, &mut en, effective, &mut rng,
+                    ) {
+                        pending.0.push((now, extra));
+                    }
+                    if run.class.id == 9 && run.dead_t.is_none() && run.talents.0[2] > 0 {
+                        warlock::extend_dot(d, run.talents, rng.f32());
+                    }
+                }
             }
         }
+        // Trigger-created effects must survive the detached periodic iteration.
+        dots.append(&mut en.dots);
+        en.dots = dots;
         en.dots.retain(|d| d.left > 0.0);
+        for dot in &en.dots {
+            if let Some(key) = dot.source.ability {
+                let mark = super::data::ability(key).mark;
+                if mark != 0 && !dot.source.secondary {
+                    marks.add(mark, dot.left as f32 + dt);
+                }
+            }
+        }
         if dealt > 0.0 {
-            en.hp -= dealt;
             run.damage_done += f64::from(dealt);
-            fx.number(e, dealt, false, COLOR_SPELL);
             if en.hp <= 0.0 {
                 kill(&mut commands, &mut run, e, tf.translation, &mut en);
                 units::kill_unit(&mut store);
                 marks.clear();
-                marks.flush(e, guid.0, &mut store, &mut fields);
             }
         }
+        marks.flush(e, guid.0, &mut store, &mut fields);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::{
-        Owned, data,
+        data,
         gear::{EnhKind, SkillRoll},
+        Owned,
     };
     use super::*;
     use crate::creature_anim::{CastEvent, PlaySeq, SpellGoTargets, SwingMessage};
@@ -968,6 +1043,8 @@ mod tests {
                     weaken: 1.0,
                     weaken_t: 0.0,
                     dots: Vec::new(),
+                    warlock: warlock::Debuffs::default(),
+                    class_effects: class_mechanics::Debuffs::default(),
                     dead: false,
                 },
             ))
@@ -992,6 +1069,437 @@ mod tests {
             kind,
             value,
         });
+    }
+
+    fn warlock(app: &mut App) {
+        app.world_mut().resource_mut::<Run>().class =
+            data::CLASSES.iter().find(|c| c.id == 9).unwrap();
+    }
+
+    fn damage(app: &mut App, e: Entity, key: &'static str, amount: f32, crit: bool) {
+        app.world_mut().write_message(Hit {
+            source: Source {
+                ability: Some(key),
+                ..default()
+            },
+            ..Hit::direct(e, amount, crit)
+        });
+        step(app, 0.0);
+    }
+
+    fn add_dot(app: &mut App, e: Entity, key: &'static str, duration: f64) {
+        app.world_mut()
+            .get_mut::<Enemy>(e)
+            .unwrap()
+            .dots
+            .push(enemies::Dot {
+                dps: 100.0,
+                left: duration,
+                tick: 1.0,
+                every: 1.0,
+                extension_left: duration * 0.5,
+                source: Source {
+                    ability: Some(key),
+                    batch: 1,
+                    ..default()
+                },
+            });
+    }
+
+    #[test]
+    fn new_class_periodic_crit_gates_use_the_real_hit_pipeline() {
+        for (class, key, index) in [
+            (3, "serpent_sting", 23),
+            (4, "rupture", 7),
+            (11, "moonfire", 7),
+            (11, "insect_swarm", 7),
+        ] {
+            for enabled in [false, true] {
+                let mut app = app();
+                app.add_systems(Update, apply_hits);
+                {
+                    let mut run = app.world_mut().resource_mut::<Run>();
+                    run.class = data::CLASSES.iter().find(|c| c.id == class).unwrap();
+                    run.talents.0[index] = u8::from(enabled);
+                }
+                let stats = app.world().resource::<Run>().stats();
+                let mut rng = Rng(12345);
+                let expected: f32 = (0..100)
+                    .map(|_| {
+                        if enabled {
+                            roll(&mut rng, &stats, 100.0).0
+                        } else {
+                            100.0
+                        }
+                    })
+                    .sum();
+                let e = foe(&mut app, 1.0, 100_000.0);
+                add_dot(&mut app, e, key, 100.0);
+                step(&mut app, 100.0);
+                assert_eq!(
+                    app.world().get::<Enemy>(e).unwrap().hp,
+                    100_000.0 - expected,
+                    "class {class}, {key}, enabled {enabled}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn paladin_healing_and_rogue_target_bonus_reach_real_damage_events() {
+        let mut paladin = app();
+        paladin.add_systems(Update, apply_hits);
+        {
+            let mut run = paladin.world_mut().resource_mut::<Run>();
+            run.class = data::CLASSES.iter().find(|c| c.id == 2).unwrap();
+            run.hp = 50.0;
+            run.talents.0[5] = 5;
+        }
+        let e = foe(&mut paladin, 1.0, 100.0);
+        paladin.world_mut().write_message(Hit {
+            source: Source {
+                ability: Some("holy_shock"),
+                batch: 1,
+                ..default()
+            },
+            ..Hit::direct(e, 1000.0, false)
+        });
+        step(&mut paladin, 1.0);
+        assert!(
+            (paladin.world().resource::<Run>().hp - 55.0).abs() < 0.001,
+            "heals from 100 effective damage, not 1000 overkill"
+        );
+
+        let mut rogue = app();
+        rogue.add_systems(Update, apply_hits);
+        {
+            let mut run = rogue.world_mut().resource_mut::<Run>();
+            run.class = data::CLASSES.iter().find(|c| c.id == 4).unwrap();
+            run.talents.0[5] = 5;
+        }
+        let e = foe(&mut rogue, 1.0, 1000.0);
+        add_dot(&mut rogue, e, "rupture", 6.0);
+        rogue.world_mut().write_message(Hit {
+            source: Source {
+                ability: Some("sinister_strike"),
+                batch: 2,
+                ..default()
+            },
+            ..Hit::direct(e, 100.0, false)
+        });
+        step(&mut rogue, 0.0);
+        assert!((rogue.world().get::<Enemy>(e).unwrap().hp - 880.0).abs() < 0.001);
+        rogue.world_mut().write_message(Hit {
+            source: Source {
+                ability: Some("sinister_strike"),
+                batch: 3,
+                secondary: true,
+                ..default()
+            },
+            ..Hit::direct(e, 100.0, false)
+        });
+        step(&mut rogue, 0.0);
+        assert!((rogue.world().get::<Enemy>(e).unwrap().hp - 780.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn environment_tracks_live_consecration_and_nearby_totems() {
+        let mut app = app();
+        app.add_systems(Update, update_talent_environment);
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            run.class = data::CLASSES.iter().find(|c| c.id == 2).unwrap();
+            run.talents.0[13] = 5;
+        }
+        app.world_mut()
+            .spawn((Hero { vy: 0.0, air: 0.0 }, Transform::default()));
+        let area = app
+            .world_mut()
+            .spawn((
+                Transform::from_xyz(3.0, 0.0, 0.0),
+                GroundArea {
+                    damage: 1.0,
+                    dot: 0.0,
+                    dot_dur: 0.0,
+                    radius: 5.0,
+                    left: 4.0,
+                    every: 1.0,
+                    next_tick: 1.0,
+                    effect: Effect::None,
+                    mark: 0,
+                    impact: 0,
+                    source: Source {
+                        ability: Some("consecration"),
+                        ..default()
+                    },
+                },
+            ))
+            .id();
+        app.update();
+        assert!((app.world().resource::<Run>().incoming() - 0.9).abs() < 0.001);
+        app.world_mut().get_mut::<GroundArea>(area).unwrap().left = 0.0;
+        app.update();
+        assert_eq!(app.world().resource::<Run>().incoming(), 1.0);
+    }
+
+    #[test]
+    fn warlock_periodic_crits_share_actual_direct_chance_and_multiplier() {
+        for key in ["corruption", "curse_of_agony", "immolate"] {
+            for enabled in [false, true] {
+                let mut app = app();
+                app.add_systems(Update, apply_hits);
+                warlock(&mut app);
+                {
+                    let mut run = app.world_mut().resource_mut::<Run>();
+                    run.talents.0[7] = u8::from(enabled);
+                    run.talents.0[18] = 5;
+                    run.talents.0[23] = 1;
+                }
+                let stats = app.world().resource::<Run>().stats();
+                let mut rng = Rng(12345);
+                let expected: f32 = (0..100)
+                    .map(|_| {
+                        if enabled {
+                            roll(&mut rng, &stats, 100.0).0
+                        } else {
+                            100.0
+                        }
+                    })
+                    .sum();
+                assert!(stats.crit > 0.05);
+                assert_eq!(stats.crit_multiplier(), 3.0);
+                let e = foe(&mut app, 1.0, 100_000.0);
+                add_dot(&mut app, e, key, 100.0);
+                step(&mut app, 100.0);
+                assert_eq!(
+                    app.world().get::<Enemy>(e).unwrap().hp,
+                    100_000.0 - expected
+                );
+                assert!(app.world().get::<Enemy>(e).unwrap().dots.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn dot_extension_is_wired_into_real_damage_and_preserves_equipment_tick_frequency() {
+        for interval in [1.0, 0.5] {
+            let mut app = app();
+            app.add_systems(Update, apply_hits);
+            warlock(&mut app);
+            app.world_mut().resource_mut::<Run>().talents.0[2] = 5;
+            let e = foe(&mut app, 1.0, 10_000.0);
+            add_dot(&mut app, e, "corruption", 10.0);
+            {
+                let mut enemy = app.world_mut().get_mut::<Enemy>(e).unwrap();
+                enemy.dots[0].tick = interval;
+                enemy.dots[0].every = interval;
+            }
+            let mut reference = enemies::Dot {
+                dps: 100.0,
+                left: 10.0,
+                tick: interval,
+                every: interval,
+                extension_left: 5.0,
+                source: Source {
+                    ability: Some("corruption"),
+                    ..default()
+                },
+            };
+            let mut rng = Rng(12345);
+            let mut frame = 20.0;
+            let mut expected = 0.0;
+            while reference.next_tick(&mut frame) {
+                expected += reference.dps;
+                warlock::extend_dot(
+                    &mut reference,
+                    app.world().resource::<Run>().talents,
+                    rng.f32(),
+                );
+            }
+            assert!(expected > 1000.0 / interval as f32);
+            assert!(expected <= 1500.0 / interval as f32);
+            step(&mut app, 20.0);
+            assert_eq!(app.world().get::<Enemy>(e).unwrap().hp, 10_000.0 - expected);
+            assert!(app.world().get::<Enemy>(e).unwrap().dots.is_empty());
+        }
+    }
+
+    #[test]
+    fn actual_periodic_hits_refresh_only_one_direct_spell_across_multiple_targets() {
+        let mut app = app();
+        app.add_systems(Update, apply_hits);
+        warlock(&mut app);
+        let seed = (1..100).find(|seed| Rng(*seed).f32() < 0.1).unwrap();
+        app.world_mut().insert_resource(Rng(seed));
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            run.talents.0[5] = 5;
+            for (key, cd) in [
+                ("shadow_bolt", 2.0),
+                ("death_coil", 4.0),
+                ("rain_of_fire", 9.0),
+            ] {
+                run.abilities.push(Owned {
+                    def: data::ability(key),
+                    level: 1,
+                    cd,
+                });
+            }
+        }
+        for x in [1.0, 2.0] {
+            let e = foe(&mut app, x, 10_000.0);
+            add_dot(&mut app, e, "corruption", 1.0);
+        }
+        step(&mut app, 1.0);
+        let run = app.world().resource::<Run>();
+        assert_eq!(run.abilities.len(), 3);
+        assert_eq!(run.abilities[0].cd, 2.0);
+        assert_eq!(run.abilities[1].cd, 0.0);
+        assert_eq!(run.abilities[2].cd, 9.0);
+    }
+
+    #[test]
+    fn warlock_procs_do_not_activate_from_secondary_damage_or_for_other_classes() {
+        for secondary in [false, true] {
+            let mut app = app();
+            app.add_systems(Update, apply_hits);
+            if secondary {
+                warlock(&mut app);
+            }
+            {
+                let mut run = app.world_mut().resource_mut::<Run>();
+                run.talents.0[6] = 5;
+                run.talents.0[14] = 5;
+                run.talents.0[16] = 5;
+            }
+            let e = foe(&mut app, 1.0, 10_000.0);
+            app.world_mut().write_message(Hit {
+                source: Source {
+                    ability: Some("shadow_bolt"),
+                    secondary,
+                    ..default()
+                },
+                ..Hit::direct(e, 100.0, true)
+            });
+            add_dot(&mut app, e, "corruption", 1.0);
+            app.world_mut().get_mut::<Enemy>(e).unwrap().dots[0]
+                .source
+                .secondary = secondary;
+            step(&mut app, 1.0);
+            let enemy = app.world().get::<Enemy>(e).unwrap();
+            assert_eq!(enemy.hp, 9800.0);
+            assert_eq!(enemy.slow_t, 0.0);
+            assert_eq!(enemy.weaken_t, 0.0);
+        }
+    }
+
+    #[test]
+    fn shadow_bolt_vulnerability_applies_after_crit_refreshes_and_expires() {
+        let mut app = app();
+        app.add_systems(Update, apply_hits);
+        warlock(&mut app);
+        app.world_mut().resource_mut::<Run>().talents.0[16] = 5;
+        let e = foe(&mut app, 1.0, 10_000.0);
+        damage(&mut app, e, "shadow_bolt", 100.0, true);
+        assert_eq!(app.world().get::<Enemy>(e).unwrap().hp, 9900.0);
+        damage(&mut app, e, "shadow_bolt", 100.0, true);
+        assert_eq!(app.world().get::<Enemy>(e).unwrap().hp, 9785.0);
+        add_dot(&mut app, e, "corruption", 1.0);
+        step(&mut app, 1.0);
+        assert_eq!(app.world().get::<Enemy>(e).unwrap().hp, 9670.0);
+        app.world_mut().resource_mut::<Run>().elapsed = 6.0;
+        damage(&mut app, e, "searing_pain", 100.0, false);
+        assert_eq!(app.world().get::<Enemy>(e).unwrap().hp, 9570.0);
+    }
+
+    #[test]
+    fn immolate_synergy_requires_existing_dot_and_does_not_amplify_secondary_damage() {
+        let mut app = app();
+        app.add_systems(Update, apply_hits);
+        warlock(&mut app);
+        app.world_mut().resource_mut::<Run>().talents.0[17] = 5;
+        let e = foe(&mut app, 1.0, 10_000.0);
+        damage(&mut app, e, "immolate", 100.0, false);
+        assert_eq!(app.world().get::<Enemy>(e).unwrap().hp, 9900.0);
+        add_dot(&mut app, e, "immolate", 1.0);
+        damage(&mut app, e, "shadow_bolt", 100.0, false);
+        assert_eq!(app.world().get::<Enemy>(e).unwrap().hp, 9780.0);
+        app.world_mut().write_message(Hit {
+            source: Source {
+                ability: Some("shadow_bolt"),
+                secondary: true,
+                ..default()
+            },
+            ..Hit::direct(e, 100.0, true)
+        });
+        step(&mut app, 0.0);
+        assert_eq!(app.world().get::<Enemy>(e).unwrap().hp, 9680.0);
+        step(&mut app, 1.0);
+        assert_eq!(app.world().get::<Enemy>(e).unwrap().hp, 9580.0);
+        damage(&mut app, e, "shadow_bolt", 100.0, false);
+        assert_eq!(app.world().get::<Enemy>(e).unwrap().hp, 9480.0);
+    }
+
+    #[test]
+    fn periodic_slow_and_spell_weakness_apply_without_stacking_and_boss_slow_is_halved() {
+        for boss in [false, true] {
+            let mut app = app();
+            app.add_systems(Update, apply_hits);
+            warlock(&mut app);
+            {
+                let mut run = app.world_mut().resource_mut::<Run>();
+                run.talents.0[6] = 5;
+                run.talents.0[14] = 5;
+            }
+            let e = foe(&mut app, 1.0, 10_000.0);
+            app.world_mut().get_mut::<Enemy>(e).unwrap().boss = boss;
+            add_dot(&mut app, e, "corruption", 2.0);
+            step(&mut app, 2.0);
+            let enemy = app.world().get::<Enemy>(e).unwrap();
+            assert!((enemy.slow - if boss { 0.9 } else { 0.8 }).abs() < 0.00001);
+            assert_eq!(enemy.slow_t, 3.0);
+            assert_eq!(enemy.weaken, 0.9);
+            assert_eq!(enemy.weaken_t, 6.0);
+            assert_eq!(app.world().resource::<Run>().incoming(), 1.0);
+        }
+    }
+
+    #[test]
+    fn emberstorm_changes_real_cooldowns_has_shared_icd_and_excludes_secondary_procs() {
+        let mut app = app();
+        app.add_systems(Update, apply_hits);
+        warlock(&mut app);
+        app.world_mut().resource_mut::<Run>().talents.0[22] = 5;
+        let e = foe(&mut app, 1.0, 10_000.0);
+        let cooldown = |app: &App| {
+            let run = app.world().resource::<Run>();
+            super::super::talents::cast(data::ability("shadow_bolt"), 1, &run.stats()).cooldown
+        };
+        let base = cooldown(&app);
+        damage(&mut app, e, "searing_pain", 100.0, false);
+        assert_eq!(cooldown(&app), base);
+        damage(&mut app, e, "immolate", 100.0, true);
+        assert!((cooldown(&app) / base - 0.85).abs() < 0.00001);
+        app.world_mut().resource_mut::<Run>().elapsed = 5.0;
+        damage(&mut app, e, "searing_pain", 100.0, true);
+        app.world_mut().resource_mut::<Run>().elapsed = 6.0;
+        assert_eq!(cooldown(&app), base);
+        damage(&mut app, e, "searing_pain", 100.0, true);
+        assert_eq!(cooldown(&app), base);
+        app.world_mut().resource_mut::<Run>().elapsed = 8.0;
+        app.world_mut().write_message(Hit {
+            source: Source {
+                ability: Some("searing_pain"),
+                secondary: true,
+                ..default()
+            },
+            ..Hit::direct(e, 100.0, true)
+        });
+        step(&mut app, 0.0);
+        assert_eq!(cooldown(&app), base);
+        damage(&mut app, e, "searing_pain", 100.0, true);
+        assert!((cooldown(&app) / base - 0.85).abs() < 0.00001);
+        assert_eq!(warlock::haste_remaining(app.world().resource::<Run>()), 6.0);
     }
 
     #[test]
@@ -1085,6 +1593,7 @@ mod tests {
                     left: 6.0,
                     tick: interval,
                     every: interval,
+                    extension_left: 3.0,
                     source: Source {
                         ability: Some("corruption"),
                         batch: 1,

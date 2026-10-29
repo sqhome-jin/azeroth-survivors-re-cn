@@ -7,6 +7,7 @@
 mod abilities;
 mod auto;
 mod cards;
+mod class_mechanics;
 mod data;
 mod enemies;
 mod fill;
@@ -22,8 +23,10 @@ mod minimap;
 mod mobility;
 mod preview;
 mod skill_effects;
+mod talent_catalog;
 mod talents;
 mod units;
+mod warlock;
 
 use benilla_world::schedule::WorldStage;
 use bevy::prelude::*;
@@ -87,6 +90,7 @@ impl Plugin for SurvivorsPlugin {
             .add_systems(
                 Update,
                 (
+                    abilities::update_talent_environment,
                     enemies::spawn_enemies,
                     enemies::move_enemies,
                     abilities::cast_abilities,
@@ -240,6 +244,7 @@ impl Owned {
 /// The hero's derived numbers, from the base and the passives.
 #[derive(Clone, Copy)]
 pub(super) struct Stats {
+    class: u8,
     talents: talents::Loadout,
     gear: gear::Bonuses,
     pub might: f32,
@@ -273,6 +278,8 @@ pub(super) struct Run {
     pub talent_leech_budget: f32,
     gear: gear::Bonuses,
     effects: skill_effects::Runtime,
+    warlock: warlock::Runtime,
+    class_effects: class_mechanics::Runtime,
     pub talents_locked: bool,
     pub level: u32,
     pub xp: f32,
@@ -319,6 +326,8 @@ impl Default for Run {
             talent_leech_budget: 0.0,
             gear: gear::Bonuses::default(),
             effects: skill_effects::Runtime::default(),
+            warlock: warlock::Runtime::default(),
+            class_effects: class_mechanics::Runtime::default(),
             talents_locked: false,
             level: 1,
             xp: 0.0,
@@ -350,27 +359,44 @@ impl Default for Run {
 
 impl Stats {
     pub fn crit_multiplier(&self) -> f32 {
-        self.talents.critical_multiplier() + self.gear.crit_damage()
+        (if self.class == 9 {
+            self.talents.critical_multiplier()
+        } else {
+            2.0
+        }) + self.gear.crit_damage()
     }
 }
 
 impl Run {
     pub fn incoming(&self) -> f32 {
-        self.talents.incoming()
+        (if self.class.id == 9 {
+            self.talents.incoming()
+        } else {
+            talent_catalog::incoming(self.class.id, self.talents)
+        }) * class_mechanics::incoming(self)
             * self.gear.incoming()
             * (1.0 - self.effects.bonus(gear::EnhKind::BuffDefense, self.elapsed))
     }
 
     pub fn mobility_cooldown(&self) -> f32 {
-        self.talents.mobility_cooldown() * self.gear.mobility_cooldown()
+        (if self.class.id == 9 {
+            self.talents.mobility_cooldown()
+        } else {
+            talent_catalog::mobility_cooldown(self.class.id, self.talents)
+        }) * self.gear.mobility_cooldown()
     }
 
     pub fn leech(&self) -> f32 {
-        self.talents.leech() + self.gear.leech()
+        (if self.class.id == 9 {
+            self.talents.leech()
+        } else {
+            0.0
+        }) + self.gear.leech()
     }
 
     pub fn stats(&self) -> Stats {
         let mut s = Stats {
+            class: self.class.id,
             talents: self.talents,
             gear: self.gear,
             might: 1.0,
@@ -408,9 +434,11 @@ impl Run {
         talents::modify_stats(&mut s);
         gear::modify_stats(&mut s, &self.gear);
         s.might *= 1.0 + self.effects.bonus(gear::EnhKind::BuffDamage, self.elapsed);
-        s.haste += self.effects.bonus(gear::EnhKind::BuffHaste, self.elapsed);
+        s.haste +=
+            self.effects.bonus(gear::EnhKind::BuffHaste, self.elapsed) + warlock::haste(self);
         s.crit = (s.crit + self.effects.bonus(gear::EnhKind::BuffCrit, self.elapsed)).min(1.0);
         s.speed *= 1.0 + self.effects.bonus(gear::EnhKind::BuffSpeed, self.elapsed);
+        class_mechanics::modify_stats(self, &mut s);
         s
     }
 

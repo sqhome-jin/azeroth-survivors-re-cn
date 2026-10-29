@@ -3,16 +3,16 @@
 use bevy::input::mouse::{MouseScrollUnit, MouseWheel};
 use bevy::prelude::*;
 
-use super::hud::{HudFont, MenuRoot, SpellIcon, UiArt, looks_for, rgb, start_run};
+use super::hud::{looks_for, rgb, start_run, HudFont, MenuRoot, SpellIcon, UiArt};
 use super::menu_layout::{
     self as layout, AppearanceRoot, ClassBadge, NoticeRoot, NoticeText, PoolIcon, RaceBadge,
     ZoneList, ZoneScrollThumb, ZoneThumb,
 };
-use super::{Phase, Rng, Run, Selection, data, localization};
+use super::{data, localization, Phase, Rng, Run, Selection};
 use crate::char_select::race_name;
-use crate::glue::GlueClicks;
-use crate::glue::art::{DIM, GOLD, GlueArt, class_tc, race_tc, tc_rect};
+use crate::glue::art::{class_tc, race_tc, tc_rect, GlueArt, DIM, GOLD};
 use crate::glue::widgets::{HoverLabel, LockHighlight};
+use crate::glue::GlueClicks;
 
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum MenuAction {
@@ -219,11 +219,19 @@ pub(super) fn menu_clicks(
             return;
         }
         MenuAction::Talents => {
-            if selection.class_def().is_some_and(|c| c.id == 9) {
+            if selection
+                .class_def()
+                .is_some_and(|c| super::talents::nodes(c.id).is_some())
+            {
                 talents.open = true;
             } else {
-                menu.notice = Some(localization::text("Talents\n\nWarlock talents are available. Other classes are coming soon; their kill progress is already saved.",
-                    "天赋\n\n术士天赋已开放；其他职业正在筹备中，击杀成长照常独立保存。").into());
+                menu.notice = Some(
+                    localization::text(
+                        "Choose a class before opening talents.",
+                        "请先选择职业，再打开天赋。",
+                    )
+                    .into(),
+                );
             }
             return;
         }
@@ -521,7 +529,7 @@ pub(super) fn refresh_menu_ui(
                 class.map_or_else(String::new, |c| class_description(c.id).into())
             }
             MenuCopy::TalentSummary => class.map_or_else(String::new, |c| {
-                if c.id == 9 {
+                if super::talents::nodes(c.id).is_some() {
                     format!(
                         "{}: {}/{} · {}/51",
                         localization::text("Spent", "已投入"),
