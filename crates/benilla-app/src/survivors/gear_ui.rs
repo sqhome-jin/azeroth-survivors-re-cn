@@ -4,8 +4,8 @@
 use bevy::prelude::*;
 
 use super::gear::{self, Gear, SLOT_ART, SLOT_COUNT};
-use super::hud::{HudFont, text_bundle};
-use super::{Phase, Run, Selection, localization};
+use super::hud::{text_bundle, HudFont};
+use super::{localization, Phase, Run, Selection};
 
 const GOLD: Color = Color::srgb(0.94, 0.76, 0.34);
 const EDGE: Color = Color::srgb(0.42, 0.32, 0.12);
@@ -700,6 +700,7 @@ mod tests {
         run.abilities.push(super::super::Owned {
             def: super::super::data::ability(mage.start),
             level: 1,
+            growth: 1.0,
             cd: 0.0,
         });
         let active = status(&gear, mage.id, Phase::Paused, &run);

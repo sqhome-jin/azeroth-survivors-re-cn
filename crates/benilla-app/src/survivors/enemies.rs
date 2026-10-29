@@ -82,6 +82,7 @@ pub(super) struct Loot {
     pub pos: Vec3,
     pub xp: u32,
     pub boss: bool,
+    pub final_boss: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -130,7 +131,7 @@ fn spawn_enemy(
     pos: Vec3,
     hero: Vec3,
     boss: bool,
-) {
+) -> Entity {
     let scale = data::hp_scale(run.elapsed);
     let serial = run.guid();
     let e = units::spawn_unit(
@@ -174,11 +175,23 @@ fn spawn_enemy(
         },
         Marks::debuffs(),
     ));
+    e
 }
 
 fn ground(world: &WorldPoint, mut p: Vec3, fallback: f32) -> Vec3 {
     p.y = world.terrain_height_under(p).unwrap_or(fallback);
     p
+}
+
+fn boss_spawn_position(map: &data::MapDef, hero: Vec3, angle: f32) -> Vec3 {
+    let distance = 30.0f32.min(map.leash - 4.0);
+    let center = hero::arena(map);
+    let candidate = hero + Vec3::new(angle.cos(), 0.0, angle.sin()) * distance;
+    if flat(candidate - center).length() <= map.leash - 4.0 {
+        candidate
+    } else {
+        hero + flat(center - hero).normalize_or_zero() * distance
+    }
 }
 
 /// Keep the horde topped up on a ring outside the view, with the bosses and the encircling waves
@@ -195,7 +208,7 @@ pub(super) fn spawn_enemies(
     world: WorldPoint,
 ) {
     let Ok(h) = hero.single() else { return };
-    if run.dead_t.is_some() {
+    if run.dead_t.is_some() || run.final_boss_defeated || run.hp <= 0.0 {
         return;
     }
     let hpos = h.translation;
@@ -203,22 +216,35 @@ pub(super) fn spawn_enemies(
     let roster = data::roster(selection.map);
     let pool = data::wave_pool(elapsed, roster.enemies.len());
 
-    let due_bosses = ((elapsed / data::BOSS_EVERY_SECS) as u32).min(roster.bosses.len() as u32);
+    let due_bosses = data::due_bosses(elapsed);
     while run.bosses < due_bosses {
         let def = &roster.bosses[run.bosses as usize];
         let a = rng.range(0.0, std::f32::consts::TAU);
         let pos = ground(
             &world,
-            hpos + Vec3::new(a.cos(), 0.0, a.sin()) * 30.0,
+            boss_spawn_position(selection.stage_def(), hpos, a),
             hpos.y,
         );
-        spawn_enemy(&mut commands, &mut run, def, pos, hpos, true);
+        let entity = spawn_enemy(&mut commands, &mut run, def, pos, hpos, true);
         run.bosses += 1;
-        run.banner = Some((format!("{} approaches!", def.name), 4.0));
+        commands
+            .entity(entity)
+            .insert(super::bosses::spawn(run.bosses as u8));
+        run.banner = Some((
+            format!(
+                "{} ({}/{}){}",
+                super::bosses::name(def),
+                run.bosses,
+                data::BOSS_COUNT,
+                super::localization::text(" approaches!", "出现了！"),
+            ),
+            4.0,
+        ));
     }
 
     // Half way between bosses, a closing ring of the moment's weakest.
-    let due_rings = ((elapsed + data::BOSS_EVERY_SECS / 2.0) / data::BOSS_EVERY_SECS) as u32;
+    let due_rings = (((elapsed + data::BOSS_EVERY_SECS / 2.0) / data::BOSS_EVERY_SECS) as u32)
+        .min(data::BOSS_COUNT);
     if run.rings < due_rings {
         run.rings = due_rings;
         let def = &roster.enemies[pool[0]];
@@ -232,7 +258,10 @@ pub(super) fn spawn_enemies(
             );
             spawn_enemy(&mut commands, &mut run, def, pos, hpos, false);
         }
-        run.banner = Some(("They're surrounding you!".into(), 3.0));
+        run.banner = Some((
+            super::localization::text("They're surrounding you!", "敌人正在包围你！").into(),
+            3.0,
+        ));
     }
 
     spawner.timer -= time.delta_secs();
@@ -458,10 +487,24 @@ pub(super) fn drop_loot(
     mut rng: ResMut<Rng>,
     mut run: ResMut<Run>,
     mut gems: Query<&mut Gem>,
+    mut gear: ResMut<super::gear::Gear>,
 ) {
     let mut count = gems.iter().count();
     for d in drops.read() {
-        if let Some(rarity) = super::gear::roll_drop_rarity(&mut rng, d.boss) {
+        if d.final_boss {
+            if !run.final_boss_defeated {
+                match gear.award_primal(&mut rng, run.class) {
+                    Ok(reward) => run.final_reward = Some(reward),
+                    Err(error) => {
+                        warn!("survivors final boss reward: {error}");
+                        run.reward_error = Some(error);
+                    }
+                }
+                run.final_boss_defeated = true;
+            }
+            continue;
+        }
+        if let Some(rarity) = super::gear::roll_drop_with_luck(&mut rng, d.boss, run.stats().luck) {
             let at = d.pos + Vec3::new(-0.8, 0.0, 0.8);
             spawn_gem(&mut commands, run.guid(), at, GemKind::Item(rarity));
         }
@@ -504,7 +547,7 @@ pub(super) fn collect_gems(
     mut gems: Query<(Entity, &mut Transform, &mut Gem)>,
 ) {
     let Ok(h) = hero.single() else { return };
-    if run.dead_t.is_some() {
+    if run.dead_t.is_some() || run.final_boss_defeated || run.hp <= 0.0 {
         return;
     }
     let dt = time.delta_secs();
@@ -543,7 +586,15 @@ pub(super) fn collect_gems(
         run.pending_levels += 1;
         if run.level == super::mobility::LEARN_LEVEL {
             if let Some(m) = super::mobility::for_class(run.class.id) {
-                run.banner = Some((format!("You have learned {}! Press F.", m.name), 4.0));
+                let name = super::hud::spell_name(None, m.spell, m.name);
+                run.banner = Some((
+                    format!(
+                        "{}{name}{}",
+                        super::localization::text("You have learned ", "已学会"),
+                        super::localization::text("! Press F.", "！按 F 释放。"),
+                    ),
+                    4.0,
+                ));
             }
         }
     }
@@ -565,5 +616,105 @@ pub(super) fn still_gems(
     }
     for mut drive in &mut drives {
         drive.set_paused(true);
+    }
+}
+
+#[cfg(test)]
+mod loot_tests {
+    use super::*;
+
+    #[test]
+    fn bosses_spawn_inside_each_arena_even_when_hero_is_at_its_edge() {
+        for map in data::MAPS {
+            let center = hero::arena(map);
+            for step in 0..16 {
+                let angle = step as f32 * std::f32::consts::TAU / 16.0;
+                let hero = center + Vec3::new(angle.cos(), 0.0, angle.sin()) * map.leash;
+                let boss = boss_spawn_position(map, hero, angle);
+                assert!(flat(boss - center).length() <= map.leash - 3.9);
+                assert!(flat(boss - hero).length() >= 25.9);
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_boss_still_drops_one_random_chest_healing_and_experience() {
+        let mut app = App::new();
+        app.init_resource::<Run>()
+            .init_resource::<super::super::gear::Gear>()
+            .insert_resource(Rng(12345))
+            .add_message::<Loot>()
+            .add_systems(Update, drop_loot);
+        app.world_mut().write_message(Loot {
+            pos: Vec3::ZERO,
+            xp: 120,
+            boss: true,
+            final_boss: false,
+        });
+        app.update();
+        let world = app.world_mut();
+        let mut gems = world.query::<&Gem>();
+        let kinds: Vec<_> = gems.iter(world).map(|g| g.kind).collect();
+        assert_eq!(kinds.len(), 3);
+        assert_eq!(
+            kinds
+                .iter()
+                .filter(|k| matches!(k, GemKind::Item(_)))
+                .count(),
+            1
+        );
+        assert!(kinds.iter().any(|k| matches!(k, GemKind::Heal(1000.0))));
+        assert!(kinds.iter().any(|k| matches!(k, GemKind::Xp(120))));
+        assert!(!world.resource::<Run>().final_boss_defeated);
+        assert!(world
+            .resource::<super::super::gear::Gear>()
+            .bag()
+            .is_empty());
+    }
+
+    #[test]
+    fn final_loot_is_awarded_once_without_a_second_floor_chest() {
+        let mut app = App::new();
+        app.init_resource::<Run>()
+            .init_resource::<super::super::gear::Gear>()
+            .init_resource::<Time>()
+            .init_resource::<NextState<Phase>>()
+            .insert_resource(Rng(12345))
+            .add_message::<Loot>()
+            .add_systems(Update, (drop_loot, collect_gems).chain());
+        app.world_mut()
+            .spawn((Hero { vy: 0.0, air: 0.0 }, Transform::default()));
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            run.xp = 10_000.0;
+            run.pending_levels = 1;
+        }
+        for _ in 0..2 {
+            app.world_mut().write_message(Loot {
+                pos: Vec3::ZERO,
+                xp: 500,
+                boss: true,
+                final_boss: true,
+            });
+        }
+        app.update();
+        assert!(app.world().resource::<Run>().final_boss_defeated);
+        assert_eq!(
+            app.world()
+                .resource::<super::super::gear::Gear>()
+                .bag()
+                .len(),
+            1
+        );
+        assert_eq!(
+            app.world().resource::<super::super::gear::Gear>().bag()[0].rarity,
+            5
+        );
+        let world = app.world_mut();
+        assert_eq!(world.query::<&Gem>().iter(world).count(), 0);
+        assert!(matches!(
+            world.resource::<NextState<Phase>>(),
+            NextState::Unchanged
+        ));
     }
 }

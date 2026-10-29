@@ -97,7 +97,7 @@ static WARRIOR: ClassTalents = ClassTalents {
             "血之气息",
             "Spell_Shadow_BloodBoil",
             "Cleave, Heroic Strike, Mortal Strike and Execute primary direct damage +4% per rank against bleeding targets.",
-            "顺劈斩、英勇打击、致死打击和斩杀对流血目标的主要直接伤害每级提高4%。"
+            "近战攻击（含嗜血、压制、猛击、盾牌猛击和盾击）对流血目标的主要直接伤害每级提高4%。"
         ),
         node!(
             "sudden_death",
@@ -709,8 +709,8 @@ static ROGUE: ClassTalents = ClassTalents {
             "Sanguinary Vein",
             "血脉",
             "Spell_Shadow_BloodBoil",
-            "Sinister Strike, Eviscerate, Blade Flurry, Gouge and Kidney Shot primary direct damage +4% per rank against targets with your Rupture.",
-            "影袭、剔骨、剑刃乱舞、凿击和肾击对受自己割裂影响的目标主要直接伤害每级提高4%。"
+            "Primary direct melee damage, including Backstab and Ambush, +4% per rank against targets with your Rupture.",
+            "近战攻击（含背刺、伏击）对受自己割裂影响的目标主要直接伤害每级提高4%。"
         ),
         node!(
             "cut_to_the_chase",
@@ -837,8 +837,8 @@ static ROGUE: ClassTalents = ClassTalents {
             "Prey on the Weak",
             "欺凌弱小",
             "Ability_CriticalStrike",
-            "Sinister Strike, Eviscerate, Blade Flurry, Gouge and Kidney Shot primary direct damage +4% per rank against rooted or stunned targets.",
-            "影袭、剔骨、剑刃乱舞、凿击和肾击对定身或昏迷目标的主要直接伤害每级提高4%。"
+            "Primary direct melee damage, including Backstab and Ambush, +4% per rank against rooted or stunned targets.",
+            "近战攻击（含背刺、伏击）对定身或昏迷目标的主要直接伤害每级提高4%。"
         ),
         node!(
             "shadow_guard",

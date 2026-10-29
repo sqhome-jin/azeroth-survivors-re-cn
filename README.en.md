@@ -58,12 +58,17 @@ to serve the page and game assets; the initial build downloads dependencies and 
 - **Character and battleground selection:** eight races, both genders, valid race/class combinations,
   and sixteen battlegrounds, with your last selection remembered.
 - **Local survival combat:** automatic abilities, enemy waves, experience pickups, and timed bosses,
-  with themed enemy and boss rosters for each battleground.
-- **Level-up cards:** ability and passive upgrades, rarity colors, before/after values, and deal-in and hover animations.
+  with five progressively stronger, regional bosses arriving at 2:00, 4:00, 6:00, 8:00 and 10:00.
+  Defeat the fifth to win; its fight may extend beyond ten minutes. Boss skills adapt original-WoW
+  themes with visible ground warnings and dodge windows.
+- **Expanded class pools:** 146 classic-themed abilities, exactly twice each class's previous pool; eight active and twelve passive slots, plus F mobility.
+- **Quality-based growth:** active abilities and passives have no fixed level cap. Common through Legendary cards add different growth amounts, so identical levels can have different final values. Cards preview actual changes.
+- **Luck and builds:** eighteen passive types, including luck, additional targets, echoes, duration, range, critical damage, leech and shields. Luck affects equipment drop chance, equipment rarity, and both active and passive card quality.
 - **Class mobility:** unlocked at level 5 and activated with F toward the cursor, including Blink, Charge, Sprint, and more.
 - **Out-of-run talents:** all nine classes have three trees and 24 nodes each, with class-local kill progress, minions worth 1 and bosses worth 10, up to 51 points and free out-of-run resets. Includes periodic crits, cooldown resets, shields, retaliation, and F-ability interactions.
-- **Persistent equipment:** nine slots, six rarities, a shared bag, and class-local loadouts. Skill affixes begin at Rare quality; minions have a 0.2% drop chance and bosses drop exactly one item.
+- **Persistent equipment:** nine slots, six rarities, a shared bag, and class-local loadouts. Skill affixes begin at Rare quality; minions have a 0.2% base drop chance, increased by luck. The first four bosses retain their existing drop counts; the final boss guarantees one Primal item, delivered to the backpack before results.
 - **Updated launcher:** a separate character preview, slowly rotating map background, map descriptions, and equipment/talent entry points.
+- **Combat information:** timed buff icons beside the minimap with duration and hover details; monster nameplates, larger boss bars, and click/Tab selection with a target portrait, health and cast information.
 - **Camera controls:** locked top-down by default; C unlocks rotation and tilt, and the wheel zooms out to 70 yards.
 - **Post-processing:** G toggles sharpening and color adjustment.
 - **Chinese localization:** zhCN is the default for Survivors UI and client-provided localized text; some custom strings may remain in English.
@@ -149,6 +154,9 @@ Run `make help` for all targets. **Use `make clean` carefully: it deletes downlo
 | F | Class mobility, unlocked at level 5 |
 | Mouse wheel | Zoom |
 | C | Toggle camera lock |
+| Click an enemy or health bar | Inspect a target; click empty ground to clear |
+| Tab / Shift+Tab | Cycle visible targets forward / backward without changing automatic targeting |
+| Hover a buff icon | Inspect effects, sources and remaining duration |
 | Esc | Pause |
 | B | Open equipment during a run |
 | 1 / 2 / 3 | Choose a level-up card |

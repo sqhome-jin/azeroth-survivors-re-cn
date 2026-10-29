@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use bevy::prelude::*;
 
 use super::gear::{Bonuses, EnhKind, SkillRoll};
-use super::{data, localization, Run, Stats};
+use super::{data, Run, Stats};
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct Modifiers {
@@ -18,6 +18,7 @@ pub(super) struct Modifiers {
     pub range: f32,
     pub chain: f32,
     pub echo: f32,
+    pub echo_damage: f32,
     pub splash: f32,
     pub ember: f32,
     pub execute: f32,
@@ -46,6 +47,19 @@ impl Modifiers {
                 EnhKind::Control => out.control += value,
                 _ => {}
             }
+        }
+        if EnhKind::Count.supports(def) {
+            out.count = out.count.saturating_add(stats.targets);
+        }
+        if EnhKind::Echo.supports(def) {
+            out.echo += stats.echo;
+            out.echo_damage = stats.echo_damage;
+        }
+        if EnhKind::Range.supports(def) {
+            out.range += stats.range;
+        }
+        if EnhKind::Duration.supports(def) {
+            out.duration += stats.duration;
         }
         out.cooldown = out.cooldown.min(0.6);
         out.count = out
@@ -128,6 +142,14 @@ pub(super) struct Runtime {
 }
 
 impl Runtime {
+    pub fn active_buffs(&self, now: f32) -> Vec<(u64, EnhKind, f32, f32)> {
+        self.procs
+            .iter()
+            .filter(|proc| proc.until > now)
+            .map(|proc| (proc.item, proc.kind, proc.value, proc.until - now))
+            .collect()
+    }
+
     pub fn reconcile(&mut self, gear: &Bonuses, now: f32) {
         for proc in &mut self.procs {
             if !gear
@@ -189,7 +211,7 @@ impl Runtime {
 }
 
 pub(super) fn damage_effects(run: &mut Run, source: Source, effective: f32, rng: &mut super::Rng) {
-    if effective <= 0.0 || run.dead_t.is_some() {
+    if effective <= 0.0 || run.dead_t.is_some() || run.hp <= 0.0 {
         return;
     }
     let Some(key) = source.ability else { return };
@@ -198,7 +220,7 @@ pub(super) fn damage_effects(run: &mut Run, source: Source, effective: f32, rng:
     let base_leech = if source.periodic {
         run.leech()
     } else {
-        run.gear.leech()
+        run.gear.leech() + run.stats().leech
     };
     let heal = (effective * (base_leech + leech)).min(run.talent_leech_budget);
     run.talent_leech_budget -= heal;
@@ -217,270 +239,8 @@ pub(super) fn damage_effects(run: &mut Run, source: Source, effective: f32, rng:
     }
 }
 
-#[derive(Component)]
-struct BuffRow;
-
 pub(super) fn plugin(app: &mut App) {
-    app.add_systems(
-        Update,
-        (
-            build_hud,
-            refresh_hud,
-            refresh_warlock_buff,
-            refresh_class_buffs,
-        )
-            .chain()
-            .after(super::hud::refresh_hud),
-    );
-}
-
-fn build_hud(
-    mut commands: Commands,
-    root: Query<Entity, With<super::hud::HudRoot>>,
-    row: Query<Entity, With<BuffRow>>,
-    font: Option<Res<super::hud::HudFont>>,
-) {
-    if !row.is_empty() {
-        return;
-    }
-    let (Ok(root), Some(font)) = (root.single(), font) else {
-        return;
-    };
-    commands.entity(root).with_children(|parent| {
-        parent
-            .spawn((
-                BuffRow,
-                Node {
-                    position_type: PositionType::Absolute,
-                    left: Val::Px(20.0),
-                    top: Val::Px(150.0),
-                    flex_direction: FlexDirection::Column,
-                    row_gap: Val::Px(4.0),
-                    ..default()
-                },
-            ))
-            .with_children(|list| {
-                for slot in 0..8 {
-                    list.spawn((
-                        ClassBuff(slot),
-                        Node {
-                            display: Display::None,
-                            column_gap: Val::Px(6.0),
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                    ))
-                    .with_children(|row| {
-                        row.spawn((
-                            ClassBuffIcon { slot, shown: None },
-                            ImageNode::default(),
-                            Node {
-                                width: Val::Px(24.0),
-                                height: Val::Px(24.0),
-                                ..default()
-                            },
-                        ));
-                        row.spawn((
-                            ClassBuffLabel(slot),
-                            super::hud::text_bundle(
-                                &font.0,
-                                "",
-                                13.0,
-                                Color::srgb(0.94, 0.76, 0.34),
-                            ),
-                        ));
-                    });
-                }
-                list.spawn((
-                    WarlockBuff,
-                    Node {
-                        display: Display::None,
-                        column_gap: Val::Px(6.0),
-                        align_items: AlignItems::Center,
-                        ..default()
-                    },
-                ))
-                .with_children(|row| {
-                    row.spawn((
-                        super::hud::UiArt::crop(
-                            super::talents::NODES[22].icon,
-                            [0.0, 1.0, 0.0, 1.0],
-                        ),
-                        ImageNode::default(),
-                        Node {
-                            width: Val::Px(24.0),
-                            height: Val::Px(24.0),
-                            ..default()
-                        },
-                    ));
-                    row.spawn((
-                        WarlockBuffLabel,
-                        super::hud::text_bundle(&font.0, "", 13.0, Color::srgb(0.94, 0.76, 0.34)),
-                    ));
-                });
-                for kind in super::gear::ENH_KINDS.into_iter().filter(|k| k.is_buff()) {
-                    list.spawn((
-                        BuffIcon(kind),
-                        Node {
-                            column_gap: Val::Px(6.0),
-                            align_items: AlignItems::Center,
-                            ..default()
-                        },
-                    ))
-                    .with_children(|row| {
-                        let spell = match kind {
-                            EnhKind::BuffDamage => 1719,
-                            EnhKind::BuffHaste => 10060,
-                            EnhKind::BuffCrit => 18288,
-                            EnhKind::BuffSpeed => 2983,
-                            _ => 871,
-                        };
-                        row.spawn((
-                            super::hud::SpellIcon(spell),
-                            ImageNode::default(),
-                            Node {
-                                width: Val::Px(24.0),
-                                height: Val::Px(24.0),
-                                ..default()
-                            },
-                        ));
-                        row.spawn((
-                            BuffLabel(kind),
-                            super::hud::text_bundle(&font.0, "", 15.0, Color::srgb(0.5, 1.0, 0.5)),
-                        ));
-                    });
-                }
-            });
-    });
-}
-
-#[derive(Component)]
-struct BuffLabel(EnhKind);
-
-#[derive(Component)]
-struct BuffIcon(EnhKind);
-
-#[derive(Component)]
-struct WarlockBuff;
-
-#[derive(Component)]
-struct WarlockBuffLabel;
-
-#[derive(Component)]
-struct ClassBuff(usize);
-
-#[derive(Component)]
-struct ClassBuffLabel(usize);
-
-#[derive(Component)]
-struct ClassBuffIcon {
-    slot: usize,
-    shown: Option<(u8, usize)>,
-}
-
-fn refresh_class_buffs(
-    mut commands: Commands,
-    run: Res<Run>,
-    mut rows: Query<(&ClassBuff, &mut Node)>,
-    mut labels: Query<(&ClassBuffLabel, &mut Text)>,
-    mut icons: Query<(Entity, &mut ClassBuffIcon)>,
-) {
-    let buffs = super::class_mechanics::buffs(&run);
-    for (row, mut node) in &mut rows {
-        node.display = if buffs.get(row.0).is_some() {
-            Display::Flex
-        } else {
-            Display::None
-        };
-    }
-    for (slot, mut text) in &mut labels {
-        if let Some((_, en, zh, left)) = buffs.get(slot.0) {
-            let value = format!("{} · {:.0}s", localization::text(en, zh), left.ceil());
-            if text.0 != value {
-                text.0 = value;
-            }
-        }
-    }
-    for (entity, mut icon) in &mut icons {
-        if let Some(&(index, _, _, _)) = buffs.get(icon.slot) {
-            let identity = (run.class.id, index);
-            if icon.shown != Some(identity) {
-                if let Some(nodes) = super::talents::nodes(run.class.id) {
-                    commands
-                        .entity(entity)
-                        .remove::<super::hud::ArtDone>()
-                        .insert(super::hud::UiArt::crop(
-                            nodes[index].icon,
-                            [0.0, 1.0, 0.0, 1.0],
-                        ));
-                    icon.shown = Some(identity);
-                }
-            }
-        }
-    }
-}
-
-fn refresh_warlock_buff(
-    run: Res<Run>,
-    mut labels: Query<&mut Text, With<WarlockBuffLabel>>,
-    mut rows: Query<&mut Node, With<WarlockBuff>>,
-) {
-    let haste = super::warlock::haste(&run);
-    for mut node in &mut rows {
-        node.display = if haste > 0.0 {
-            Display::Flex
-        } else {
-            Display::None
-        };
-    }
-    for mut text in &mut labels {
-        text.0 = format!(
-            "{} +{:.0}% / {:.0}s",
-            localization::text("Emberstorm: haste", "琥珀风暴：急速"),
-            haste * 100.0,
-            super::warlock::haste_remaining(&run).ceil()
-        );
-    }
-}
-
-fn refresh_hud(
-    run: Res<Run>,
-    mut labels: Query<(&BuffLabel, &mut Text)>,
-    mut icons: Query<(&BuffIcon, &mut Node)>,
-) {
-    for (icon, mut node) in &mut icons {
-        node.display = if run.effects.bonus(icon.0, run.elapsed) > 0.0 {
-            Display::Flex
-        } else {
-            Display::None
-        };
-    }
-    for (label, mut text) in &mut labels {
-        let entries: Vec<String> = run
-            .effects
-            .procs
-            .iter()
-            .filter(|p| p.kind == label.0 && p.until > run.elapsed)
-            .map(|p| {
-                format!(
-                    "#{} {} {:.0}s",
-                    p.item,
-                    p.kind.show(p.value),
-                    (p.until - run.elapsed).ceil()
-                )
-            })
-            .collect();
-        text.0 = if entries.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "{} {}: {}",
-                localization::text("Buff", "增益"),
-                label.0.label(),
-                entries.join(" / ")
-            )
-        };
-    }
+    super::buffs::plugin(app);
 }
 
 #[cfg(test)]
@@ -530,6 +290,36 @@ mod tests {
         }
         let (mut left, mut next) = (6.0, 0.5);
         assert_eq!(ticks(&mut left, &mut next, 0.5, 0.0), 0);
+    }
+
+    #[test]
+    fn passive_modifiers_apply_once_independently_of_equipment_count() {
+        let mut stats = Run::default().stats();
+        stats.targets = 2;
+        stats.echo = 0.2;
+        stats.echo_damage = 0.15;
+        stats.range = 0.3;
+        stats.duration = 0.4;
+        let verify = |stats: &Stats| {
+            let frost = Modifiers::from_stats(stats, data::ability("frostbolt"));
+            assert_eq!(frost.count, 2);
+            close(frost.echo, 0.2);
+            close(frost.echo_damage, 0.15);
+            close(frost.range, 0.3);
+            let corruption = Modifiers::from_stats(stats, data::ability("corruption"));
+            close(corruption.duration, 0.4);
+            let shield = Modifiers::from_stats(stats, data::ability("divine_shield"));
+            assert_eq!(shield.count, 0);
+            close(shield.echo, 0.0);
+        };
+        verify(&stats);
+        for (i, kind) in [EnhKind::Damage, EnhKind::Cooldown, EnhKind::Leech]
+            .into_iter()
+            .enumerate()
+        {
+            stats.gear.enh[i] = Some(roll(kind, None, 0.01, i as u64 + 1));
+            verify(&stats);
+        }
     }
 
     #[test]

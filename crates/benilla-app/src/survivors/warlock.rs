@@ -1,6 +1,6 @@
 //! Survivors warlock talent interactions. Timers belong to the run, never the saved loadout.
 
-use super::{Rng, Run, enemies::Enemy, skill_effects::Source, talents::Loadout};
+use super::{enemies::Enemy, skill_effects::Source, talents::Loadout, Rng, Run};
 
 #[derive(Default)]
 pub(super) struct Runtime {
@@ -15,14 +15,33 @@ pub(super) struct Debuffs {
     vulnerability: f32,
 }
 
+pub(super) fn vulnerability(enemy: &Enemy, now: f32) -> Option<(f32, f32)> {
+    let remaining = enemy.warlock.vulnerability_until - now;
+    (remaining > 0.0 && enemy.warlock.vulnerability > 0.0)
+        .then_some((enemy.warlock.vulnerability, remaining))
+}
+
 pub(super) fn affliction(key: Option<&str>) -> bool {
-    matches!(key, Some("corruption" | "curse_of_agony" | "immolate"))
+    matches!(
+        key,
+        Some(
+            "corruption"
+                | "curse_of_agony"
+                | "immolate"
+                | "siphon_life"
+                | "drain_life"
+                | "drain_soul"
+                | "curse_of_doom"
+        )
+    )
 }
 
 fn direct(key: Option<&str>) -> bool {
     matches!(
         key,
-        Some("shadow_bolt" | "immolate" | "death_coil" | "searing_pain" | "shadowburn")
+        Some(
+            "shadow_bolt" | "immolate" | "death_coil" | "searing_pain" | "shadowburn" | "soul_fire"
+        )
     )
 }
 
@@ -151,7 +170,7 @@ pub(super) fn on_damage(
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Owned, data, enemies::Dot};
+    use super::super::{data, enemies::Dot, Owned};
     use super::*;
 
     fn dot(duration: f64, every: f64) -> Dot {
@@ -236,6 +255,7 @@ mod tests {
             run.abilities.push(Owned {
                 def: data::ability(key),
                 level: 1,
+                growth: 1.0,
                 cd,
             });
         }
@@ -263,6 +283,7 @@ mod tests {
         run.abilities.push(Owned {
             def: data::ability("searing_pain"),
             level: 1,
+            growth: 1.0,
             cd: 2.0,
         });
         nightfall(&mut run, 0.0);

@@ -556,11 +556,7 @@ pub(super) fn refresh_menu_ui(
                 format!("{:.0}", preview.stats().max_hp)
             }),
             MenuCopy::StartingAbility => class.map_or_else(String::new, |c| {
-                spells
-                    .as_deref()
-                    .and_then(|s| s.catalog.get(data::ability(c.start).spell))
-                    .map(|s| s.name.clone())
-                    .unwrap_or_else(|| c.start.replace('_', " "))
+                super::hud::spell_name(spells.as_deref(), data::ability(c.start).spell, c.start)
             }),
             MenuCopy::ZoneCount => data::MAPS.len().to_string(),
             MenuCopy::RaceName => cur.map_or_else(String::new, |(r, _)| {
@@ -575,7 +571,10 @@ pub(super) fn refresh_menu_ui(
                     localization::zone_name(map.zone),
                     localization::map_blurb(map.name),
                     localization::text("Boss arrivals", "首领出现时间"),
-                    "2:15  ·  4:30  ·  6:45\n9:00  ·  11:15  ·  13:30"
+                    localization::text(
+                        "2:00 · 4:00 · 6:00 · 8:00 · 10:00\nDefeat the final boss to win · Guaranteed Primal",
+                        "2:00 · 4:00 · 6:00 · 8:00 · 10:00\n击败最终首领获胜 · 必得太古装备",
+                    )
                 )
             }
         };

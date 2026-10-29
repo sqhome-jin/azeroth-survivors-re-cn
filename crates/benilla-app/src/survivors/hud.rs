@@ -11,10 +11,12 @@ use bevy::shader::ShaderRef;
 use bevy::ui_render::ui_material::{MaterialNode, UiMaterial};
 use bevy::window::PrimaryWindow;
 
+use super::cards::Rarity;
 use super::data::{self, AbilityDef, Effect, Kind, PassiveDef, Stat};
 use super::hero::{self, Hero};
 use super::localization;
 use super::minimap::{self, MiniMap};
+use super::skill_descriptions;
 use super::{Owned, Phase, Rng, Run, Selection, Stats};
 
 const GOLD: Color = Color::srgb(1.0, 0.82, 0.0);
@@ -47,6 +49,8 @@ pub(super) struct XpText;
 pub(super) struct LevelText;
 #[derive(Component)]
 pub(super) struct TimerText;
+#[derive(Component)]
+pub(super) struct ObjectiveText;
 #[derive(Component)]
 pub(super) struct KillText;
 #[derive(Component)]
@@ -120,7 +124,7 @@ pub(super) struct IconDone;
 /// vertex colour, drawn once the archives are readable.
 #[derive(Component)]
 pub(super) struct UiArt {
-    path: &'static str,
+    pub(super) path: &'static str,
     coords: [f32; 4],
     tint: Color,
 }
@@ -185,6 +189,7 @@ pub(super) enum Choice {
 #[derive(Resource, Default)]
 pub(super) struct Offer {
     choices: Vec<Choice>,
+    qualities: Vec<Rarity>,
 }
 
 impl Offer {
@@ -194,6 +199,20 @@ impl Offer {
 
     pub(super) fn choices(&self) -> &[Choice] {
         &self.choices
+    }
+
+    pub(super) fn quality(&self, index: usize) -> Rarity {
+        self.qualities.get(index).copied().unwrap_or(Rarity::Common)
+    }
+
+    fn roll(&mut self, run: &Run, rng: &mut Rng) {
+        self.choices = choices_for(run, rng);
+        let luck = run.stats().luck;
+        self.qualities = self
+            .choices
+            .iter()
+            .map(|_| Rarity::roll(rng, luck))
+            .collect();
     }
 }
 
@@ -279,10 +298,10 @@ pub(super) fn spell_name(
     spell: u32,
     fallback: &str,
 ) -> String {
-    spells
+    let dbc = spells
         .and_then(|s| s.catalog.get(spell))
-        .map(|d| d.name.clone())
-        .unwrap_or_else(|| fallback.replace('_', " "))
+        .map(|d| d.name.as_str());
+    skill_descriptions::ability_name_for(&crate::char_select::ui_locale(), fallback, dbc)
 }
 
 pub(super) fn setup_hud(
@@ -479,7 +498,8 @@ pub(super) fn setup_hud(
                 row.spawn(Node {
                     flex_direction: FlexDirection::Column,
                     row_gap: Val::Px(6.0),
-                    width: Val::Px(300.0),
+                    width: Val::Px(348.0),
+                    margin: UiRect::top(Val::Px(100.0)),
                     ..default()
                 })
                 .with_children(|col| {
@@ -487,6 +507,7 @@ pub(super) fn setup_hud(
                         AbilityRow,
                         Node {
                             column_gap: Val::Px(4.0),
+                            height: Val::Px(40.0),
                             ..default()
                         },
                     ));
@@ -494,6 +515,9 @@ pub(super) fn setup_hud(
                         PassiveRow,
                         Node {
                             column_gap: Val::Px(4.0),
+                            row_gap: Val::Px(4.0),
+                            width: Val::Px(200.0),
+                            flex_wrap: FlexWrap::Wrap,
                             ..default()
                         },
                     ));
@@ -507,6 +531,7 @@ pub(super) fn setup_hud(
                 })
                 .with_children(|col| {
                     col.spawn((TimerText, centered(f, "00:00", 34.0, Color::WHITE)));
+                    col.spawn((ObjectiveText, centered(f, "", 12.0, GOLD)));
                     col.spawn(Node {
                         column_gap: Val::Px(14.0),
                         ..default()
@@ -897,7 +922,7 @@ pub(super) fn setup_hud(
                 ));
             });
             root.spawn((
-                button(UiAction::Quit, Color::NONE),
+                button(UiAction::MainMenu, Color::NONE),
                 Node {
                     justify_content: JustifyContent::Center,
                     padding: UiRect::axes(Val::Px(16.0), Val::Px(6.0)),
@@ -907,7 +932,7 @@ pub(super) fn setup_hud(
             .with_children(|b| {
                 b.spawn(text(
                     f,
-                    localization::text("Quit game", "退出游戏"),
+                    localization::text("Return to main menu", "返回主菜单"),
                     15.0,
                     DIM,
                 ));
@@ -979,6 +1004,7 @@ pub(super) fn start_run(run: &mut Run, selection: &mut Selection) -> bool {
     run.abilities.push(Owned {
         def: data::ability(class.start),
         level: 1,
+        growth: 1.0,
         cd: 0.5,
     });
     run.hp = run.stats().max_hp;
@@ -988,10 +1014,8 @@ pub(super) fn start_run(run: &mut Run, selection: &mut Selection) -> bool {
 
 fn choices_for(run: &Run, rng: &mut Rng) -> Vec<Choice> {
     let mut pool: Vec<(Choice, f32)> = Vec::new();
-    for (i, o) in run.abilities.iter().enumerate() {
-        if o.level < data::MAX_ABILITY_LEVEL {
-            pool.push((Choice::Upgrade(i), 1.2));
-        }
+    for (i, _) in run.abilities.iter().enumerate() {
+        pool.push((Choice::Upgrade(i), 1.2));
     }
     if run.abilities.len() < data::MAX_ABILITIES {
         for key in run.class.pool {
@@ -1000,10 +1024,8 @@ fn choices_for(run: &Run, rng: &mut Rng) -> Vec<Choice> {
             }
         }
     }
-    for (i, (_, level)) in run.passives.iter().enumerate() {
-        if *level < data::MAX_PASSIVE_LEVEL {
-            pool.push((Choice::UpPassive(i), 0.8));
-        }
+    for (i, _) in run.passives.iter().enumerate() {
+        pool.push((Choice::UpPassive(i), 0.8));
     }
     if run.passives.len() < data::MAX_PASSIVES {
         for p in data::PASSIVES {
@@ -1033,7 +1055,7 @@ fn choices_for(run: &Run, rng: &mut Rng) -> Vec<Choice> {
 }
 
 pub(super) fn roll_offer(run: Res<Run>, mut rng: ResMut<Rng>, mut offer: ResMut<Offer>) {
-    offer.choices = choices_for(&run, &mut rng);
+    offer.roll(&run, &mut rng);
 }
 
 pub(super) fn pick(
@@ -1046,23 +1068,37 @@ pub(super) fn pick(
     let Some(&choice) = offer.choices.get(i) else {
         return;
     };
+    let growth = offer.quality(i).growth();
     match choice {
         Choice::NewAbility(def) => run.abilities.push(Owned {
             def,
             level: 1,
+            growth,
             cd: 0.3,
         }),
-        Choice::Upgrade(k) => run.abilities[k].level += 1,
-        Choice::NewPassive(p) => run.passives.push((p, 1)),
-        Choice::UpPassive(k) => run.passives[k].1 += 1,
+        Choice::Upgrade(k) => {
+            run.abilities[k].level = run.abilities[k].level.saturating_add(1);
+            run.abilities[k].growth += growth;
+        }
+        Choice::NewPassive(p) => {
+            run.passives.push((p, 1));
+            run.passive_growth.insert(p.key, growth);
+        }
+        Choice::UpPassive(k) => {
+            let (p, level) = run.passives[k];
+            let total = run.passive_growth(p) + growth;
+            run.passives[k].1 = level.saturating_add(1);
+            run.passive_growth.insert(p.key, total);
+        }
         Choice::Heal => run.hp = run.stats().max_hp,
     }
     run.version += 1;
     run.pending_levels = run.pending_levels.saturating_sub(1);
     if run.pending_levels > 0 {
-        offer.choices = choices_for(run, rng);
+        offer.roll(run, rng);
     } else {
         offer.choices.clear();
+        offer.qualities.clear();
         next.set(Phase::Playing);
     }
 }
@@ -1188,34 +1224,33 @@ pub(super) struct CardText {
     pub tag: String,
     pub tag_color: Color,
     pub desc: String,
-    /// `(rank now, top rank)`, for the pips; `None` for the healthstone.
-    pub ranks: Option<(u8, u8)>,
 }
 
 pub(super) fn describe_card(
     choice: Choice,
+    quality: Rarity,
     run: &Run,
     spells: Option<&crate::ui_action::Spells>,
 ) -> CardText {
     let new = Color::srgb(0.3, 1.0, 0.3);
+    let added = quality.growth();
     match choice {
         Choice::NewAbility(def) => {
-            let c = super::talents::cast_for_run(def, 1, run);
+            let c = super::growth::cast_for_run(def, 1, added, run);
             CardText {
                 spell: def.spell,
                 name: spell_name(spells, def.spell, def.key),
-                tag: localization::text("New spell", "新法术").into(),
+                tag: localization::text("New spell · Rank 1", "新法术 · 等级 1").into(),
                 tag_color: new,
                 desc: format!("{}.", ability_body(def, &c)),
-                ranks: Some((0, data::MAX_ABILITY_LEVEL)),
             }
         }
         Choice::Upgrade(k) => {
             let o = &run.abilities[k];
-            let next = o.level + 1;
+            let next = o.level.saturating_add(1);
             let (a, b) = (
-                super::talents::cast_for_run(o.def, o.level, run),
-                super::talents::cast_for_run(o.def, next, run),
+                super::growth::cast_for_run(o.def, o.level, o.growth, run),
+                super::growth::cast_for_run(o.def, next, o.growth + added, run),
             );
             // What actually changes, as before → after.
             let mut lines = Vec::new();
@@ -1225,13 +1260,18 @@ pub(super) fn describe_card(
                 (a.dot, b.dot)
             };
             if db > da {
+                let label = match o.def.kind {
+                    Kind::Shield | Kind::Immune => localization::text("Absorb", "吸收"),
+                    Kind::Heal => localization::text("Healing", "治疗"),
+                    _ => localization::text("Damage", "伤害"),
+                };
                 lines.push(if localization::is_zh_cn() {
-                    format!("伤害 {} → {}", num(da), num(db))
+                    format!("{label} {} → {}", num(da), num(db))
                 } else {
-                    format!("Damage {} » {}", num(da), num(db))
+                    format!("{label} {} » {}", num(da), num(db))
                 });
             }
-            if b.cooldown < a.cooldown - 0.01 {
+            if b.cooldown < a.cooldown {
                 lines.push(if localization::is_zh_cn() {
                     format!("冷却 {}秒 → {}秒", num(a.cooldown), num(b.cooldown))
                 } else {
@@ -1245,14 +1285,14 @@ pub(super) fn describe_card(
                     format!("Targets {} » {}", a.count, b.count)
                 });
             }
-            if b.radius > a.radius + 0.05 {
+            if b.radius > a.radius {
                 lines.push(if localization::is_zh_cn() {
                     format!("范围 {} → {}码", num(a.radius), num(b.radius))
                 } else {
                     format!("Area {} » {} yd", num(a.radius), num(b.radius))
                 });
             }
-            if b.duration > a.duration + 0.05 {
+            if b.duration > a.duration {
                 lines.push(if localization::is_zh_cn() {
                     format!("持续 {}秒 → {}秒", num(a.duration), num(b.duration))
                 } else {
@@ -1268,40 +1308,34 @@ pub(super) fn describe_card(
                     format!("Rank {} » {next}", o.level)
                 },
                 tag_color: Color::WHITE,
-                desc: lines.join("\n"),
-                ranks: Some((o.level, data::MAX_ABILITY_LEVEL)),
+                desc: format!(
+                    "{}\n{} {:.2} → {:.2}",
+                    lines.join("\n"),
+                    localization::text("Total growth", "累计成长"),
+                    o.growth,
+                    o.growth + added,
+                ),
             }
         }
         Choice::NewPassive(p) => CardText {
             spell: p.spell,
             name: passive_name(p).into(),
-            tag: localization::text("New talent", "新天赋").into(),
+            tag: localization::text("New passive · Rank 1", "新被动 · 等级 1").into(),
             tag_color: new,
-            desc: passive_text(p.stat, p.per_level),
-            ranks: Some((0, data::MAX_PASSIVE_LEVEL)),
+            desc: passive_preview(p, added, run),
         },
         Choice::UpPassive(k) => {
             let (p, level) = run.passives[k];
-            let fmt = |v: f32| match p.stat {
-                Stat::Regen | Stat::Armor => num(v),
-                _ => pct(v),
-            };
             CardText {
                 spell: p.spell,
                 name: passive_name(p).into(),
                 tag: if localization::is_zh_cn() {
-                    format!("等级 {level} → {}", level + 1)
+                    format!("等级 {level} → {}", level.saturating_add(1))
                 } else {
-                    format!("Rank {level} » {}", level + 1)
+                    format!("Rank {level} » {}", level.saturating_add(1))
                 },
                 tag_color: Color::WHITE,
-                desc: format!(
-                    "{}\n{} » {}",
-                    stat_label(p.stat),
-                    fmt(p.per_level * f32::from(level)),
-                    fmt(p.per_level * f32::from(level + 1)),
-                ),
-                ranks: Some((level, data::MAX_PASSIVE_LEVEL)),
+                desc: passive_preview(p, added, run),
             }
         }
         Choice::Heal => CardText {
@@ -1309,12 +1343,7 @@ pub(super) fn describe_card(
             name: localization::text("Healthstone", "治疗石").into(),
             tag: localization::text("Restore", "恢复").into(),
             tag_color: Color::WHITE,
-            desc: localization::text(
-                "Everything is mastered. Restores all health.",
-                "所有能力都已精通。恢复全部生命值。",
-            )
-            .into(),
-            ranks: None,
+            desc: localization::text("Restores all health.", "恢复全部生命值。").into(),
         },
     }
 }
@@ -1328,6 +1357,7 @@ pub(super) fn refresh_hud(
     selection: Res<Selection>,
     font: Res<HudFont>,
     progression: Res<super::talents::Progression>,
+    gear: Option<Res<super::gear::Gear>>,
     mut texts: ParamSet<(
         Query<&mut Text, With<LevelText>>,
         Query<&mut Text, With<TimerText>>,
@@ -1336,6 +1366,7 @@ pub(super) fn refresh_hud(
         Query<&mut Text, With<OverTitle>>,
         Query<&mut Text, With<OverStats>>,
         Query<&mut Text, With<XpText>>,
+        Query<&mut Text, With<ObjectiveText>>,
     )>,
     mut xp_fill: Query<&mut Node, With<XpFill>>,
     rows: Query<(Entity, Has<AbilityRow>), Or<(With<AbilityRow>, With<PassiveRow>)>>,
@@ -1362,6 +1393,12 @@ pub(super) fn refresh_hud(
     let secs = run.elapsed as u32;
     if let Ok(mut t) = texts.p1().single_mut() {
         **t = format!("{:02}:{:02}", secs / 60, secs % 60);
+    }
+    if let Ok(mut t) = texts.p7().single_mut() {
+        let objective = battle_objective(&run);
+        if **t != objective {
+            **t = objective;
+        }
     }
     let kills = run.kills;
     if let Ok(mut t) = texts.p2().single_mut() {
@@ -1428,6 +1465,7 @@ pub(super) fn refresh_hud(
     if let Some(error) = &progression.error {
         summary.push_str(&format!("\n{error}"));
     }
+    append_reward_summary(&mut summary, &run, gear.as_deref());
     if let Ok(mut t) = texts.p5().single_mut() {
         if **t != summary {
             **t = summary;
@@ -1443,7 +1481,7 @@ pub(super) fn refresh_hud(
     for (row, is_abilities) in &rows {
         commands.entity(row).despawn_related::<Children>();
         commands.entity(row).with_children(|row| {
-            let entries: Vec<(u32, u8, f32, TipFor)> = if is_abilities {
+            let entries: Vec<(u32, u32, f32, TipFor)> = if is_abilities {
                 run.abilities
                     .iter()
                     .enumerate()
@@ -1823,6 +1861,46 @@ pub(super) fn refresh_results(
     }
 }
 
+fn battle_objective(run: &Run) -> String {
+    let objective = if run.final_boss_defeated {
+        localization::text("Final boss defeated", "最终首领已击败")
+    } else if run.elapsed >= data::VICTORY_SECS {
+        localization::text(
+            "Final battle: defeat the final boss",
+            "最终决战：击败最终首领",
+        )
+    } else {
+        localization::text("Defeat the final boss at 10:00", "10:00迎战最终首领")
+    };
+    format!(
+        "{objective} · {} {}/{}",
+        localization::text("Bosses", "首领"),
+        run.boss_kills.min(data::BOSS_COUNT),
+        data::BOSS_COUNT,
+    )
+}
+
+fn append_reward_summary(summary: &mut String, run: &Run, gear: Option<&super::gear::Gear>) {
+    if let Some(reward) = &run.final_reward {
+        summary.push_str(&format!(
+            "\n{}: {reward}",
+            localization::text("Final boss reward", "最终首领奖励")
+        ));
+    }
+    if let Some(error) = &run.reward_error {
+        summary.push_str(&format!(
+            "\n{}: {error}",
+            localization::text("Reward error", "奖励错误")
+        ));
+    }
+    if let Some(error) = gear.and_then(|g| g.error.as_ref()) {
+        summary.push_str(&format!(
+            "\n{}: {error}",
+            localization::text("Equipment save warning", "装备存档警告")
+        ));
+    }
+}
+
 /// 12.3k, 4.5M.
 fn compact(v: f64) -> String {
     if v >= 1e6 {
@@ -1971,8 +2049,9 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
             num(c.duration)
         ),
         Kind::Immune => format!(
-            "When an enemy closes in, makes you immune to all damage for {} sec",
-            num(c.duration)
+            "When an enemy closes in, grants immunity for {} sec and a {d} absorb shield for {} sec",
+            num(c.duration),
+            num(c.duration + 3.0),
         ),
         Kind::Thorns => format!(
             "When enemies close in, deals {d} damage to every attacker for {} sec",
@@ -2109,7 +2188,12 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
             num(c.duration),
             damage
         ),
-        Kind::Immune => format!("敌人靠近时，使你免疫所有伤害{}秒", num(c.duration)),
+        Kind::Immune => format!(
+            "敌人靠近时，免疫所有伤害{}秒，并获得{}点吸收护盾，持续{}秒",
+            num(c.duration),
+            damage,
+            num(c.duration + 3.0),
+        ),
         Kind::Thorns => format!(
             "敌人靠近时，对所有攻击者造成{}点伤害，持续{}秒",
             damage,
@@ -2157,12 +2241,12 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
 fn next_rank(def: &AbilityDef, now: &Cast, next: &Cast) -> String {
     if localization::is_zh_cn() {
         let mut gains = Vec::new();
-        if next.dmg > now.dmg && def.kind != Kind::Dot && def.kind != Kind::Immune {
+        if next.dmg > now.dmg && def.kind != Kind::Dot {
             gains.push(format!(
                 "{}{}",
                 num(next.dmg),
                 match def.kind {
-                    Kind::Shield => "点吸收量",
+                    Kind::Shield | Kind::Immune => "点吸收量",
                     Kind::Heal => "点治疗量",
                     _ => "点伤害",
                 }
@@ -2192,12 +2276,12 @@ fn next_rank(def: &AbilityDef, now: &Cast, next: &Cast) -> String {
         return gains.join("，");
     }
     let what = match def.kind {
-        Kind::Shield => "absorbed",
+        Kind::Shield | Kind::Immune => "absorbed",
         Kind::Heal => "healing",
         _ => "damage",
     };
     let mut gains = Vec::new();
-    if next.dmg > 0.0 && def.kind != Kind::Dot && def.kind != Kind::Immune {
+    if next.dmg > 0.0 && def.kind != Kind::Dot {
         gains.push(format!("{} {what}", num(next.dmg)));
     }
     if next.dot > 0.0 {
@@ -2229,9 +2313,17 @@ fn ability_tip(
     stats: &Stats,
     spells: Option<&crate::ui_action::Spells>,
     run: &Run,
+    gear: Option<&super::gear::Gear>,
 ) -> Vec<TipLine> {
     let def = o.def;
-    let now = super::talents::cast_for_run(def, o.level, run);
+    let mut cast_stats = *stats;
+    let mut now = super::talents::cast_with_growth(def, o.level, o.growth, &cast_stats);
+    if def.kind == Kind::Immune {
+        now.dmg = o.growth;
+    }
+    super::class_mechanics::modify_cast(run, def.key, &mut now, &mut cast_stats);
+    super::spell_expansion::modify_cast(run, def.key, &mut now, &mut cast_stats);
+    let stats = &cast_stats;
     let mut lines = vec![
         TipLine::new(spell_name(spells, def.spell, def.key), Color::WHITE)
             .header()
@@ -2271,6 +2363,13 @@ fn ability_tip(
         ),
     );
     lines.push(TipLine::new(ability_body(def, &now), GOLD));
+    lines.push(TipLine::new(
+        localization::text(
+            "Keep the pointer on this icon and scroll to read all enhancements.",
+            "指针停留在图标上，滚动鼠标查看全部强化。",
+        ),
+        DIM,
+    ));
     let periodic_crit = super::talents::periodic_crits(
         stats,
         super::skill_effects::Source {
@@ -2304,25 +2403,31 @@ fn ability_tip(
     if periodic_crit {
         lines.push(TipLine::new(
             localization::text(
-                "Dark Pact: each damage-over-time tick rolls its own critical strike.",
-                "黑暗契约：每次持续伤害独立判定暴击。",
+                "Each eligible damage-over-time tick rolls its own critical strike.",
+                "符合天赋条件的每次持续伤害独立判定暴击。",
             ),
             DIM,
         ));
     }
-    if o.level < data::MAX_ABILITY_LEVEL {
-        let next = super::talents::cast_for_run(def, o.level + 1, run);
-        lines.push(TipLine::new(
-            localization::text("Next rank:", "下一级："),
-            Color::WHITE,
-        ));
-        lines.push(TipLine::new(next_rank(def, &now, &next), GOLD));
-    } else {
-        lines.push(TipLine::new(
-            localization::text("Highest rank", "已达最高等级"),
-            DIM,
-        ));
-    }
+    lines.extend(
+        skill_descriptions::details(run, def, gear)
+            .into_iter()
+            .map(|line| TipLine::new(line, DIM)),
+    );
+    let next = super::growth::cast_for_run(def, o.level.saturating_add(1), o.growth + 1.0, run);
+    lines.push(TipLine::new(
+        format!(
+            "{}: {:.2}",
+            localization::text("Total growth", "累计成长"),
+            o.growth
+        ),
+        GOLD,
+    ));
+    lines.push(TipLine::new(
+        localization::text("Next common card (+1 growth):", "下张普通卡（+1成长）："),
+        Color::WHITE,
+    ));
+    lines.push(TipLine::new(next_rank(def, &now, &next), GOLD));
     lines
 }
 
@@ -2340,26 +2445,80 @@ fn stat_label(stat: Stat) -> &'static str {
         Stat::Growth => localization::text("Experience gained", "经验获取"),
         Stat::Armor => localization::text("Damage blocked per hit", "每次格挡伤害"),
         Stat::Crit => localization::text("Critical strike chance", "暴击几率"),
+        Stat::Luck => localization::text("Luck", "幸运"),
+        Stat::Targets => localization::text("Extra targets", "额外目标"),
+        Stat::Echo => localization::text("Echo chance and power", "回响几率与威力"),
+        Stat::Duration => localization::text("Duration", "持续时间"),
+        Stat::Range => localization::text("Cast range", "施法距离"),
+        Stat::CritDamage => localization::text("Critical damage", "暴击伤害"),
+        Stat::Leech => localization::text("Life steal", "生命汲取"),
+        Stat::Shield => localization::text("Shield power", "护盾强度"),
     }
 }
 
 fn passive_name(passive: &PassiveDef) -> &'static str {
-    let chinese = match passive.stat {
-        Stat::Might => "强击",
-        Stat::MaxHp => "活力",
-        Stat::Speed => "迅捷",
-        Stat::Regen => "再生",
-        Stat::Haste => "急速",
-        Stat::Area => "扩张",
-        Stat::Magnet => "磁力",
-        Stat::Growth => "成长",
-        Stat::Armor => "护甲",
-        Stat::Crit => "致命",
-    };
+    let chinese = skill_descriptions::ability_name(passive.key)
+        .or_else(|| super::spell_expansion::name(passive.key))
+        .unwrap_or(passive.name);
     localization::text(passive.name, chinese)
 }
 
 fn passive_text(stat: Stat, v: f32) -> String {
+    let extra = match stat {
+        Stat::Luck => Some(if localization::is_zh_cn() {
+            format!("幸运成长+{}；收益渐减并增加伤害。", num(v))
+        } else {
+            format!(
+                "+{} raw luck; diminishing fortune and additional damage.",
+                num(v)
+            )
+        }),
+        Stat::Targets => Some(if localization::is_zh_cn() {
+            format!(
+                "目标成长+{}；每3点增加1个目标，每点额外提高3%伤害。",
+                num(v)
+            )
+        } else {
+            format!(
+                "+{} target growth; +1 target per 3 points and +3% damage per point.",
+                num(v)
+            )
+        }),
+        Stat::Echo => Some(if localization::is_zh_cn() {
+            format!(
+                "回响成长+{}；几率渐近50%，额外成长继续提高回响伤害。",
+                pct(v)
+            )
+        } else {
+            format!(
+                "+{} echo growth; chance approaches 50% and echo damage keeps growing.",
+                pct(v)
+            )
+        }),
+        Stat::Duration => Some(format!("{} +{}.", stat_label(stat), pct(v))),
+        Stat::Range => Some(if localization::is_zh_cn() {
+            format!("射程成长+{}，收益渐减并持续提高伤害。", pct(v))
+        } else {
+            format!(
+                "+{} range growth, with diminishing reach and additional damage.",
+                pct(v)
+            )
+        }),
+        Stat::CritDamage => Some(format!("{} +{}.", stat_label(stat), pct(v))),
+        Stat::Leech => Some(if localization::is_zh_cn() {
+            format!("汲取成长+{}，几率收益渐减并持续提高生命恢复。", pct(v))
+        } else {
+            format!(
+                "+{} leech growth, with diminishing life steal and additional regeneration.",
+                pct(v)
+            )
+        }),
+        Stat::Shield => Some(format!("{} +{}.", stat_label(stat), pct(v))),
+        _ => None,
+    };
+    if let Some(text) = extra {
+        return text;
+    }
     if localization::is_zh_cn() {
         return match stat {
             Stat::Might => format!("造成的所有伤害提高{}。", pct(v)),
@@ -2372,6 +2531,7 @@ fn passive_text(stat: Stat, v: f32) -> String {
             Stat::Growth => format!("获得的经验提高{}。", pct(v)),
             Stat::Armor => format!("每次受到攻击时减免{}点伤害。", num(v)),
             Stat::Crit => format!("造成双倍暴击伤害的几率提高{}。", pct(v)),
+            _ => unreachable!("additional passive stats were described above"),
         };
     }
     match stat {
@@ -2388,41 +2548,135 @@ fn passive_text(stat: Stat, v: f32) -> String {
             "Increases your chance to critically strike for double damage by {}.",
             pct(v)
         ),
+        _ => unreachable!("additional passive stats were described above"),
     }
 }
 
 /// The hero's total for the stat a passive raises, every source counted.
 fn stat_total(stat: Stat, s: &Stats) -> String {
+    let extra = match stat {
+        Stat::Luck => Some(format!(
+            "{}: {:.1} ({} {:.1}) · {}",
+            stat_label(stat),
+            s.luck,
+            localization::text("raw", "原始"),
+            s.luck_raw,
+            stat_total(Stat::Might, s),
+        )),
+        Stat::Targets => Some(format!(
+            "{}: +{} · {}",
+            stat_label(stat),
+            s.targets,
+            stat_total(Stat::Might, s),
+        )),
+        Stat::Echo => Some(format!(
+            "{}: {} / {}",
+            stat_label(stat),
+            pct(s.echo),
+            pct(0.5 + s.echo_damage),
+        )),
+        Stat::Duration => Some(format!(
+            "{}: {} · {}",
+            stat_label(stat),
+            pct(1.0 + s.duration),
+            stat_total(Stat::Might, s),
+        )),
+        Stat::Range => Some(format!(
+            "{}: {} · {}",
+            stat_label(stat),
+            pct(1.0 + s.range),
+            stat_total(Stat::Might, s),
+        )),
+        Stat::CritDamage => Some(format!(
+            "{}: {}×",
+            stat_label(stat),
+            num(s.crit_multiplier()),
+        )),
+        Stat::Leech => Some(format!(
+            "{}: {} · {}",
+            stat_label(stat),
+            pct(s.leech),
+            stat_total(Stat::Regen, s),
+        )),
+        Stat::Shield => Some(format!("{}: {}", stat_label(stat), pct(s.shield_power))),
+        _ => None,
+    };
+    if let Some(text) = extra {
+        return text;
+    }
     if localization::is_zh_cn() {
         return match stat {
             Stat::Might => format!("伤害加成：{}", pct(s.might)),
             Stat::MaxHp => format!("生命上限：{}", num(s.max_hp)),
-            Stat::Speed => format!("移动速度：{}码/秒", num(s.speed)),
+            Stat::Speed => format!(
+                "移动速度：{}码/秒；生命恢复：{:.2}/秒",
+                num(s.speed),
+                s.regen
+            ),
             Stat::Regen => format!("生命恢复：{}点/秒", num(s.regen)),
-            Stat::Haste => format!("冷却缩减：{}", pct(s.haste.min(0.65))),
-            Stat::Area => format!("范围效果：{}", pct(s.area)),
-            Stat::Magnet => format!("拾取范围：{}码", num(s.magnet)),
+            Stat::Haste => format!(
+                "冷却缩减：{}；伤害：{}",
+                pct(s.haste.min(0.65)),
+                pct(s.might)
+            ),
+            Stat::Area => format!("范围效果：{}；伤害：{}", pct(s.area), pct(s.might)),
+            Stat::Magnet => format!("拾取范围：{}码；经验：{}", num(s.magnet), pct(s.growth)),
             Stat::Growth => format!("经验获取：{}", pct(s.growth)),
             Stat::Armor => format!("每次格挡伤害：{}", num(s.armor)),
-            Stat::Crit => format!("暴击几率：{}", pct(s.crit)),
+            Stat::Crit => format!(
+                "暴击几率：{}；暴击伤害：{}倍",
+                pct(s.crit),
+                num(s.crit_multiplier())
+            ),
+            _ => unreachable!("additional passive stats were described above"),
         };
     }
     match stat {
         Stat::Might => format!("Damage dealt: {}", pct(s.might)),
         Stat::MaxHp => format!("Maximum health: {}", num(s.max_hp)),
-        Stat::Speed => format!("Movement speed: {} yd per second", num(s.speed)),
+        Stat::Speed => format!(
+            "Speed: {} yd/s; regeneration: {:.2}/s",
+            num(s.speed),
+            s.regen
+        ),
         Stat::Regen => format!("Health restored: {} per second", num(s.regen)),
-        Stat::Haste => format!("Cooldowns: {} shorter", pct(s.haste.min(0.65))),
-        Stat::Area => format!("Area of effect: {}", pct(s.area)),
-        Stat::Magnet => format!("Pickup range: {} yd", num(s.magnet)),
+        Stat::Haste => format!(
+            "Cooldowns: {} shorter; damage: {}",
+            pct(s.haste.min(0.65)),
+            pct(s.might)
+        ),
+        Stat::Area => format!("Area: {}; damage: {}", pct(s.area), pct(s.might)),
+        Stat::Magnet => format!(
+            "Pickup: {} yd; experience: {}",
+            num(s.magnet),
+            pct(s.growth)
+        ),
         Stat::Growth => format!("Experience gained: {}", pct(s.growth)),
         Stat::Armor => format!("Damage blocked per hit: {}", num(s.armor)),
-        Stat::Crit => format!("Critical strike chance: {}", pct(s.crit)),
+        Stat::Crit => format!(
+            "Critical chance: {}; damage: {}×",
+            pct(s.crit),
+            num(s.crit_multiplier())
+        ),
+        _ => unreachable!("additional passive stats were described above"),
     }
 }
 
-fn passive_tip(p: &PassiveDef, level: u8, stats: &Stats) -> Vec<TipLine> {
-    let mut lines = vec![
+fn passive_preview(p: &PassiveDef, added: f32, run: &Run) -> String {
+    let before = run.stats();
+    let after = run.stats_with_passive_growth(p, added);
+    format!(
+        "{}\n↓\n{}\n{} {:.2} → {:.2}",
+        stat_total(p.stat, &before),
+        stat_total(p.stat, &after),
+        localization::text("Total growth", "累计成长"),
+        run.passive_growth(p),
+        run.passive_growth(p) + added,
+    )
+}
+
+fn passive_tip(p: &PassiveDef, level: u32, stats: &Stats, run: &Run) -> Vec<TipLine> {
+    vec![
         TipLine::new(passive_name(p), Color::WHITE).header().right(
             if localization::is_zh_cn() {
                 format!("等级 {level}")
@@ -2431,25 +2685,28 @@ fn passive_tip(p: &PassiveDef, level: u8, stats: &Stats) -> Vec<TipLine> {
             },
             TIP_GREY,
         ),
-        TipLine::new(passive_text(p.stat, p.per_level * f32::from(level)), GOLD),
-        TipLine::new(stat_total(p.stat, stats), Color::WHITE),
-    ];
-    if level < data::MAX_PASSIVE_LEVEL {
-        lines.push(TipLine::new(
-            localization::text("Next rank:", "下一级："),
-            Color::WHITE,
-        ));
-        lines.push(TipLine::new(
-            passive_text(p.stat, p.per_level * f32::from(level + 1)),
+        TipLine::new(
+            passive_text(p.stat, p.per_level * run.passive_growth(p)),
             GOLD,
-        ));
-    } else {
-        lines.push(TipLine::new(
-            localization::text("Highest rank", "已达最高等级"),
+        ),
+        TipLine::new(stat_total(p.stat, stats), Color::WHITE),
+        TipLine::new(
+            localization::text("Next common card (+1 growth):", "下张普通卡（+1成长）："),
+            Color::WHITE,
+        ),
+        TipLine::new(
+            stat_total(p.stat, &run.stats_with_passive_growth(p, 1.0)),
+            GOLD,
+        ),
+        TipLine::new(
+            format!(
+                "{}: {:.2}",
+                localization::text("Total growth", "累计成长"),
+                run.passive_growth(p)
+            ),
             DIM,
-        ));
-    }
-    lines
+        ),
+    ]
 }
 
 /// The `GameTooltip` frame: `UI-Tooltip-Background` tiled under `UI-Tooltip-Border`, 16-unit edges
@@ -2502,8 +2759,12 @@ fn spawn_tooltip(
                     flex_direction: FlexDirection::Column,
                     row_gap: Val::Px(2.0),
                     padding: UiRect::all(Val::Px(10.0)),
+                    overflow: Overflow::scroll_y(),
+                    min_height: Val::Px(0.0),
+                    width: Val::Percent(100.0),
                     ..default()
                 },
+                ScrollPosition::default(),
             ))
             .id();
     });
@@ -2513,10 +2774,12 @@ fn spawn_tooltip(
 /// Hovering a build icon raises its `GameTooltip` under the icon, every number from the current
 /// rank and stats, and what the next rank brings.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::type_complexity)]
 pub(super) fn icon_tooltip(
     mut commands: Commands,
     phase: Res<State<Phase>>,
     run: Res<Run>,
+    gear: Option<Res<super::gear::Gear>>,
     spells: Option<Res<crate::ui_action::Spells>>,
     font: Res<HudFont>,
     ui_scale: Res<UiScale>,
@@ -2528,7 +2791,15 @@ pub(super) fn icon_tooltip(
         &ComputedNode,
         &bevy::ui::UiGlobalTransform,
     )>,
-    mut frames: Query<(&mut Node, &mut Visibility), With<GameTooltip>>,
+    mut frames: Query<
+        (&mut Node, &mut Visibility, &ComputedNode),
+        (With<GameTooltip>, Without<TipBody>),
+    >,
+    mut bodies: Query<(&mut Node, &ComputedNode, &mut ScrollPosition), With<TipBody>>,
+    mut viewport: (
+        Query<&Window, With<PrimaryWindow>>,
+        MessageReader<bevy::input::mouse::MouseWheel>,
+    ),
     mut built: Local<Option<(Entity, Entity)>>,
     mut shown: Local<Option<(TipFor, u32, u32)>>,
 ) {
@@ -2543,9 +2814,20 @@ pub(super) fn icon_tooltip(
         }
         return;
     };
-    let Ok((mut node, mut vis)) = frames.get_mut(frame) else {
+    let Ok((mut node, mut vis, frame_size)) = frames.get_mut(frame) else {
         return;
     };
+    let scroll_delta: f32 = viewport
+        .1
+        .read()
+        .map(|event| {
+            if event.unit == bevy::input::mouse::MouseScrollUnit::Line {
+                event.y * 42.0
+            } else {
+                event.y
+            }
+        })
+        .sum();
     let hovered = slots
         .iter()
         .find(|(i, ..)| **i != Interaction::None)
@@ -2559,13 +2841,32 @@ pub(super) fn icon_tooltip(
     };
     // Physical pixels to the 768-unit canvas the `Val`s are on.
     let inv = computed.inverse_scale_factor;
-    let (left, top) = (
-        Val::Px((at.translation.x - computed.size().x / 2.0) * inv),
-        Val::Px((at.translation.y + computed.size().y / 2.0) * inv + 4.0),
+    let screen = viewport.0.single().map_or(Vec2::new(1024.0, 768.0), |w| {
+        Vec2::new(w.width(), w.height()) / ui_scale.0
+    });
+    let width = 420.0_f32.min((screen.x - 16.0).max(1.0));
+    let height = (screen.y - 16.0).max(1.0);
+    node.width = Val::Px(width);
+    node.max_width = Val::Px(width);
+    node.max_height = Val::Px(height);
+    let at = Vec2::new(
+        (at.translation.x - computed.size().x / 2.0) * inv,
+        (at.translation.y + computed.size().y / 2.0) * inv + 4.0,
     );
+    let anchor = tooltip_anchor(screen, at, Vec2::new(width, frame_size.size().y * inv));
+    let (left, top) = (Val::Px(anchor.x), Val::Px(anchor.y));
     if node.left != left || node.top != top {
         node.left = left;
         node.top = top;
+    }
+    if let Ok((mut body_node, computed, mut scroll)) = bodies.get_mut(body) {
+        body_node.max_height = Val::Px(height);
+        if shown.is_none_or(|(previous, ..)| previous != tip) {
+            scroll.0.y = 0.0;
+        }
+        let max =
+            ((computed.content_size.y - computed.size.y) * computed.inverse_scale_factor).max(0.0);
+        scroll.0.y = (scroll.0.y - scroll_delta).clamp(0.0, max);
     }
     let revision = (tip, run.version, (run.elapsed * 5.0) as u32);
     if *shown == Some(revision) {
@@ -2577,20 +2878,37 @@ pub(super) fn icon_tooltip(
         TipFor::Ability(i) => run
             .abilities
             .get(i)
-            .map(|o| ability_tip(o, &stats, spells.as_deref(), &run)),
+            .map(|o| ability_tip(o, &stats, spells.as_deref(), &run, gear.as_deref())),
         TipFor::Passive(i) => run
             .passives
             .get(i)
-            .map(|&(p, level)| passive_tip(p, level, &stats)),
+            .map(|&(p, level)| passive_tip(p, level, &stats, &run)),
         TipFor::Mobility => run.mobility().map(|m| {
-            vec![
+            let mut lines = vec![
                 TipLine::new(spell_name(spells.as_deref(), m.spell, m.name), Color::WHITE).header(),
                 TipLine::new(localization::text("Press F", "按 F"), Color::WHITE).right(
-                    format!("{} sec cooldown", num(m.cooldown * run.mobility_cooldown())),
+                    if localization::is_zh_cn() {
+                        format!("冷却{}秒", num(m.cooldown * run.mobility_cooldown()))
+                    } else {
+                        format!("{} sec cooldown", num(m.cooldown * run.mobility_cooldown()))
+                    },
                     Color::WHITE,
                 ),
-                TipLine::new(m.desc, GOLD),
-            ]
+                TipLine::new(skill_descriptions::mobility_description(run.class.id), GOLD),
+                TipLine::new(
+                    localization::text(
+                        "Keep the pointer on the icon and scroll for details.",
+                        "指针停留在图标上，滚动鼠标查看详情。",
+                    ),
+                    DIM,
+                ),
+            ];
+            lines.extend(
+                skill_descriptions::mobility_details(&run, gear.as_deref())
+                    .into_iter()
+                    .map(|line| TipLine::new(line, DIM)),
+            );
+            lines
         }),
     };
     let Some(lines) = lines else { return };
@@ -2619,10 +2937,19 @@ pub(super) fn icon_tooltip(
             b.spawn(Node {
                 justify_content: JustifyContent::SpaceBetween,
                 column_gap: Val::Px(16.0),
+                flex_shrink: 0.0,
+                width: Val::Percent(100.0),
+                min_width: Val::Px(0.0),
                 ..default()
             })
             .with_children(|row| {
-                row.spawn(face(line.left, line.size, line.color));
+                row.spawn((
+                    face(line.left, line.size, line.color),
+                    Node {
+                        min_width: Val::Px(0.0),
+                        ..default()
+                    },
+                ));
                 if let Some((text, color)) = line.right {
                     row.spawn((
                         face(text, line.size, color),
@@ -2632,6 +2959,18 @@ pub(super) fn icon_tooltip(
             });
         }
     });
+}
+
+fn tooltip_anchor(screen: Vec2, requested: Vec2, size: Vec2) -> Vec2 {
+    let margin = 8.0;
+    Vec2::new(
+        requested
+            .x
+            .clamp(margin, (screen.x - size.x - margin).max(margin)),
+        requested
+            .y
+            .clamp(margin, (screen.y - size.y - margin).max(margin)),
+    )
 }
 
 #[allow(clippy::type_complexity)]
@@ -2675,5 +3014,305 @@ pub(super) fn show_panels(
     }
     for root in &mut roots.p4() {
         set(root, p == Phase::GameOver);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn take_card(run: &mut Run, choice: Choice, quality: Rarity) {
+        let mut offer = Offer {
+            choices: vec![choice],
+            qualities: vec![quality],
+        };
+        let mut rng = Rng(42);
+        let mut next = NextState::Unchanged;
+        pick(0, run, &mut offer, &mut rng, &mut next);
+    }
+
+    #[test]
+    fn initial_learning_and_same_rank_upgrades_use_frozen_quality() {
+        let def = data::ability("fireball");
+        let mut common = Run::default();
+        let mut legendary = Run::default();
+        take_card(&mut common, Choice::NewAbility(def), Rarity::Common);
+        take_card(&mut legendary, Choice::NewAbility(def), Rarity::Legendary);
+        assert_eq!(common.abilities[0].level, 1);
+        assert_eq!(legendary.abilities[0].level, 1);
+        assert!(legendary.abilities[0].damage_mult() > common.abilities[0].damage_mult());
+        take_card(&mut common, Choice::Upgrade(0), Rarity::Common);
+        take_card(&mut legendary, Choice::Upgrade(0), Rarity::Legendary);
+        assert_eq!(common.abilities[0].level, legendary.abilities[0].level);
+        assert_eq!(common.abilities[0].growth, 2.0);
+        assert_eq!(legendary.abilities[0].growth, 6.4);
+        let offer = Offer {
+            choices: vec![Choice::Upgrade(0)],
+            qualities: vec![Rarity::Epic],
+        };
+        let first = describe_card(offer.choices[0], offer.quality(0), &common, None);
+        for _ in 0..10 {
+            let next = describe_card(offer.choices[0], offer.quality(0), &common, None);
+            assert_eq!(first.desc, next.desc);
+            assert_eq!(offer.quality(0), Rarity::Epic);
+        }
+    }
+
+    #[test]
+    fn ability_and_passive_growth_continue_after_255() {
+        let mut run = Run::default();
+        take_card(
+            &mut run,
+            Choice::NewAbility(data::ability("fireball")),
+            Rarity::Common,
+        );
+        take_card(
+            &mut run,
+            Choice::NewPassive(&data::PASSIVES[0]),
+            Rarity::Common,
+        );
+        for _ in 1..300 {
+            take_card(&mut run, Choice::Upgrade(0), Rarity::Common);
+            take_card(&mut run, Choice::UpPassive(0), Rarity::Common);
+        }
+        assert_eq!(run.abilities[0].level, 300);
+        assert_eq!(run.passives[0].1, 300);
+        assert_eq!(run.abilities[0].growth, 300.0);
+        assert_eq!(run.passive_growth(&data::PASSIVES[0]), 300.0);
+        let before = run.stats().might;
+        take_card(&mut run, Choice::UpPassive(0), Rarity::Legendary);
+        assert!(run.stats().might > before);
+    }
+
+    #[test]
+    fn a_full_build_still_offers_upgrades_beyond_old_caps() {
+        let mut run = Run::default();
+        run.abilities = run
+            .class
+            .pool
+            .iter()
+            .take(data::MAX_ABILITIES)
+            .map(|key| Owned {
+                def: data::ability(key),
+                level: 300,
+                growth: 300.0,
+                cd: 0.0,
+            })
+            .collect();
+        run.passives = data::PASSIVES
+            .iter()
+            .take(data::MAX_PASSIVES)
+            .map(|p| (p, 300))
+            .collect();
+        let mut rng = Rng(42);
+        for _ in 0..100 {
+            let choices = choices_for(&run, &mut rng);
+            assert_eq!(choices.len(), 3);
+            assert!(choices
+                .iter()
+                .all(|c| matches!(c, Choice::Upgrade(_) | Choice::UpPassive(_))));
+        }
+    }
+
+    #[test]
+    fn normal_offers_acquire_eight_active_twelve_passive_slots_then_only_upgrade() {
+        let mut run = Run::default();
+        let mut rng = Rng(42);
+        let mut offer = Offer::default();
+        let mut next = NextState::Unchanged;
+        for _ in 0..10_000 {
+            offer.roll(&run, &mut rng);
+            if run.abilities.len() == 8 {
+                assert!(!offer
+                    .choices()
+                    .iter()
+                    .any(|c| matches!(c, Choice::NewAbility(_))));
+            }
+            if run.passives.len() == 12 {
+                assert!(!offer
+                    .choices()
+                    .iter()
+                    .any(|c| matches!(c, Choice::NewPassive(_))));
+            }
+            let pick_index = offer.choices().iter().position(|choice| match choice {
+                Choice::NewAbility(_) => run.abilities.len() < 8,
+                Choice::NewPassive(_) => run.passives.len() < 12,
+                _ => false,
+            });
+            if let Some(index) = pick_index {
+                pick(index, &mut run, &mut offer, &mut rng, &mut next);
+            }
+            if run.abilities.len() == 8 && run.passives.len() == 12 {
+                break;
+            }
+        }
+        assert_eq!(run.abilities.len(), 8);
+        assert_eq!(run.passives.len(), 12);
+        for owned in &mut run.abilities {
+            owned.level = 300;
+        }
+        for (_, level) in &mut run.passives {
+            *level = 300;
+        }
+        let mut upgraded_active = false;
+        let mut upgraded_passive = false;
+        for _ in 0..100 {
+            offer.roll(&run, &mut rng);
+            assert_eq!(offer.len(), 3);
+            assert!(offer
+                .choices()
+                .iter()
+                .all(|c| matches!(c, Choice::Upgrade(_) | Choice::UpPassive(_))));
+            let choice = offer.choices()[0];
+            match choice {
+                Choice::Upgrade(index) => {
+                    let before = run.abilities[index].level;
+                    pick(0, &mut run, &mut offer, &mut rng, &mut next);
+                    assert_eq!(run.abilities[index].level, before + 1);
+                    upgraded_active = true;
+                }
+                Choice::UpPassive(index) => {
+                    let before = run.passives[index].1;
+                    pick(0, &mut run, &mut offer, &mut rng, &mut next);
+                    assert_eq!(run.passives[index].1, before + 1);
+                    upgraded_passive = true;
+                }
+                _ => unreachable!("a full build must only offer upgrades"),
+            }
+        }
+        assert!(upgraded_active && upgraded_passive);
+        assert_eq!(run.abilities.len(), 8);
+        assert_eq!(run.passives.len(), 12);
+    }
+
+    #[test]
+    fn passive_targets_accumulate_fractional_quality_before_milestones() {
+        let p = data::PASSIVES
+            .iter()
+            .find(|p| p.stat == Stat::Targets)
+            .unwrap();
+        let mut run = Run::default();
+        take_card(&mut run, Choice::NewPassive(p), Rarity::Uncommon);
+        assert_eq!(run.stats().targets, 0);
+        let first_damage = run.stats().might;
+        take_card(&mut run, Choice::UpPassive(0), Rarity::Rare);
+        assert!((run.passive_growth(p) - 3.15).abs() < 0.0001);
+        assert_eq!(run.stats().targets, 1);
+        assert!(run.stats().might > first_damage);
+    }
+
+    #[test]
+    fn every_passive_has_meaningful_late_growth_and_an_exact_preview() {
+        for p in data::PASSIVES {
+            let mut run = Run::default();
+            run.passives.push((p, 300));
+            run.passive_growth.insert(p.key, 500.0);
+            let expected = run.stats_with_passive_growth(p, Rarity::Legendary.growth());
+            let before = stat_total(p.stat, &run.stats());
+            take_card(&mut run, Choice::UpPassive(0), Rarity::Legendary);
+            assert_eq!(
+                stat_total(p.stat, &run.stats()),
+                stat_total(p.stat, &expected),
+                "{}",
+                p.key
+            );
+            assert_ne!(
+                before,
+                stat_total(p.stat, &run.stats()),
+                "late growth should be visible: {}",
+                p.key
+            );
+        }
+    }
+
+    #[test]
+    fn objective_changes_to_final_battle_without_claiming_timed_victory() {
+        let mut run = Run::default();
+        let before = battle_objective(&run);
+        assert!(before.contains("10:00") && before.contains("0/5"));
+        run.elapsed = data::VICTORY_SECS;
+        run.boss_kills = 4;
+        let final_battle = battle_objective(&run);
+        assert!(final_battle.contains(localization::text("Final battle", "最终决战")));
+        assert!(final_battle.contains("4/5"));
+        assert!(!run.won);
+        run.final_boss_defeated = true;
+        run.boss_kills = 5;
+        let defeated = battle_objective(&run);
+        assert!(defeated.contains(localization::text("Final boss defeated", "最终首领已击败")));
+        assert!(defeated.contains("5/5"));
+    }
+
+    #[test]
+    fn tooltip_position_stays_inside_small_and_large_viewports() {
+        for screen in [Vec2::new(360.0, 768.0), Vec2::new(1366.0, 768.0)] {
+            let size = Vec2::new(420.0_f32.min(screen.x - 16.0), screen.y - 16.0);
+            for requested in [Vec2::splat(-200.0), Vec2::new(2000.0, 2000.0)] {
+                let at = tooltip_anchor(screen, requested, size);
+                assert!(at.x >= 8.0 && at.y >= 8.0);
+                assert!(at.x + size.x <= screen.x - 8.0);
+                assert!(at.y + size.y <= screen.y - 8.0);
+            }
+        }
+    }
+
+    #[test]
+    fn final_reward_and_save_failures_remain_visible_even_on_defeat() {
+        let run = Run {
+            won: false,
+            final_boss_defeated: true,
+            final_reward: Some("Primal Iron Helm".into()),
+            reward_error: Some("Reward could not be saved".into()),
+            ..default()
+        };
+        let mut gear = super::super::gear::Gear::default();
+        gear.error = Some("Disk write failed; retry pending".into());
+        let mut summary = String::new();
+        append_reward_summary(&mut summary, &run, Some(&gear));
+        assert!(summary.contains("Primal Iron Helm"));
+        assert!(summary.contains("Reward could not be saved"));
+        assert!(summary.contains("Disk write failed; retry pending"));
+        assert!(!run.won);
+    }
+
+    #[test]
+    fn results_buttons_return_to_menu_without_exiting_and_pause_keeps_quit() {
+        let mut app = App::new();
+        app.add_plugins((MinimalPlugins, bevy::asset::AssetPlugin::default()))
+            .init_asset::<Font>()
+            .init_asset::<Image>()
+            .init_asset::<SweepUiMaterial>()
+            .init_asset::<super::super::fill::FillMaterial>()
+            .insert_resource(State::new(Phase::GameOver))
+            .init_resource::<NextState<Phase>>()
+            .init_resource::<super::super::gear_ui::GearUi>()
+            .add_message::<AppExit>()
+            .add_systems(Startup, setup_hud)
+            .add_systems(Update, buttons);
+        app.update();
+        let world = app.world_mut();
+        let root = world
+            .query_filtered::<Entity, With<OverRoot>>()
+            .single(world)
+            .unwrap();
+        let actions: Vec<_> = world
+            .get::<Children>(root)
+            .unwrap()
+            .iter()
+            .filter_map(|e| world.get::<UiAction>(e).map(|a| (e, *a)))
+            .collect();
+        assert_eq!(actions.len(), 2);
+        assert!(actions.iter().all(|(_, a)| matches!(a, UiAction::MainMenu)));
+        assert!(world
+            .query::<(&UiAction, &Interaction)>()
+            .iter(world)
+            .any(|(a, _)| matches!(a, UiAction::Quit)));
+        world.entity_mut(actions[1].0).insert(Interaction::Pressed);
+        app.update();
+        assert!(matches!(
+            app.world().resource::<NextState<Phase>>(),
+            NextState::Pending(Phase::Menu)
+        ));
+        assert!(app.world().resource::<Messages<AppExit>>().is_empty());
     }
 }

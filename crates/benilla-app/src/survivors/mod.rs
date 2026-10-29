@@ -6,6 +6,8 @@
 
 mod abilities;
 mod auto;
+mod bosses;
+mod buffs;
 mod cards;
 mod class_mechanics;
 mod data;
@@ -14,6 +16,7 @@ mod fill;
 mod gear;
 mod gear_ui;
 mod grade;
+mod growth;
 mod hero;
 mod hud;
 mod localization;
@@ -22,9 +25,12 @@ mod menu_layout;
 mod minimap;
 mod mobility;
 mod preview;
+mod skill_descriptions;
 mod skill_effects;
+mod spell_expansion;
 mod talent_catalog;
 mod talents;
+mod target_ui;
 mod units;
 mod warlock;
 
@@ -54,6 +60,7 @@ impl Plugin for SurvivorsPlugin {
             .add_plugins(gear::plugin)
             .add_plugins(gear_ui::plugin)
             .add_plugins(skill_effects::plugin)
+            .add_plugins(target_ui::plugin)
             .init_state::<Phase>()
             .init_resource::<Rng>()
             .init_resource::<Selection>()
@@ -93,6 +100,7 @@ impl Plugin for SurvivorsPlugin {
                     abilities::update_talent_environment,
                     enemies::spawn_enemies,
                     enemies::move_enemies,
+                    bosses::cast_skills,
                     abilities::cast_abilities,
                     abilities::tick_areas,
                     abilities::apply_hits,
@@ -217,27 +225,27 @@ impl Selection {
 /// An ability the hero has, with its own cooldown.
 pub(super) struct Owned {
     pub def: &'static AbilityDef,
-    pub level: u8,
+    pub level: u32,
+    pub growth: f32,
     pub cd: f32,
 }
 
 impl Owned {
     pub fn damage_mult(&self) -> f32 {
-        1.0 + 0.3 * f32::from(self.level - 1)
+        growth::damage(self.growth)
     }
     pub fn cooldown(&self, stats: &Stats) -> f32 {
-        let base = self.def.cooldown * 0.93f32.powi(i32::from(self.level) - 1);
+        let base = self.def.cooldown * growth::cooldown_multiplier(self.growth);
         (base * (1.0 - stats.haste).max(0.35)).max(0.2)
     }
     pub fn count(&self) -> u32 {
-        let extra = [3u8, 5, 7].iter().filter(|&&l| self.level >= l).count() as u32;
-        self.def.count + extra
+        self.def.count + growth::bonus_targets(self.growth)
     }
     pub fn radius(&self, stats: &Stats) -> f32 {
-        self.def.radius * (1.0 + 0.08 * f32::from(self.level - 1)) * stats.area
+        self.def.radius * growth::radius_multiplier(self.growth) * stats.area
     }
     pub fn duration(&self) -> f32 {
-        self.def.duration * (1.0 + 0.1 * f32::from(self.level - 1))
+        self.def.duration * growth::duration_multiplier(self.growth)
     }
 }
 
@@ -257,6 +265,16 @@ pub(super) struct Stats {
     pub growth: f32,
     pub armor: f32,
     pub crit: f32,
+    pub luck: f32,
+    pub luck_raw: f32,
+    pub targets: u32,
+    pub echo: f32,
+    pub echo_damage: f32,
+    pub duration: f32,
+    pub range: f32,
+    pub crit_damage: f32,
+    pub leech: f32,
+    pub shield_power: f32,
 }
 
 pub(super) const BASE_HP: f32 = 120.0;
@@ -280,12 +298,14 @@ pub(super) struct Run {
     effects: skill_effects::Runtime,
     warlock: warlock::Runtime,
     class_effects: class_mechanics::Runtime,
+    expansion: spell_expansion::Runtime,
     pub talents_locked: bool,
     pub level: u32,
     pub xp: f32,
     pub hp: f32,
     pub abilities: Vec<Owned>,
-    pub passives: Vec<(&'static PassiveDef, u8)>,
+    pub passives: Vec<(&'static PassiveDef, u32)>,
+    pub passive_growth: std::collections::BTreeMap<&'static str, f32>,
     pub shield: f32,
     pub shield_t: f32,
     pub immune_t: f32,
@@ -301,6 +321,9 @@ pub(super) struct Run {
     pub bosses: u32,
     pub rings: u32,
     pub won: bool,
+    pub final_boss_defeated: bool,
+    pub final_reward: Option<String>,
+    pub reward_error: Option<String>,
     /// Seconds since the hero fell, while the death plays out.
     pub dead_t: Option<f32>,
     pub next_guid: u64,
@@ -328,12 +351,14 @@ impl Default for Run {
             effects: skill_effects::Runtime::default(),
             warlock: warlock::Runtime::default(),
             class_effects: class_mechanics::Runtime::default(),
+            expansion: spell_expansion::Runtime::default(),
             talents_locked: false,
             level: 1,
             xp: 0.0,
             hp: BASE_HP,
             abilities: Vec::new(),
             passives: Vec::new(),
+            passive_growth: std::collections::BTreeMap::new(),
             shield: 0.0,
             shield_t: 0.0,
             immune_t: 0.0,
@@ -348,6 +373,9 @@ impl Default for Run {
             bosses: 0,
             rings: 0,
             won: false,
+            final_boss_defeated: false,
+            final_reward: None,
+            reward_error: None,
             dead_t: None,
             next_guid: 1,
             damage_done: 0.0,
@@ -364,16 +392,30 @@ impl Stats {
         } else {
             2.0
         }) + self.gear.crit_damage()
+            + self.crit_damage
     }
 }
 
 impl Run {
+    pub fn passive_growth(&self, passive: &PassiveDef) -> f32 {
+        self.passive_growth
+            .get(passive.key)
+            .copied()
+            .unwrap_or_else(|| {
+                self.passives
+                    .iter()
+                    .find(|(p, _)| p.key == passive.key)
+                    .map_or(0.0, |(_, rank)| *rank as f32)
+            })
+    }
+
     pub fn incoming(&self) -> f32 {
         (if self.class.id == 9 {
             self.talents.incoming()
         } else {
             talent_catalog::incoming(self.class.id, self.talents)
         }) * class_mechanics::incoming(self)
+            * spell_expansion::incoming(self)
             * self.gear.incoming()
             * (1.0 - self.effects.bonus(gear::EnhKind::BuffDefense, self.elapsed))
     }
@@ -392,9 +434,18 @@ impl Run {
         } else {
             0.0
         }) + self.gear.leech()
+            + self.stats().leech
     }
 
     pub fn stats(&self) -> Stats {
+        self.derive_stats(None)
+    }
+
+    pub fn stats_with_passive_growth(&self, passive: &PassiveDef, additional: f32) -> Stats {
+        self.derive_stats(Some((passive, additional)))
+    }
+
+    fn derive_stats(&self, extra: Option<(&PassiveDef, f32)>) -> Stats {
         let mut s = Stats {
             class: self.class.id,
             talents: self.talents,
@@ -409,6 +460,16 @@ impl Run {
             growth: 1.0,
             armor: 0.0,
             crit: 0.05,
+            luck: 0.0,
+            luck_raw: 0.0,
+            targets: 0,
+            echo: 0.0,
+            echo_damage: 0.0,
+            duration: 0.0,
+            range: 0.0,
+            crit_damage: 0.0,
+            leech: 0.0,
+            shield_power: 1.0,
         };
         // Tanky classes start tougher, cloth starts quicker.
         match self.class.id {
@@ -416,21 +477,72 @@ impl Run {
             7 | 11 | 3 | 4 => s.max_hp += 15.0,
             _ => s.speed += 0.5,
         }
-        for &(p, level) in &self.passives {
-            let v = p.per_level * f32::from(level);
+        let class_hp = s.max_hp;
+        let mut target_growth = 0.0;
+        let new_passive = extra
+            .filter(|(p, _)| !self.passives.iter().any(|(owned, _)| owned.key == p.key))
+            .map(|(p, _)| p);
+        for p in self.passives.iter().map(|(p, _)| *p).chain(new_passive) {
+            let acquired = self.passive_growth(p)
+                + extra
+                    .filter(|(p2, _)| p2.key == p.key)
+                    .map_or(0.0, |(_, amount)| amount);
+            let v = p.per_level * acquired;
             match p.stat {
                 Stat::Might => s.might += v,
-                Stat::MaxHp => s.max_hp *= 1.0 + v,
-                Stat::Speed => s.speed *= 1.0 + v,
+                Stat::MaxHp => s.max_hp += class_hp * v,
+                Stat::Speed => {
+                    s.speed += BASE_SPEED * growth::bounded(v, 1.0);
+                    s.regen += v;
+                }
                 Stat::Regen => s.regen += v,
-                Stat::Haste => s.haste += v,
-                Stat::Area => s.area += v,
-                Stat::Magnet => s.magnet *= 1.0 + v,
+                Stat::Haste => {
+                    s.haste += growth::bounded(v, 0.65);
+                    s.might += v * 0.2;
+                }
+                Stat::Area => {
+                    s.area += growth::bounded(v, 1.5);
+                    s.might += v * 0.2;
+                }
+                Stat::Magnet => {
+                    s.magnet += BASE_MAGNET * growth::bounded(v, 4.0);
+                    s.growth += v * 0.1;
+                }
                 Stat::Growth => s.growth += v,
                 Stat::Armor => s.armor += v,
-                Stat::Crit => s.crit += v,
+                Stat::Crit => {
+                    s.crit += growth::bounded(v, 0.9);
+                    s.crit_damage += v * 0.5;
+                }
+                Stat::Luck => {
+                    s.luck += v;
+                    s.might += v * 0.001;
+                }
+                Stat::Targets => {
+                    target_growth += acquired * p.per_level / 3.0;
+                    s.might += acquired * p.per_level * 0.03;
+                }
+                Stat::Echo => {
+                    s.echo += growth::bounded(v, 0.5);
+                    s.echo_damage += v;
+                }
+                Stat::Duration => {
+                    s.duration += growth::bounded(v, 1.0);
+                    s.might += v * 0.2;
+                }
+                Stat::Range => {
+                    s.range += growth::bounded(v, 1.0);
+                    s.might += v * 0.2;
+                }
+                Stat::CritDamage => s.crit_damage += v,
+                Stat::Leech => {
+                    s.leech += growth::bounded(v, 0.2);
+                    s.regen += v * 10.0;
+                }
+                Stat::Shield => s.shield_power += v,
             }
         }
+        s.targets = target_growth.floor().min(6.0) as u32;
         talents::modify_stats(&mut s);
         gear::modify_stats(&mut s, &self.gear);
         s.might *= 1.0 + self.effects.bonus(gear::EnhKind::BuffDamage, self.elapsed);
@@ -439,6 +551,9 @@ impl Run {
         s.crit = (s.crit + self.effects.bonus(gear::EnhKind::BuffCrit, self.elapsed)).min(1.0);
         s.speed *= 1.0 + self.effects.bonus(gear::EnhKind::BuffSpeed, self.elapsed);
         class_mechanics::modify_stats(self, &mut s);
+        spell_expansion::modify_stats(self, &mut s);
+        s.luck_raw = s.luck;
+        s.luck = growth::effective_luck(s.luck);
         s
     }
 

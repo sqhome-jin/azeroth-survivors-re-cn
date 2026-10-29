@@ -36,6 +36,38 @@ pub(super) struct Debuffs {
     shadow_stacks: u8,
 }
 
+pub(super) fn target_buffs(run: &Run, enemy: &Enemy) -> Vec<(&'static str, u32, f32, f32)> {
+    use super::localization::text;
+    let mut effects = Vec::new();
+    let mark = enemy.class_effects.mark_until - run.elapsed;
+    if mark > 0.0 {
+        let (name, spell, amount) = if run.class.id == 2 {
+            (
+                text("Holy vulnerability", "神圣易伤"),
+                20271,
+                0.03 * rank(run, 21),
+            )
+        } else {
+            (
+                text("Hunter's mark", "猎人印记"),
+                1130,
+                0.03 * rank(run, 13),
+            )
+        };
+        effects.push((name, spell, amount, mark));
+    }
+    let shadow = enemy.class_effects.shadow_until - run.elapsed;
+    if shadow > 0.0 {
+        effects.push((
+            text("Shadow weaving", "暗影交织"),
+            15258,
+            0.01 * rank(run, 21) * f32::from(enemy.class_effects.shadow_stacks),
+            shadow,
+        ));
+    }
+    effects
+}
+
 fn rank(run: &Run, slot: usize) -> f32 {
     f32::from(run.talents.0[slot])
 }
@@ -47,7 +79,17 @@ fn active(run: &Run, slot: usize) -> bool {
 fn melee(key: &str) -> bool {
     matches!(
         key,
-        "cleave" | "heroic_strike" | "whirlwind" | "sweeping_strikes" | "execute" | "mortal_strike"
+        "cleave"
+            | "heroic_strike"
+            | "whirlwind"
+            | "sweeping_strikes"
+            | "execute"
+            | "mortal_strike"
+            | "bloodthirst"
+            | "overpower"
+            | "slam"
+            | "shield_slam"
+            | "shield_bash"
     )
 }
 
@@ -69,13 +111,19 @@ fn holy(class: u8, key: &str) -> bool {
                 | "hammer_of_justice"
                 | "judgement"
         ),
-        5 => matches!(key, "smite" | "holy_fire" | "holy_nova"),
+        5 => matches!(
+            key,
+            "smite" | "holy_fire" | "holy_nova" | "flash_heal" | "prayer_of_healing"
+        ),
         _ => false,
     }
 }
 
 fn shadow(key: &str) -> bool {
-    matches!(key, "mind_blast" | "shadow_word_pain")
+    matches!(
+        key,
+        "mind_blast" | "shadow_word_pain" | "mind_flay" | "devouring_plague" | "shadowguard"
+    )
 }
 
 fn shock(key: &str) -> bool {
@@ -108,7 +156,13 @@ fn frost_direct(key: &str) -> bool {
 fn rogue_direct(key: &str) -> bool {
     matches!(
         key,
-        "sinister_strike" | "eviscerate" | "blade_flurry" | "gouge" | "kidney_shot"
+        "sinister_strike"
+            | "eviscerate"
+            | "blade_flurry"
+            | "gouge"
+            | "kidney_shot"
+            | "backstab"
+            | "ambush"
     )
 }
 
@@ -128,6 +182,10 @@ fn dot(enemy: &Enemy, key: &str) -> bool {
 
 fn bleeding(enemy: &Enemy) -> bool {
     dot(enemy, "rupture")
+        || dot(enemy, "garrote")
+        || dot(enemy, "rend")
+        || dot(enemy, "rake")
+        || dot(enemy, "rip")
         || enemy.dots.iter().any(|d| {
             d.left > 0.0 && d.source.secondary && d.source.ability == Some("warrior_bleed")
         })
@@ -1112,6 +1170,7 @@ mod tests {
         run.abilities.push(Owned {
             def: data::ability(key),
             level: 1,
+            growth: 1.0,
             cd,
         });
     }

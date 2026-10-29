@@ -876,6 +876,704 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
             duration: 10.0
         }
     ),
+    // Vanilla spell identities; the survivor-mode tuning is intentionally independent of rank.
+    ability!(
+        "bloodthirst",
+        23881,
+        Melee {
+            damage: 30.0,
+            cooldown: 5.0,
+            range: 5.0,
+            effect: Effect::Drain(0.25)
+        }
+    ),
+    ability!(
+        "overpower",
+        7384,
+        Melee {
+            damage: 46.0,
+            cooldown: 4.0,
+            range: 5.0
+        }
+    ),
+    ability!(
+        "rend",
+        772,
+        Melee {
+            damage: 5.0,
+            dot: 8.0,
+            duration: 9.0,
+            cooldown: 5.0,
+            range: 5.0,
+            mark: 772
+        }
+    ),
+    ability!(
+        "slam",
+        1464,
+        Melee {
+            damage: 42.0,
+            cooldown: 3.0,
+            range: 5.0
+        }
+    ),
+    ability!(
+        "shield_slam",
+        23922,
+        Melee {
+            damage: 34.0,
+            cooldown: 5.0,
+            range: 5.0,
+            effect: Effect::Weaken(0.75, 4.0)
+        }
+    ),
+    ability!(
+        "shield_bash",
+        72,
+        Melee {
+            damage: 12.0,
+            cooldown: 7.0,
+            range: 5.0,
+            effect: Effect::Stun(2.0)
+        }
+    ),
+    ability!(
+        "disarm",
+        676,
+        Strike {
+            cooldown: 10.0,
+            range: 5.0,
+            effect: Effect::Weaken(0.4, 6.0),
+            mark: 676
+        }
+    ),
+    ability!(
+        "shield_wall",
+        871,
+        Shield {
+            duration: 5.0,
+            cooldown: 30.0
+        }
+    ),
+    ability!(
+        "last_stand",
+        12975,
+        Shield {
+            damage: 45.0,
+            duration: 8.0,
+            cooldown: 35.0
+        }
+    ),
+    ability!(
+        "seal_of_righteousness",
+        21084,
+        Shield {
+            damage: 8.0,
+            duration: 15.0,
+            cooldown: 18.0
+        }
+    ),
+    ability!(
+        "seal_of_command",
+        20375,
+        Shield {
+            damage: 22.0,
+            duration: 15.0,
+            cooldown: 18.0
+        }
+    ),
+    ability!(
+        "seal_of_wisdom",
+        20166,
+        Shield {
+            duration: 15.0,
+            cooldown: 18.0
+        }
+    ),
+    ability!(
+        "seal_of_light",
+        20165,
+        Shield {
+            damage: 5.0,
+            duration: 15.0,
+            cooldown: 18.0
+        }
+    ),
+    ability!(
+        "flash_of_light",
+        19750,
+        Heal {
+            damage: 28.0,
+            duration: 0.0,
+            cooldown: 5.0
+        }
+    ),
+    ability!(
+        "holy_light",
+        635,
+        Heal {
+            damage: 65.0,
+            duration: 0.0,
+            cooldown: 10.0
+        }
+    ),
+    ability!(
+        "devotion_aura",
+        465,
+        Shield {
+            duration: 18.0,
+            cooldown: 20.0
+        }
+    ),
+    ability!(
+        "retribution_aura",
+        7294,
+        Thorns {
+            damage: 8.0,
+            duration: 16.0,
+            cooldown: 19.0
+        }
+    ),
+    ability!(
+        "raptor_strike",
+        2973,
+        Melee {
+            damage: 30.0,
+            range: 5.0,
+            cooldown: 3.0
+        }
+    ),
+    ability!(
+        "mongoose_bite",
+        1495,
+        Melee {
+            damage: 46.0,
+            range: 5.0,
+            cooldown: 4.0
+        }
+    ),
+    ability!(
+        "wing_clip",
+        2974,
+        Melee {
+            damage: 5.0,
+            range: 5.0,
+            cooldown: 4.0,
+            effect: Effect::Slow(0.4, 5.0),
+            mark: 2974
+        }
+    ),
+    ability!(
+        "immolation_trap",
+        13795,
+        GroundSelf {
+            damage: 7.0,
+            radius: 4.0,
+            duration: 10.0,
+            cooldown: 14.0,
+            overhead: true
+        }
+    ),
+    ability!(
+        "frost_trap",
+        13809,
+        GroundSelf {
+            radius: 7.0,
+            duration: 10.0,
+            cooldown: 16.0,
+            effect: Effect::Slow(0.35, 2.0),
+            overhead: true
+        }
+    ),
+    ability!(
+        "wyvern_sting",
+        19386,
+        Strike {
+            damage: 5.0,
+            dot: 5.0,
+            duration: 6.0,
+            range: 24.0,
+            cooldown: 12.0,
+            effect: Effect::Stun(3.0),
+            mark: 19386
+        }
+    ),
+    ability!(
+        "rapid_fire",
+        3045,
+        Shield {
+            duration: 8.0,
+            cooldown: 24.0
+        }
+    ),
+    ability!(
+        "backstab",
+        53,
+        Melee {
+            damage: 36.0,
+            range: 5.0,
+            cooldown: 3.0
+        }
+    ),
+    ability!(
+        "ambush",
+        8676,
+        Melee {
+            damage: 65.0,
+            range: 5.0,
+            cooldown: 10.0
+        }
+    ),
+    ability!(
+        "garrote",
+        703,
+        Melee {
+            damage: 8.0,
+            dot: 9.0,
+            range: 5.0,
+            duration: 8.0,
+            cooldown: 8.0,
+            mark: 703
+        }
+    ),
+    ability!(
+        "deadly_poison",
+        2823,
+        Shield {
+            damage: 4.0,
+            duration: 15.0,
+            cooldown: 18.0
+        }
+    ),
+    ability!(
+        "expose_armor",
+        8647,
+        Melee {
+            damage: 5.0,
+            range: 5.0,
+            cooldown: 9.0,
+            duration: 8.0,
+            mark: 8647
+        }
+    ),
+    ability!(
+        "evasion",
+        5277,
+        Shield {
+            duration: 6.0,
+            cooldown: 25.0
+        }
+    ),
+    ability!(
+        "mind_flay",
+        15407,
+        Dot {
+            dot: 12.0,
+            range: 20.0,
+            duration: 3.0,
+            cooldown: 4.0,
+            effect: Effect::Slow(0.5, 3.0),
+            mark: 15407
+        }
+    ),
+    ability!(
+        "vampiric_embrace",
+        15286,
+        Strike {
+            range: 24.0,
+            duration: 12.0,
+            cooldown: 14.0,
+            mark: 15286
+        }
+    ),
+    ability!(
+        "devouring_plague",
+        2944,
+        Dot {
+            dot: 8.0,
+            range: 24.0,
+            duration: 9.0,
+            cooldown: 14.0,
+            effect: Effect::Drain(0.4),
+            mark: 2944
+        }
+    ),
+    ability!(
+        "flash_heal",
+        2061,
+        Heal {
+            damage: 32.0,
+            duration: 0.0,
+            cooldown: 5.0
+        }
+    ),
+    ability!(
+        "prayer_of_healing",
+        596,
+        Heal {
+            damage: 55.0,
+            duration: 0.0,
+            cooldown: 11.0
+        }
+    ),
+    ability!(
+        "inner_fire",
+        588,
+        Shield {
+            duration: 18.0,
+            cooldown: 20.0
+        }
+    ),
+    ability!(
+        "shadowguard",
+        18137,
+        Thorns {
+            damage: 14.0,
+            duration: 12.0,
+            cooldown: 16.0
+        }
+    ),
+    ability!(
+        "windfury_weapon",
+        8232,
+        Shield {
+            damage: 15.0,
+            duration: 15.0,
+            cooldown: 18.0
+        }
+    ),
+    ability!(
+        "rockbiter_weapon",
+        8017,
+        Shield {
+            duration: 15.0,
+            cooldown: 18.0
+        }
+    ),
+    ability!(
+        "frostbrand_weapon",
+        8033,
+        Shield {
+            damage: 8.0,
+            duration: 15.0,
+            cooldown: 18.0
+        }
+    ),
+    ability!(
+        "healing_wave",
+        331,
+        Heal {
+            damage: 60.0,
+            duration: 0.0,
+            cooldown: 10.0
+        }
+    ),
+    ability!(
+        "lesser_healing_wave",
+        8004,
+        Heal {
+            damage: 27.0,
+            duration: 0.0,
+            cooldown: 4.5
+        }
+    ),
+    ability!(
+        "healing_stream_totem",
+        5394,
+        Totem {
+            damage: 5.0,
+            radius: 12.0,
+            range: 12.0,
+            duration: 12.0,
+            cooldown: 18.0,
+            totem: (4589, 5672)
+        }
+    ),
+    ability!(
+        "earthbind_totem",
+        2484,
+        Totem {
+            radius: 9.0,
+            range: 9.0,
+            duration: 12.0,
+            cooldown: 18.0,
+            effect: Effect::Slow(0.45, 2.0),
+            totem: (4588, 3600)
+        }
+    ),
+    ability!(
+        "stoneclaw_totem",
+        5730,
+        Totem {
+            radius: 7.0,
+            range: 7.0,
+            duration: 8.0,
+            cooldown: 16.0,
+            effect: Effect::Weaken(0.6, 2.0),
+            totem: (4588, 5728)
+        }
+    ),
+    ability!(
+        "polymorph",
+        118,
+        Strike {
+            range: 24.0,
+            cooldown: 12.0,
+            effect: Effect::Stun(5.0),
+            mark: 118
+        }
+    ),
+    ability!(
+        "ice_barrier",
+        11426,
+        Shield {
+            damage: 55.0,
+            duration: 12.0,
+            cooldown: 20.0
+        }
+    ),
+    ability!(
+        "ice_block",
+        11958,
+        Immune {
+            duration: 3.0,
+            cooldown: 35.0
+        }
+    ),
+    ability!(
+        "frost_armor",
+        168,
+        Shield {
+            duration: 18.0,
+            cooldown: 20.0
+        }
+    ),
+    ability!(
+        "mage_armor",
+        6117,
+        Shield {
+            duration: 18.0,
+            cooldown: 20.0
+        }
+    ),
+    ability!(
+        "mana_shield",
+        1463,
+        Shield {
+            damage: 35.0,
+            duration: 8.0,
+            cooldown: 13.0
+        }
+    ),
+    ability!(
+        "dampen_magic",
+        604,
+        Shield {
+            duration: 10.0,
+            cooldown: 16.0
+        }
+    ),
+    ability!(
+        "arcane_power",
+        12042,
+        Shield {
+            duration: 6.0,
+            cooldown: 22.0
+        }
+    ),
+    ability!(
+        "presence_of_mind",
+        12043,
+        Shield {
+            duration: 10.0,
+            cooldown: 25.0
+        }
+    ),
+    ability!(
+        "combustion",
+        11129,
+        Shield {
+            duration: 8.0,
+            cooldown: 24.0
+        }
+    ),
+    ability!("cold_snap", 12472, Shield { cooldown: 32.0 }),
+    ability!(
+        "siphon_life",
+        18265,
+        Dot {
+            dot: 6.0,
+            duration: 12.0,
+            range: 24.0,
+            cooldown: 10.0,
+            effect: Effect::Drain(0.5),
+            mark: 18265
+        }
+    ),
+    ability!(
+        "drain_life",
+        689,
+        Dot {
+            dot: 10.0,
+            duration: 4.0,
+            range: 20.0,
+            cooldown: 6.0,
+            effect: Effect::Drain(0.6),
+            mark: 689
+        }
+    ),
+    ability!(
+        "drain_soul",
+        1120,
+        Dot {
+            dot: 15.0,
+            duration: 4.0,
+            range: 20.0,
+            cooldown: 6.0,
+            effect: Effect::Execute(0.15),
+            mark: 1120
+        }
+    ),
+    ability!(
+        "soul_fire",
+        6353,
+        Bolt {
+            damage: 90.0,
+            range: 30.0,
+            cooldown: 10.0
+        }
+    ),
+    ability!(
+        "curse_of_elements",
+        1490,
+        Strike {
+            range: 25.0,
+            duration: 10.0,
+            cooldown: 12.0,
+            mark: 1490
+        }
+    ),
+    ability!(
+        "curse_of_weakness",
+        702,
+        Strike {
+            range: 25.0,
+            duration: 10.0,
+            cooldown: 12.0,
+            effect: Effect::Weaken(0.65, 10.0),
+            mark: 702
+        }
+    ),
+    ability!(
+        "curse_of_tongues",
+        1714,
+        Strike {
+            range: 25.0,
+            duration: 8.0,
+            cooldown: 10.0,
+            effect: Effect::Weaken(0.5, 8.0),
+            mark: 1714
+        }
+    ),
+    ability!(
+        "curse_of_doom",
+        603,
+        Strike {
+            damage: 100.0,
+            range: 25.0,
+            duration: 8.0,
+            cooldown: 14.0,
+            mark: 603
+        }
+    ),
+    ability!(
+        "fear",
+        5782,
+        Strike {
+            range: 22.0,
+            cooldown: 9.0,
+            effect: Effect::Fear(4.0),
+            mark: 5782
+        }
+    ),
+    // Form-inspired melee techniques, performed by the humanoid hero in this mode.
+    ability!(
+        "claw",
+        1082,
+        Melee {
+            damage: 20.0,
+            range: 5.0,
+            cooldown: 1.8
+        }
+    ),
+    ability!(
+        "rake",
+        1822,
+        Melee {
+            damage: 8.0,
+            dot: 6.0,
+            range: 5.0,
+            duration: 7.0,
+            cooldown: 5.0,
+            mark: 1822
+        }
+    ),
+    ability!(
+        "rip",
+        1079,
+        Melee {
+            dot: 11.0,
+            range: 5.0,
+            duration: 8.0,
+            cooldown: 8.0,
+            mark: 1079
+        }
+    ),
+    ability!(
+        "swipe",
+        779,
+        Melee {
+            damage: 18.0,
+            range: 5.5,
+            count: 3,
+            cooldown: 2.5
+        }
+    ),
+    ability!(
+        "ferocious_bite",
+        22568,
+        Melee {
+            damage: 46.0,
+            range: 5.0,
+            cooldown: 5.0
+        }
+    ),
+    ability!(
+        "regrowth",
+        8936,
+        Heal {
+            damage: 45.0,
+            duration: 6.0,
+            cooldown: 10.0
+        }
+    ),
+    ability!(
+        "healing_touch",
+        5185,
+        Heal {
+            damage: 70.0,
+            duration: 0.0,
+            cooldown: 12.0
+        }
+    ),
+    ability!(
+        "barkskin",
+        22812,
+        Shield {
+            duration: 7.0,
+            cooldown: 22.0
+        }
+    ),
 ];
 
 pub(crate) fn ability(key: &str) -> &'static AbilityDef {
@@ -885,10 +1583,8 @@ pub(crate) fn ability(key: &str) -> &'static AbilityDef {
         .unwrap_or_else(|| panic!("survivors: no ability {key:?}"))
 }
 
-pub(crate) const MAX_ABILITY_LEVEL: u8 = 8;
-pub(crate) const MAX_PASSIVE_LEVEL: u8 = 5;
-pub(crate) const MAX_ABILITIES: usize = 6;
-pub(crate) const MAX_PASSIVES: usize = 6;
+pub(crate) const MAX_ABILITIES: usize = 8;
+pub(crate) const MAX_PASSIVES: usize = 12;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(crate) enum Stat {
@@ -902,6 +1598,14 @@ pub(crate) enum Stat {
     Growth,
     Armor,
     Crit,
+    Luck,
+    Targets,
+    Echo,
+    Duration,
+    Range,
+    CritDamage,
+    Leech,
+    Shield,
 }
 
 pub(crate) struct PassiveDef {
@@ -914,6 +1618,62 @@ pub(crate) struct PassiveDef {
 }
 
 pub(crate) static PASSIVES: &[PassiveDef] = &[
+    PassiveDef {
+        key: "fortune",
+        name: "Fortune (Survivors)",
+        spell: 23768,
+        stat: Stat::Luck,
+        per_level: 10.0,
+    },
+    PassiveDef {
+        key: "multistrike",
+        name: "Sweeping Reach (Survivors)",
+        spell: 12328,
+        stat: Stat::Targets,
+        per_level: 1.0,
+    },
+    PassiveDef {
+        key: "echo",
+        name: "Arcane Echo (Survivors)",
+        spell: 12043,
+        stat: Stat::Echo,
+        per_level: 0.05,
+    },
+    PassiveDef {
+        key: "persistence",
+        name: "Lingering Magic (Survivors)",
+        spell: 19491,
+        stat: Stat::Duration,
+        per_level: 0.08,
+    },
+    PassiveDef {
+        key: "far_sight",
+        name: "Far Sight (Survivors)",
+        spell: 6196,
+        stat: Stat::Range,
+        per_level: 0.06,
+    },
+    PassiveDef {
+        key: "ruin",
+        name: "Ruin (Survivors)",
+        spell: 17959,
+        stat: Stat::CritDamage,
+        per_level: 0.10,
+    },
+    PassiveDef {
+        key: "soul_leech",
+        name: "Soul Leech (Survivors)",
+        spell: 18265,
+        stat: Stat::Leech,
+        per_level: 0.005,
+    },
+    PassiveDef {
+        key: "warding",
+        name: "Warding (Survivors)",
+        spell: 543,
+        stat: Stat::Shield,
+        per_level: 0.08,
+    },
     PassiveDef {
         key: "might",
         name: "Blessing of Might",
@@ -1003,6 +1763,15 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "execute",
             "mortal_strike",
             "retaliation",
+            "bloodthirst",
+            "overpower",
+            "rend",
+            "slam",
+            "shield_slam",
+            "shield_bash",
+            "disarm",
+            "shield_wall",
+            "last_stand",
         ],
         looks: &[
             1300, 1374, 1375, 1504, 1578, 1599, 1707, 1721, 1880, 2096, 2103, 2113, 2196, 2198,
@@ -1027,6 +1796,14 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "hammer_of_justice",
             "divine_shield",
             "judgement",
+            "seal_of_righteousness",
+            "seal_of_command",
+            "seal_of_wisdom",
+            "seal_of_light",
+            "flash_of_light",
+            "holy_light",
+            "devotion_aura",
+            "retribution_aura",
         ],
         looks: &[
             1299, 1499, 1622, 3087, 3088, 3089, 3284, 3289, 3346, 3393, 7356,
@@ -1048,6 +1825,13 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "explosive_trap",
             "concussive_shot",
             "aimed_shot",
+            "raptor_strike",
+            "mongoose_bite",
+            "wing_clip",
+            "immolation_trap",
+            "frost_trap",
+            "wyvern_sting",
+            "rapid_fire",
         ],
         looks: &[
             1373, 1703, 1723, 1882, 2066, 2087, 2105, 2112, 2205, 2206, 2251, 3056, 3072, 3073,
@@ -1070,6 +1854,12 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "rupture",
             "gouge",
             "kidney_shot",
+            "backstab",
+            "ambush",
+            "garrote",
+            "deadly_poison",
+            "expose_armor",
+            "evasion",
         ],
         looks: &[
             1297, 1327, 1328, 1507, 1580, 1603, 1704, 1725, 1886, 2231, 2243, 2252, 2631, 2639,
@@ -1092,6 +1882,13 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "holy_nova",
             "psychic_scream",
             "power_word_shield",
+            "mind_flay",
+            "vampiric_embrace",
+            "devouring_plague",
+            "flash_heal",
+            "prayer_of_healing",
+            "inner_fire",
+            "shadowguard",
         ],
         looks: &[
             1295, 1495, 1579, 1602, 1708, 1733, 1897, 2137, 2138, 2139, 2200, 2201, 2202, 2618,
@@ -1116,6 +1913,14 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "searing_totem",
             "magma_totem",
             "lightning_shield",
+            "windfury_weapon",
+            "rockbiter_weapon",
+            "frostbrand_weapon",
+            "healing_wave",
+            "lesser_healing_wave",
+            "healing_stream_totem",
+            "earthbind_totem",
+            "stoneclaw_totem",
         ],
         looks: &[
             1360, 1878, 2082, 2102, 2123, 3746, 3816, 4231, 4552, 10180, 13341,
@@ -1141,6 +1946,17 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "cone_of_cold",
             "blast_wave",
             "pyroblast",
+            "polymorph",
+            "ice_barrier",
+            "ice_block",
+            "frost_armor",
+            "mage_armor",
+            "mana_shield",
+            "dampen_magic",
+            "arcane_power",
+            "presence_of_mind",
+            "combustion",
+            "cold_snap",
         ],
         looks: &[
             1294, 1470, 1484, 1592, 1600, 2134, 2135, 2644, 2657, 2810, 3108, 3109, 3292, 3293,
@@ -1166,6 +1982,15 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "death_coil",
             "searing_pain",
             "shadowburn",
+            "siphon_life",
+            "drain_life",
+            "drain_soul",
+            "soul_fire",
+            "curse_of_elements",
+            "curse_of_weakness",
+            "curse_of_tongues",
+            "curse_of_doom",
+            "fear",
         ],
         looks: &[
             1324, 1325, 1326, 1469, 1581, 1604, 1884, 1930, 2637, 2646, 2675, 3115, 3116, 3122,
@@ -1189,6 +2014,14 @@ pub(crate) static CLASSES: &[ClassDef] = &[
             "entangling_roots",
             "thorns",
             "rejuvenation",
+            "claw",
+            "rake",
+            "rip",
+            "swipe",
+            "ferocious_bite",
+            "regrowth",
+            "healing_touch",
+            "barkskin",
         ],
         looks: &[
             1706, 1732, 2106, 2115, 2121, 2250, 2255, 2261, 3300, 3301, 3302, 3819, 3820, 7357,
@@ -1297,24 +2130,24 @@ pub(crate) static BOSSES: &[EnemyDef] = &[
     },
     EnemyDef {
         scale: 1.8,
-        ..en("Agathelos the Raging", 2450, 12000.0, 5.0, 70.0, 400, 33)
-    },
-    EnemyDef {
-        scale: 1.8,
         ..en("Hezrul Bloodmark", 9448, 20000.0, 4.8, 90.0, 500, 33)
     },
 ];
 
-/// Survive this long to win.
-pub(crate) const VICTORY_SECS: f32 = 900.0;
-/// A boss every two and a quarter minutes, the last of six at 13:30, a fight before the bell.
-pub(crate) const BOSS_EVERY_SECS: f32 = 135.0;
+/// The final boss arrives at ten minutes; victory requires its death, not reaching this time.
+pub(crate) const VICTORY_SECS: f32 = 600.0;
+pub(crate) const BOSS_EVERY_SECS: f32 = 120.0;
+pub(crate) const BOSS_COUNT: u32 = 5;
+
+pub(crate) fn due_bosses(elapsed: f32) -> u32 {
+    ((elapsed / BOSS_EVERY_SECS) as u32).min(BOSS_COUNT)
+}
 /// Experience per gem: every level of the curve comes at the run's pace.
 pub(crate) const XP_RATE: f32 = 2.0;
 
 /// How far through the run, 0 at the start and 1 at [`VICTORY_SECS`].
 pub(crate) fn progress(elapsed: f32) -> f32 {
-    (elapsed / VICTORY_SECS).max(0.0)
+    (elapsed / VICTORY_SECS).clamp(0.0, 1.0)
 }
 
 /// The pool of roster indices at a point in the run, from a roster `tiers` long.
@@ -1444,7 +2277,6 @@ pub(crate) static MAPS: &[MapDef] = &[
             foe("Lord Azrethoc", 4426, 55, 4.6, 1.35),
             foe("Lord Hel'nurath", 14556, 62, 4.8, 1.65),
             giant("Teremus the Devourer", 6378, 60, 5.0, 0.55),
-            foe("Lord Banehollow", 8611, 62, 4.8, 1.95),
             giant("Lord Kazzak", 12449, 63, 4.6, 0.75),
         ],
     },
@@ -1481,7 +2313,6 @@ pub(crate) static MAPS: &[MapDef] = &[
             foe("General Rajaxx", 15376, 63, 4.8, 1.15),
             foe("Moam", 15392, 63, 4.2, 1.6),
             giant("Buru the Gorger", 15654, 63, 4.4, 0.85),
-            giant("Princess Huhuran", 15739, 63, 5.0, 0.55),
             foe("Ossirian the Unscarred", 15432, 63, 4.6, 0.82),
         ],
     },
@@ -1518,7 +2349,6 @@ pub(crate) static MAPS: &[MapDef] = &[
         ],
         bosses: &[
             foe("Ravasaur Matriarch", 11319, 56, 5.6, 1.55),
-            foe("Uhk'loc", 8129, 59, 4.8, 2.4),
             foe("Blazerunner", 1204, 57, 4.6, 1.8),
             foe("Baron Charr", 14517, 58, 4.6, 1.95),
             giant("Tyrant Devilsaur", 5240, 60, 5.0, 1.0),
@@ -1556,7 +2386,6 @@ pub(crate) static MAPS: &[MapDef] = &[
         ],
         bosses: &[
             giant("King Bangalash", 616, 43, 5.8, 3.0),
-            foe("Mokk the Savage", 840, 44, 4.8, 2.4),
             foe("Bloodlord Mandokir", 11288, 63, 5.0, 2.1),
             foe("High Priest Thekal", 15216, 63, 5.0, 2.3),
             foe("Jin'do the Hexxer", 11311, 63, 4.6, 2.5),
@@ -1592,10 +2421,9 @@ pub(crate) static MAPS: &[MapDef] = &[
         bosses: &[
             foe("Mother Fang", 2541, 10, 4.6, 1.9),
             foe("Narg the Taskmaster", 774, 10, 4.2, 1.9),
-            foe("Hogger", 384, 11, 4.2, 1.9),
-            foe("Thuros Lightfingers", 3341, 11, 4.2, 2.18),
             foe("Fedfennel", 175, 12, 4.2, 1.9),
             foe("Gruff Swiftbite", 175, 12, 4.2, 1.9),
+            foe("Hogger", 384, 11, 4.2, 1.9),
         ],
     },
     MapDef {
@@ -1626,7 +2454,6 @@ pub(crate) static MAPS: &[MapDef] = &[
         ],
         bosses: &[
             foe("Geolord Mottle", 6113, 9, 4.6, 1.9),
-            foe("Razormane Dustrunner", 6088, 9, 4.6, 1.9),
             foe("Razormane Battleguard", 1964, 10, 4.6, 1.9),
             foe("Burning Blade Neophyte", 4186, 10, 3.8, 1.9),
             foe("Death Flayer", 2491, 11, 4.6, 2.85),
@@ -1662,10 +2489,9 @@ pub(crate) static MAPS: &[MapDef] = &[
         bosses: &[
             foe("Threggil", 904, 6, 4.2, 1.9),
             foe("Uruson", 6818, 7, 4.2, 1.9),
-            foe("Gnarlpine Defender", 6801, 8, 4.2, 1.9),
             foe("Duskstalker", 11453, 9, 5.4, 2.85),
-            foe("Oakenscowl", 2567, 9, 4.2, 2.18),
             foe("Gnarlpine Augur", 3024, 9, 3.8, 1.9),
+            foe("Oakenscowl", 2567, 9, 4.2, 2.18),
         ],
     },
     MapDef {
@@ -1695,7 +2521,6 @@ pub(crate) static MAPS: &[MapDef] = &[
             foe("Edan the Howler", 931, 9, 4.2, 1.9),
             foe("Timber", 11422, 10, 5.4, 1.9),
             foe("Great Father Arctikus", 5625, 11, 4.2, 2.28),
-            foe("Old Icebeard", 1050, 11, 4.2, 1.9),
             foe("Vagash", 1050, 11, 4.2, 1.9),
             giant("Bjarn", 913, 12, 4.6, 1.9),
         ],
@@ -1730,7 +2555,6 @@ pub(crate) static MAPS: &[MapDef] = &[
             foe("Mazzranache", 1961, 9, 5.4, 1.9),
             foe("Snagglespear", 275, 9, 4.2, 1.9),
             foe("Swoop", 1229, 9, 5.2, 1.52),
-            foe("Elder Plainstrider", 1221, 9, 5.4, 1.9),
             foe("Ghost Howl", 720, 12, 5.4, 1.9),
         ],
     },
@@ -1760,7 +2584,6 @@ pub(crate) static MAPS: &[MapDef] = &[
             foe("Shambling Horror", 1197, 9, 3.6, 1.0),
         ],
         bosses: &[
-            foe("Farmer Solliden", 3535, 8, 4.2, 2.18),
             foe("Tormented Spirit", 9534, 9, 4.2, 1.52),
             foe("Bayne", 7892, 10, 4.2, 2.66),
             foe("Ressan the Needler", 9750, 11, 5.2, 1.52),
@@ -1798,9 +2621,8 @@ pub(crate) static MAPS: &[MapDef] = &[
             foe("Brainwashed Noble", 3267, 18, 4.2, 2.18),
             foe("Marisa du'Paige", 2355, 18, 4.2, 2.09),
             foe("Sergeant Brashclaw", 383, 18, 4.2, 1.9),
-            foe("Klaven Mortwake", 5805, 23, 4.2, 2.18),
-            foe("Lupos", 11412, 23, 5.4, 1.9),
             foe("Vultros", 507, 26, 5.2, 1.52),
+            foe("Klaven Mortwake", 5805, 23, 4.2, 2.18),
         ],
     },
     MapDef {
@@ -1832,7 +2654,6 @@ pub(crate) static MAPS: &[MapDef] = &[
         bosses: &[
             foe("Lupos", 11412, 23, 5.4, 1.9),
             foe("Naraxis", 963, 27, 4.6, 1.9),
-            foe("Nightbane Vile Fang", 522, 30, 5.4, 1.9),
             foe("Nightbane Tainted One", 1098, 31, 5.4, 1.9),
             foe("Fenros", 11179, 32, 5.4, 1.9),
             foe("Nefaru", 11181, 34, 5.4, 1.9),
@@ -1868,7 +2689,6 @@ pub(crate) static MAPS: &[MapDef] = &[
             foe("Blackrock Hunter", 6031, 24, 4.2, 1.9),
             foe("Singe", 497, 24, 4.2, 1.9),
             foe("Tharil'zun", 6043, 24, 4.2, 1.9),
-            foe("Blackrock Gladiator", 6042, 25, 4.2, 1.9),
             foe("Rohh the Silent", 10792, 26, 4.2, 1.9),
             foe("Kazon", 6041, 27, 4.2, 1.9),
         ],
@@ -1902,7 +2722,6 @@ pub(crate) static MAPS: &[MapDef] = &[
         ],
         bosses: &[
             foe("Prince Xavalis", 11335, 57, 5.0, 1.85),
-            foe("Lady Hederine", 10925, 61, 4.8, 2.7),
             giant("Taerar", 15363, 63, 4.8, 0.5),
             giant("Lethon", 15365, 63, 4.8, 0.5),
             giant("Emeriss", 15366, 63, 4.8, 0.53),
@@ -1942,7 +2761,6 @@ pub(crate) static MAPS: &[MapDef] = &[
             giant("Anub'Rekhan", 15931, 63, 4.6, 0.55),
             foe("Grand Widow Faerlina", 15940, 63, 4.8, 2.9),
             giant("Patchwerk", 16174, 63, 4.0, 1.7),
-            giant("Gluth", 16064, 63, 5.0, 0.62),
             giant("Thaddius", 16137, 63, 4.0, 0.98),
             foe("Kel'Thuzad", 15945, 63, 4.4, 2.1),
         ],
@@ -2017,4 +2835,68 @@ fn ladder(foes: &[Foe], tuned: &[EnemyDef]) -> Vec<EnemyDef> {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod boss_tests {
+    use super::*;
+
+    #[test]
+    fn five_arrivals_have_exact_two_minute_boundaries_and_never_repeat() {
+        assert_eq!(due_bosses(0.0), 0);
+        for ordinal in 1..=BOSS_COUNT {
+            let at = ordinal as f32 * BOSS_EVERY_SECS;
+            assert_eq!(due_bosses(at - 0.001), ordinal - 1);
+            assert_eq!(due_bosses(at), ordinal);
+            assert_eq!(due_bosses(at + 0.001), ordinal);
+        }
+        assert_eq!(due_bosses(60_000.0), 5);
+        assert_eq!(BOSS_COUNT as f32 * BOSS_EVERY_SECS, VICTORY_SECS);
+        assert_eq!(progress(900.0), 1.0);
+        assert_eq!(hp_scale(900.0), hp_scale(600.0));
+        assert_eq!(damage_scale(900.0), damage_scale(600.0));
+    }
+
+    #[test]
+    fn every_region_has_five_unique_progressively_stronger_bosses() {
+        let finales = [
+            "Hezrul Bloodmark",
+            "Lord Kazzak",
+            "Ossirian the Unscarred",
+            "King Mosh",
+            "Hakkar",
+            "Hogger",
+            "Burning Blade Cultist",
+            "Oakenscowl",
+            "Bjarn",
+            "Ghost Howl",
+            "Gorefang",
+            "Klaven Mortwake",
+            "Nefaru",
+            "Kazon",
+            "Ysondre",
+            "Kel'Thuzad",
+        ];
+        assert_eq!(MAPS.len(), finales.len());
+        for (map, finale) in finales.iter().enumerate() {
+            let bosses = &roster(map).bosses;
+            assert_eq!(bosses.len(), BOSS_COUNT as usize, "{}", MAPS[map].name);
+            assert_eq!(bosses.last().unwrap().name, *finale);
+            for (at, boss) in bosses.iter().enumerate() {
+                assert!(boss.display > 0);
+                assert!(!bosses[..at].iter().any(|b| b.name == boss.name));
+                if at > 0 {
+                    let previous = &bosses[at - 1];
+                    let time = (at + 1) as f32 * BOSS_EVERY_SECS;
+                    assert!(
+                        boss.hp * hp_scale(time) > previous.hp * hp_scale(time - BOSS_EVERY_SECS)
+                    );
+                    assert!(
+                        boss.damage * damage_scale(time)
+                            > previous.damage * damage_scale(time - BOSS_EVERY_SECS)
+                    );
+                }
+            }
+        }
+    }
 }

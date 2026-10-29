@@ -2,13 +2,13 @@
 
 use bevy::prelude::*;
 
-use super::hud::{SpellIcon, UiArt, text_bundle};
-use super::menu::{MenuAction, MenuCopy, RaceFace};
 use super::gear_ui::{MenuSlotButton, MenuSlotIcon};
+use super::hud::{text_bundle, SpellIcon, UiArt};
+use super::menu::{MenuAction, MenuCopy, RaceFace};
 use super::{data, localization};
 use crate::char_select::race_name;
-use crate::glue::art::{GOLD, GlueArt, class_tc, race_tc, tc_rect};
-use crate::glue::widgets::{LockHighlight, icon_button};
+use crate::glue::art::{class_tc, race_tc, tc_rect, GlueArt, GOLD};
+use crate::glue::widgets::{icon_button, LockHighlight};
 
 pub(super) const PANEL_TOP: f32 = 94.0;
 const EDGE: Color = Color::srgb(0.39, 0.30, 0.11);
@@ -327,8 +327,8 @@ pub(super) fn build(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Fon
             b.spawn(text_bundle(
                 f,
                 localization::text(
-                    "Survive 15 minutes · Bosses every 2:15",
-                    "存活15分钟 · 每2分15秒迎战首领",
+                    "5 bosses · Every 2 minutes · Finale at 10:00",
+                    "每2分钟1位首领 · 共5位 · 10分钟最终战",
                 ),
                 10.0,
                 DIM,
@@ -505,14 +505,19 @@ fn classes(ui: &mut ChildSpawnerCommands, art: &GlueArt, f: &Handle<Font>) {
             ..default()
         })
         .with_children(|pool| {
-            for i in 0..12 {
+            let slots = super::data::CLASSES
+                .iter()
+                .map(|class| class.pool.len())
+                .max()
+                .unwrap_or(0);
+            for i in 0..slots {
                 pool.spawn((
                     PoolIcon(i),
                     SpellIcon(686),
                     ImageNode::default(),
                     Node {
-                        width: Val::Px(28.0),
-                        height: Val::Px(28.0),
+                        width: Val::Px(24.0),
+                        height: Val::Px(24.0),
                         border: UiRect::all(Val::Px(1.0)),
                         border_radius: BorderRadius::all(Val::Px(3.0)),
                         ..default()

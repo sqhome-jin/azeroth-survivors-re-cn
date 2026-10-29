@@ -108,8 +108,8 @@ pub(super) fn map_blurb(english: &'static str) -> &'static str {
 fn map_blurb_for(locale: &str, english: &'static str) -> &'static str {
     let (en, zh) = match english {
         "The Barrens" => (
-            "Endless plains where raptors and quillboar roam. A gentle first stand with no named bosses.",
-            "一望无际的平原，迅猛龙与野猪人四处游荡。节奏平缓，适合热身，没有专属首领。",
+            "Endless plains where raptors and quillboar roam. Face Echeyakee, Humar and finally Hezrul Bloodmark.",
+            "迅猛龙与野猪人游荡的平原，迎战埃其亚基、狮王休玛，最终击败赫兹鲁尔·血印。",
         ),
         "The Dark Portal" => (
             "Fel beasts and demons pour through the Portal. Wave bosses end with Lord Kazzak.",
@@ -133,15 +133,15 @@ fn map_blurb_for(locale: &str, english: &'static str) -> &'static str {
         ),
         "Durotar" => (
             "Scorching badlands of the Razormane and Burning Blade. A fast, aggressive early zone.",
-            "剃刀沼泽与燃烧刀锋盘踞的灼热荒地，前期节奏偏快。",
+            "钢鬃野猪人与火刃氏族盘踞的灼热荒地，前期节奏偏快。",
         ),
         "Teldrassil" => (
             "The world tree's forest, haunted by Gnarlpine furbolgs and corrupted wildlife.",
-            "世界之树的森林，被乌鸦爪熊怪与受腐蚀的野兽侵扰。",
+            "世界之树的森林，被瘤背熊怪与受腐蚀的野兽侵扰。",
         ),
         "Dun Morogh" => (
             "Frozen peaks with wolves, bears and troggs. Beware Great Father Arctikus.",
-            "冰封山岭中狼、熊与穴居怪出没，小心大熊阿尔蒂库斯。",
+            "冰封山岭中狼、熊与穴居怪出没，小心霜鬃巨魔阿尔蒂库斯。",
         ),
         "Mulgore" => (
             "Rolling plains of the Tauren. Beasts roam in packs and bosses arrive one by one.",
@@ -152,8 +152,8 @@ fn map_blurb_for(locale: &str, english: &'static str) -> &'static str {
             "亡灵出没的农田与坟地，幽魂与食尸鬼潜伏在暗处。",
         ),
         "Westfall" => (
-            "Defias thieves and wild beasts across the farmlands. Marisa and Lupos lead the bosses.",
-            "迪菲亚盗贼与野兽遍布农田，首领包括玛里萨与狼人卢波斯。",
+            "Defias thieves and wild beasts across the farmlands. Defeat Klaven Mortwake in the finale.",
+            "迪菲亚盗贼与野兽遍布农田，最终迎战克拉文·摩特维克。",
         ),
         "Duskwood" => (
             "Gloomy woods of worgen, spiders and the undead. Face Nefaru at the climax.",
