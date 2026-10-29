@@ -5,8 +5,8 @@ use std::collections::BTreeMap;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::hud::{text_bundle, HudFont, UiArt};
-use super::{data, localization, Owned, Phase, Run, Selection, Stats};
+use super::hud::{HudFont, UiArt, text_bundle};
+use super::{Owned, Phase, Run, Selection, Stats, data, localization};
 
 pub(super) const MAX_POINTS: u8 = 51;
 const WARLOCK: u8 = 9;
@@ -42,30 +42,198 @@ macro_rules! node {
 }
 
 pub(super) const NODES: [NodeDef; NODE_COUNT] = [
-    node!("improved_corruption", "Improved Corruption", "强化腐蚀术", "Spell_Shadow_AbominationExplosion", "Corruption cooldown -6% per rank.", "每级使腐蚀术冷却缩短6%。"),
-    node!("improved_agony", "Improved Curse of Agony", "强化痛苦诅咒", "Spell_Shadow_CurseOfSargeras", "Curse of Agony damage +8% per rank.", "每级使痛苦诅咒伤害提高8%。"),
-    node!("fel_concentration", "Fel Concentration", "恶魔专注", "Spell_Shadow_FingerOfDeath", "Damage-over-time duration +8% per rank.", "每级使腐蚀术、痛苦诅咒和献祭的持续伤害时间延长8%。"),
-    node!("grim_reach", "Grim Reach", "无情延伸", "Spell_Shadow_CallofBone", "Corruption and Curse of Agony range +2 yards per rank.", "每级使腐蚀术和痛苦诅咒射程增加2码。"),
-    node!("siphon_life", "Siphon Life", "生命虹吸", "Spell_Shadow_Requiem", "Heal for 0.4% of effective periodic damage per rank; all talent leech capped at 4% maximum health per second.", "每级将持续伤害有效值的0.4%转化为生命；所有天赋吸血合计每秒最多恢复生命上限的4%。"),
-    node!("shadow_mastery", "Shadow Mastery", "暗影掌握", "Spell_Shadow_ShadeTrueSight", "Shadow spell damage +6% per rank.", "每级使暗影箭、腐蚀术、痛苦诅咒、死亡缠绕和暗影灼烧伤害提高6%。"),
-    node!("contagion", "Contagion", "蔓延痛苦", "Spell_Shadow_PlagueCloud", "Corruption, Curse of Agony and Immolate periodic damage +6% per rank.", "每级使腐蚀术、痛苦诅咒和献祭的持续伤害提高6%。"),
-    node!("dark_pact", "Dark Pact", "黑暗契约", "Spell_Shadow_DarkRitual", "Periodic damage +30%; periodic damage heals for an additional 2%, sharing the leech cap.", "持续伤害提高30%，额外将持续伤害有效值的2%转化为生命，与生命虹吸共享恢复上限。"),
-    node!("demonic_embrace", "Demonic Embrace", "恶魔之拥", "Spell_Shadow_Metamorphosis", "Maximum health +6% per rank.", "每级使最大生命值提高6%。"),
-    node!("fel_armor", "Fel Armor", "恶魔护甲", "Spell_Shadow_RagingScream", "Armor +0.8 per rank.", "每级增加0.8护甲，按现有规则减少每次接触伤害。"),
-    node!("fel_vitality", "Fel Vitality", "恶魔活力", "Spell_Nature_Reincarnation", "Regenerate 0.30 health per second per rank.", "每级每秒额外恢复0.30生命值。"),
-    node!("fel_stride", "Fel Stride", "恶魔步伐", "Ability_Rogue_Sprint", "Movement speed +4% per rank.", "每级使移动速度提高4%。"),
-    node!("improved_death_coil", "Improved Death Coil", "强化死亡缠绕", "Spell_Shadow_DeathCoil", "Death Coil cooldown -8% per rank.", "每级使死亡缠绕冷却缩短8%。"),
-    node!("improved_howl", "Improved Howl of Terror", "强化恐惧嚎叫", "Spell_Shadow_DeathScream", "F: Howl of Terror cooldown -8% per rank. Still learned at level 5.", "每级使F键恐惧嚎叫冷却缩短8%；仍需局内5级解锁。"),
-    node!("master_demonologist", "Master Demonologist", "恶魔学识大师", "Spell_Shadow_AntiShadow", "Incoming damage -4% per rank after armor, before shields.", "每级使护甲结算后、护盾吸收前的所受伤害降低4%。"),
-    node!("soul_link", "Soul Link", "灵魂链接", "Spell_Shadow_GatherShadows", "Incoming damage -20%; no pet required. Multiplicative with Master Demonologist.", "所受伤害降低20%，不需要宠物；与恶魔学识大师乘算。"),
-    node!("improved_shadow_bolt", "Improved Shadow Bolt", "强化暗影箭", "Spell_Shadow_ShadowBolt", "Shadow Bolt damage +6% per rank.", "每级使暗影箭伤害提高6%。"),
-    node!("improved_immolate", "Improved Immolate", "强化献祭", "Spell_Fire_Immolation", "Immolate damage +6% per rank.", "每级使献祭的直接和持续伤害提高6%。"),
-    node!("devastation", "Devastation", "毁灭", "Spell_Fire_FlameShock", "Direct damage critical strike chance +2 percentage points per rank.", "每级使直接伤害暴击率提高2个百分点；持续伤害不暴击。"),
-    node!("bane", "Bane", "灾祸", "Spell_Shadow_DeathPact", "Shadow Bolt, Immolate and Searing Pain cooldown -4% per rank.", "每级使暗影箭、献祭和灼热之痛冷却缩短4%。"),
-    node!("destructive_reach", "Destructive Reach", "毁灭延伸", "Spell_Shadow_CorpseExplode", "Rain of Fire and Hellfire radius +6% per rank.", "每级使火焰之雨和地狱烈焰半径提高6%。"),
-    node!("improved_shadowburn", "Improved Shadowburn", "强化暗影灼烧", "Spell_Shadow_ScourgeBuild", "Shadowburn damage +8% per rank.", "每级使暗影灼烧伤害提高8%。"),
-    node!("emberstorm", "Emberstorm", "琥珀风暴", "Spell_Fire_Volcano", "Fire spell damage +6% per rank.", "每级使献祭、火焰之雨、地狱烈焰和灼热之痛伤害提高6%。"),
-    node!("ruin", "Ruin", "毁灭之力", "Spell_Shadow_ShadowWordPain", "Direct damage critical multiplier increases from 2.0 to 3.0. Periodic damage cannot crit.", "直接伤害暴击倍率从2.0提高至3.0，持续伤害仍不暴击。"),
+    node!(
+        "improved_corruption",
+        "Improved Corruption",
+        "强化腐蚀术",
+        "Spell_Shadow_AbominationExplosion",
+        "Corruption cooldown -6% per rank.",
+        "每级使腐蚀术冷却缩短6%。"
+    ),
+    node!(
+        "improved_agony",
+        "Improved Curse of Agony",
+        "强化痛苦诅咒",
+        "Spell_Shadow_CurseOfSargeras",
+        "Curse of Agony damage +8% per rank.",
+        "每级使痛苦诅咒伤害提高8%。"
+    ),
+    node!(
+        "fel_concentration",
+        "Fel Concentration",
+        "恶魔专注",
+        "Spell_Shadow_FingerOfDeath",
+        "Damage-over-time duration +8% per rank.",
+        "每级使腐蚀术、痛苦诅咒和献祭的持续伤害时间延长8%。"
+    ),
+    node!(
+        "grim_reach",
+        "Grim Reach",
+        "无情延伸",
+        "Spell_Shadow_CallofBone",
+        "Corruption and Curse of Agony range +2 yards per rank.",
+        "每级使腐蚀术和痛苦诅咒射程增加2码。"
+    ),
+    node!(
+        "siphon_life",
+        "Siphon Life",
+        "生命虹吸",
+        "Spell_Shadow_Requiem",
+        "Heal for 0.4% of effective periodic damage per rank; all talent leech capped at 4% maximum health per second.",
+        "每级将持续伤害有效值的0.4%转化为生命；所有天赋吸血合计每秒最多恢复生命上限的4%。"
+    ),
+    node!(
+        "shadow_mastery",
+        "Shadow Mastery",
+        "暗影掌握",
+        "Spell_Shadow_ShadeTrueSight",
+        "Shadow spell damage +6% per rank.",
+        "每级使暗影箭、腐蚀术、痛苦诅咒、死亡缠绕和暗影灼烧伤害提高6%。"
+    ),
+    node!(
+        "contagion",
+        "Contagion",
+        "蔓延痛苦",
+        "Spell_Shadow_PlagueCloud",
+        "Corruption, Curse of Agony and Immolate periodic damage +6% per rank.",
+        "每级使腐蚀术、痛苦诅咒和献祭的持续伤害提高6%。"
+    ),
+    node!(
+        "dark_pact",
+        "Dark Pact",
+        "黑暗契约",
+        "Spell_Shadow_DarkRitual",
+        "Periodic damage +30%; periodic damage heals for an additional 2%, sharing the leech cap.",
+        "持续伤害提高30%，额外将持续伤害有效值的2%转化为生命，与生命虹吸共享恢复上限。"
+    ),
+    node!(
+        "demonic_embrace",
+        "Demonic Embrace",
+        "恶魔之拥",
+        "Spell_Shadow_Metamorphosis",
+        "Maximum health +6% per rank.",
+        "每级使最大生命值提高6%。"
+    ),
+    node!(
+        "fel_armor",
+        "Fel Armor",
+        "恶魔护甲",
+        "Spell_Shadow_RagingScream",
+        "Armor +0.8 per rank.",
+        "每级增加0.8护甲，按现有规则减少每次接触伤害。"
+    ),
+    node!(
+        "fel_vitality",
+        "Fel Vitality",
+        "恶魔活力",
+        "Spell_Nature_Reincarnation",
+        "Regenerate 0.30 health per second per rank.",
+        "每级每秒额外恢复0.30生命值。"
+    ),
+    node!(
+        "fel_stride",
+        "Fel Stride",
+        "恶魔步伐",
+        "Ability_Rogue_Sprint",
+        "Movement speed +4% per rank.",
+        "每级使移动速度提高4%。"
+    ),
+    node!(
+        "improved_death_coil",
+        "Improved Death Coil",
+        "强化死亡缠绕",
+        "Spell_Shadow_DeathCoil",
+        "Death Coil cooldown -8% per rank.",
+        "每级使死亡缠绕冷却缩短8%。"
+    ),
+    node!(
+        "improved_howl",
+        "Improved Howl of Terror",
+        "强化恐惧嚎叫",
+        "Spell_Shadow_DeathScream",
+        "F: Howl of Terror cooldown -8% per rank. Still learned at level 5.",
+        "每级使F键恐惧嚎叫冷却缩短8%；仍需局内5级解锁。"
+    ),
+    node!(
+        "master_demonologist",
+        "Master Demonologist",
+        "恶魔学识大师",
+        "Spell_Shadow_AntiShadow",
+        "Incoming damage -4% per rank after armor, before shields.",
+        "每级使护甲结算后、护盾吸收前的所受伤害降低4%。"
+    ),
+    node!(
+        "soul_link",
+        "Soul Link",
+        "灵魂链接",
+        "Spell_Shadow_GatherShadows",
+        "Incoming damage -20%; no pet required. Multiplicative with Master Demonologist.",
+        "所受伤害降低20%，不需要宠物；与恶魔学识大师乘算。"
+    ),
+    node!(
+        "improved_shadow_bolt",
+        "Improved Shadow Bolt",
+        "强化暗影箭",
+        "Spell_Shadow_ShadowBolt",
+        "Shadow Bolt damage +6% per rank.",
+        "每级使暗影箭伤害提高6%。"
+    ),
+    node!(
+        "improved_immolate",
+        "Improved Immolate",
+        "强化献祭",
+        "Spell_Fire_Immolation",
+        "Immolate damage +6% per rank.",
+        "每级使献祭的直接和持续伤害提高6%。"
+    ),
+    node!(
+        "devastation",
+        "Devastation",
+        "毁灭",
+        "Spell_Fire_FlameShock",
+        "Direct damage critical strike chance +2 percentage points per rank.",
+        "每级使直接伤害暴击率提高2个百分点；持续伤害不暴击。"
+    ),
+    node!(
+        "bane",
+        "Bane",
+        "灾祸",
+        "Spell_Shadow_DeathPact",
+        "Shadow Bolt, Immolate and Searing Pain cooldown -4% per rank.",
+        "每级使暗影箭、献祭和灼热之痛冷却缩短4%。"
+    ),
+    node!(
+        "destructive_reach",
+        "Destructive Reach",
+        "毁灭延伸",
+        "Spell_Shadow_CorpseExplode",
+        "Rain of Fire and Hellfire radius +6% per rank.",
+        "每级使火焰之雨和地狱烈焰半径提高6%。"
+    ),
+    node!(
+        "improved_shadowburn",
+        "Improved Shadowburn",
+        "强化暗影灼烧",
+        "Spell_Shadow_ScourgeBuild",
+        "Shadowburn damage +8% per rank.",
+        "每级使暗影灼烧伤害提高8%。"
+    ),
+    node!(
+        "emberstorm",
+        "Emberstorm",
+        "琥珀风暴",
+        "Spell_Fire_Volcano",
+        "Fire spell damage +6% per rank.",
+        "每级使献祭、火焰之雨、地狱烈焰和灼热之痛伤害提高6%。"
+    ),
+    node!(
+        "ruin",
+        "Ruin",
+        "毁灭之力",
+        "Spell_Shadow_ShadowWordPain",
+        "Direct damage critical multiplier increases from 2.0 to 3.0. Periodic damage cannot crit.",
+        "直接伤害暴击倍率从2.0提高至3.0，持续伤害仍不暴击。"
+    ),
 ];
 
 const TIERS: [u8; 8] = [0, 0, 1, 2, 3, 4, 5, 6];
@@ -76,11 +244,7 @@ const TREES: [(&str, &str); 3] = [
 ];
 
 fn max_rank(index: usize) -> u8 {
-    if index % 8 == 7 {
-        1
-    } else {
-        5
-    }
+    if index % 8 == 7 { 1 } else { 5 }
 }
 
 impl Loadout {
@@ -397,7 +561,7 @@ fn fail_load(progression: &mut Progression, reason: &str) {
     );
 }
 
-fn lock_loadout(mut run: ResMut<Run>, progression: Res<Progression>) {
+pub(super) fn lock_loadout(mut run: ResMut<Run>, progression: Res<Progression>) {
     if !run.talents_locked {
         run.talents = progression.loadout(run.class.id);
         run.talents_locked = true;
@@ -493,6 +657,7 @@ pub(super) struct Cast {
     pub duration: f32,
     pub cooldown: f32,
     pub range: f32,
+    pub modifiers: super::skill_effects::Modifiers,
 }
 
 pub(super) fn cast(def: &'static data::AbilityDef, level: u8, stats: &Stats) -> Cast {
@@ -528,17 +693,8 @@ pub(super) fn cast(def: &'static data::AbilityDef, level: u8, stats: &Stats) -> 
         "shadow_bolt" | "immolate" | "searing_pain" => 0.02 * r(19),
         _ => 0.0,
     };
-    let (mut e_dmg, mut e_cd, mut e_count, mut e_radius, mut e_dur) = (1.0, 0.0, 0, 1.0, 1.0);
-    for (kind, value) in stats.gear.enhancements(def.key) {
-        match kind {
-            super::gear::EnhKind::Damage => e_dmg += value,
-            super::gear::EnhKind::Cooldown => e_cd += value,
-            super::gear::EnhKind::Count => e_count += value.round() as u32,
-            super::gear::EnhKind::Radius => e_radius += value,
-            super::gear::EnhKind::Duration => e_dur += value,
-        }
-    }
-    let mult = owned.damage_mult() * stats.might * damage * e_dmg;
+    let modifiers = super::skill_effects::Modifiers::from_stats(stats, def);
+    let mult = owned.damage_mult() * stats.might * damage * (1.0 + modifiers.damage);
     Cast {
         dmg: def.damage * mult,
         dot: def.dot
@@ -548,22 +704,30 @@ pub(super) fn cast(def: &'static data::AbilityDef, level: u8, stats: &Stats) -> 
             } else {
                 1.0
             },
-        count: owned.count() + e_count,
+        count: owned.count() + modifiers.count,
         radius: owned.radius(stats)
-            * e_radius
+            * (1.0 + modifiers.radius)
             * if matches!(def.key, "rain_of_fire" | "hellfire") {
                 1.0 + 0.03 * r(20)
             } else {
                 1.0
             },
-        duration: owned.duration() * e_dur * if periodic { 1.0 + 0.04 * r(2) } else { 1.0 },
-        cooldown: (owned.cooldown(stats) * (1.0 - cooldown) * (1.0 - e_cd.min(0.6))).max(0.2),
-        range: def.range
+        duration: (owned.duration()
+            * (1.0 + modifiers.duration)
+            * if periodic { 1.0 + 0.04 * r(2) } else { 1.0 })
+        .min(if def.kind == data::Kind::Immune {
+            owned.cooldown(stats) * (1.0 - modifiers.cooldown) * 0.5
+        } else {
+            f32::INFINITY
+        }),
+        cooldown: (owned.cooldown(stats) * (1.0 - cooldown) * (1.0 - modifiers.cooldown)).max(0.2),
+        range: def.range * (1.0 + modifiers.range)
             + if matches!(def.key, "corruption" | "curse_of_agony") {
                 r(3)
             } else {
                 0.0
             },
+        modifiers,
     }
 }
 
@@ -1188,10 +1352,11 @@ mod tests {
         let hp = app.world().resource::<Run>().hp;
         assert!(hp > super::super::BASE_HP);
         app.world_mut().resource_mut::<Run>().hp = 20.0;
-        assert!(app
-            .world_mut()
-            .resource_mut::<Progression>()
-            .apply(WARLOCK, Loadout::default()));
+        assert!(
+            app.world_mut()
+                .resource_mut::<Progression>()
+                .apply(WARLOCK, Loadout::default())
+        );
         app.update();
         assert_eq!(app.world().resource::<Run>().hp, 20.0);
         assert_eq!(app.world().resource::<Run>().talents.0[8], 5);

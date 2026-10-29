@@ -6,7 +6,8 @@ use bevy::prelude::*;
 use super::data::{AbilityDef, Effect, Kind};
 use super::enemies::{self, Enemy, Loot};
 use super::hero::{self, Hero};
-use super::units::{self, flat, Fx, Marks, UnitSpec, COLOR_HEAL, COLOR_MELEE, COLOR_SPELL};
+use super::skill_effects::{self, Source};
+use super::units::{self, COLOR_HEAL, COLOR_MELEE, COLOR_SPELL, Fx, Marks, UnitSpec, flat};
 use super::{Rng, Run, RunEntity, Stats};
 use crate::net::{FieldChanged, Guid, ObjectStore};
 
@@ -24,6 +25,9 @@ pub(super) struct Hit {
     pub splash: f32,
     pub crit: bool,
     pub color: u32,
+    pub source: Source,
+    pub interval: f32,
+    pub splash_ratio: f32,
 }
 
 impl Hit {
@@ -39,6 +43,9 @@ impl Hit {
             splash: 0.0,
             crit,
             color: COLOR_MELEE,
+            source: Source::default(),
+            interval: 1.0,
+            splash_ratio: 0.7,
         }
     }
 }
@@ -54,13 +61,14 @@ pub(super) struct GroundArea {
     dot: f32,
     dot_dur: f32,
     radius: f32,
-    left: f32,
-    every: f32,
-    next_tick: f32,
+    left: f64,
+    every: f64,
+    next_tick: f64,
     effect: Effect,
     mark: u32,
     /// The spell whose impact plays on each enemy a tick hits, 0 for none.
     impact: u32,
+    source: Source,
 }
 
 #[derive(Component)]
@@ -69,9 +77,11 @@ pub(super) struct Totem {
     damage: f32,
     range: f32,
     radius: f32,
-    left: f32,
-    tick: f32,
+    left: f64,
+    tick: f64,
     pulse: bool,
+    every: f64,
+    source: Source,
 }
 
 #[derive(Clone, Copy)]
@@ -92,6 +102,7 @@ struct Params {
     duration: f32,
     cooldown: f32,
     range: f32,
+    source: Source,
 }
 
 fn mark_secs(def: &AbilityDef, duration: f32) -> f32 {
@@ -109,11 +120,15 @@ fn hit_for(def: &AbilityDef, p: &Params, target: Entity, damage: f32, crit: bool
         damage,
         dot: p.dot,
         dot_dur: p.duration,
-        effect: def.effect,
+        effect: p.source.modifiers.effect(def.effect),
         mark: def.mark,
-        mark_dur: mark_secs(def, p.duration),
+        mark_dur: mark_secs(def, p.duration) * (1.0 + p.source.modifiers.control),
         splash: if matches!(def.kind, Kind::Bolt | Kind::Strike) {
-            p.radius
+            if p.source.modifiers.splash > 0.0 {
+                3.0
+            } else {
+                p.radius
+            }
         } else {
             0.0
         },
@@ -122,6 +137,13 @@ fn hit_for(def: &AbilityDef, p: &Params, target: Entity, damage: f32, crit: bool
             COLOR_MELEE
         } else {
             COLOR_SPELL
+        },
+        source: p.source,
+        interval: p.source.modifiers.interval(1.0),
+        splash_ratio: if p.source.modifiers.splash > 0.0 {
+            p.source.modifiers.splash
+        } else {
+            0.7
         },
     }
 }
@@ -133,6 +155,15 @@ fn schedule(
     delay: f32,
     hit: Hit,
 ) {
+    if hit.source.echo && !hit.source.secondary {
+        let mut echo = hit.clone();
+        echo.damage *= 0.5;
+        echo.dot *= 0.5;
+        echo.source.secondary = true;
+        echo.source.echo = false;
+        echo.splash = 0.0;
+        pending.0.push((now + delay + 0.25, echo));
+    }
     if delay <= 0.0 {
         hits.write(hit);
     } else {
@@ -241,6 +272,13 @@ pub(super) fn cast_abilities(
         let o = &run.abilities[i];
         let def = o.def;
         let cast = super::talents::cast(def, o.level, &stats);
+        let source = Source {
+            ability: Some(def.key),
+            batch: run.guid(),
+            modifiers: cast.modifiers,
+            echo: cast.modifiers.echo > 0.0 && rng.f32() < cast.modifiers.echo,
+            ..default()
+        };
         let p = Params {
             dmg: cast.dmg,
             dot: cast.dot,
@@ -249,6 +287,7 @@ pub(super) fn cast_abilities(
             duration: cast.duration,
             cooldown: cast.cooldown,
             range: cast.range,
+            source,
         };
         let speed = speed_of(def.spell);
         let fired = match def.kind {
@@ -352,12 +391,17 @@ pub(super) fn cast_abilities(
                             dot: p.dot,
                             dot_dur: if burst { 5.0 } else { 0.0 },
                             radius: p.radius,
-                            left: if burst { 1.5 } else { p.duration },
-                            every: if burst { f32::INFINITY } else { 1.0 },
+                            left: if burst { 1.5 } else { f64::from(p.duration) },
+                            every: if burst {
+                                f64::INFINITY
+                            } else {
+                                f64::from(p.source.modifiers.interval(1.0))
+                            },
                             next_tick: if burst { 0.0 } else { 0.4 },
-                            effect: def.effect,
+                            effect: p.source.modifiers.effect(def.effect),
                             mark: def.mark,
                             impact: if def.overhead { def.spell } else { 0 },
+                            source,
                         });
                         true
                     }
@@ -385,7 +429,11 @@ pub(super) fn cast_abilities(
                     }
                     fx.cast(me, def.spell, &entities(&chain), None);
                     for (k, f) in chain.iter().enumerate() {
-                        let (dmg, crit) = roll(&mut rng, &stats, p.dmg * 0.85f32.powi(k as i32));
+                        let (dmg, crit) = roll(
+                            &mut rng,
+                            &stats,
+                            p.dmg * (0.85 + p.source.modifiers.chain).min(1.0).powi(k as i32),
+                        );
                         schedule(
                             &mut pending,
                             &mut hits,
@@ -473,6 +521,7 @@ pub(super) fn cast_abilities(
                     run.thorns = p.dmg;
                     run.thorns_t = p.duration;
                     run.thorns_spell = def.spell;
+                    run.thorns_source = source;
                     fx.cast(me, def.spell, &[me], None);
                     true
                 } else {
@@ -519,9 +568,17 @@ pub(super) fn cast_abilities(
                         damage: p.dmg,
                         range: p.range,
                         radius: p.radius,
-                        left: p.duration,
+                        left: f64::from(p.duration),
                         tick: 0.3,
                         pulse: def.key == "magma_totem",
+                        every: f64::from(
+                            p.source.modifiers.interval(if def.key == "magma_totem" {
+                                2.0
+                            } else {
+                                1.0
+                            }),
+                        ),
+                        source,
                     });
                     true
                 } else {
@@ -567,10 +624,10 @@ pub(super) fn tick_areas(
         .collect();
 
     for (e, tf, mut area) in &mut areas {
-        area.left -= dt;
-        area.next_tick -= dt;
-        if area.next_tick <= 0.0 {
-            area.next_tick += area.every;
+        let a = &mut *area;
+        let count = skill_effects::ticks(&mut a.left, &mut a.next_tick, a.every, dt);
+        for _ in 0..count {
+            area.source.pulse += 1;
             for (i, f) in around(&live, tf.translation, area.radius)
                 .into_iter()
                 .enumerate()
@@ -590,6 +647,9 @@ pub(super) fn tick_areas(
                     splash: 0.0,
                     crit,
                     color: COLOR_SPELL,
+                    source: area.source,
+                    interval: area.source.modifiers.interval(1.0),
+                    splash_ratio: 0.7,
                 });
             }
         }
@@ -599,68 +659,67 @@ pub(super) fn tick_areas(
     }
 
     for (e, tf, mut totem) in &mut totems {
-        totem.left -= dt;
+        let t = &mut *totem;
+        let count = skill_effects::ticks(&mut t.left, &mut t.tick, t.every, dt);
+        for _ in 0..count {
+            totem.source.pulse += 1;
+            let pos = tf.translation;
+            if totem.pulse {
+                let targets = around(&live, pos, totem.radius);
+                if targets.is_empty() {
+                    continue;
+                }
+                fx.cast(e, totem.cast, &[], None);
+                for f in &targets {
+                    let (dmg, crit) = roll(&mut rng, &stats, totem.damage);
+                    hits.write(Hit {
+                        color: COLOR_SPELL,
+                        source: totem.source,
+                        ..Hit::direct(f.e, dmg, crit)
+                    });
+                }
+            } else {
+                let target = live
+                    .iter()
+                    .map(|f| (flat(f.pos - pos).length(), f))
+                    .filter(|(d, _)| *d <= totem.range)
+                    .min_by(|a, b| a.0.total_cmp(&b.0));
+                let Some((dist, f)) = target else { continue };
+                fx.cast(e, totem.cast, &[f.e], None);
+                let speed = spells
+                    .as_deref()
+                    .and_then(|s| s.catalog.get(totem.cast))
+                    .map_or(0.0, |d| d.speed);
+                let delay = if speed > 0.0 { dist / speed } else { 0.0 };
+                let (dmg, crit) = roll(&mut rng, &stats, totem.damage);
+                schedule(
+                    &mut pending,
+                    &mut hits,
+                    now,
+                    delay,
+                    Hit {
+                        color: COLOR_SPELL,
+                        source: totem.source,
+                        ..Hit::direct(f.e, dmg, crit)
+                    },
+                );
+            }
+        }
         if totem.left <= 0.0 {
             commands
                 .entity(e)
                 .remove::<Totem>()
                 .insert(benilla_world::model_fade::DespawnFade::default());
-            continue;
-        }
-        totem.tick -= dt;
-        if totem.tick > 0.0 {
-            continue;
-        }
-        let pos = tf.translation;
-        if totem.pulse {
-            let targets = around(&live, pos, totem.radius);
-            totem.tick = 2.0;
-            if targets.is_empty() {
-                continue;
-            }
-            fx.cast(e, totem.cast, &[], None);
-            for f in &targets {
-                let (dmg, crit) = roll(&mut rng, &stats, totem.damage);
-                hits.write(Hit {
-                    color: COLOR_SPELL,
-                    ..Hit::direct(f.e, dmg, crit)
-                });
-            }
-        } else {
-            totem.tick = 1.0;
-            let target = live
-                .iter()
-                .map(|f| (flat(f.pos - pos).length(), f))
-                .filter(|(d, _)| *d <= totem.range)
-                .min_by(|a, b| a.0.total_cmp(&b.0));
-            let Some((dist, f)) = target else { continue };
-            fx.cast(e, totem.cast, &[f.e], None);
-            let speed = spells
-                .as_deref()
-                .and_then(|s| s.catalog.get(totem.cast))
-                .map_or(0.0, |d| d.speed);
-            let delay = if speed > 0.0 { dist / speed } else { 0.0 };
-            let (dmg, crit) = roll(&mut rng, &stats, totem.damage);
-            schedule(
-                &mut pending,
-                &mut hits,
-                now,
-                delay,
-                Hit {
-                    color: COLOR_SPELL,
-                    ..Hit::direct(f.e, dmg, crit)
-                },
-            );
         }
     }
 }
 
-/// Land every hit due: damage and its number, the over-time part, crowd control, the marks, and
-/// death with its loot.
+/// Land every hit due: damage, periodic effects, crowd control and death with loot.
 pub(super) fn apply_hits(
     mut commands: Commands,
     time: Res<Time>,
     mut run: ResMut<Run>,
+    mut rng: ResMut<Rng>,
     mut pending: ResMut<PendingHits>,
     mut incoming: MessageReader<Hit>,
     mut enemies: Query<(
@@ -677,6 +736,7 @@ pub(super) fn apply_hits(
 ) {
     let dt = time.delta_secs();
     let now = run.elapsed;
+    super::talents::periodic_heal(&mut run, 0.0, dt);
     let mut due: Vec<Hit> = incoming.read().cloned().collect();
     pending.0.retain(|(t, h)| {
         if *t <= now {
@@ -687,7 +747,7 @@ pub(super) fn apply_hits(
         }
     });
 
-    // Splash reaches the target's neighbours at seventy percent.
+    // Splash never hits its original target a second time.
     let mut all = Vec::with_capacity(due.len());
     for h in due {
         if h.splash > 0.0 {
@@ -697,9 +757,13 @@ pub(super) fn apply_hits(
                     if e != h.target && !en.dead && flat(tf.translation - c).length() <= h.splash {
                         all.push(Hit {
                             target: e,
-                            damage: h.damage * 0.7,
+                            damage: h.damage * h.splash_ratio,
                             splash: 0.0,
                             mark: 0,
+                            source: Source {
+                                secondary: true,
+                                ..h.source
+                            },
                             ..h.clone()
                         });
                     }
@@ -735,18 +799,38 @@ pub(super) fn apply_hits(
             continue;
         }
         let mut dmg = h.damage;
+        if !h.source.secondary && en.hp / en.max_hp < 0.3 {
+            dmg *= 1.0 + h.source.modifiers.execute;
+        }
         if let Effect::Execute(threshold) = h.effect {
             if !en.boss && en.hp / en.max_hp <= threshold {
                 dmg = dmg.max(en.hp);
             }
         }
         if dmg > 0.0 {
+            let effective = dmg.min(en.hp.max(0.0));
             en.hp -= dmg;
             run.damage_done += f64::from(dmg);
             fx.number(e, dmg, h.crit, h.color);
             if let Effect::Drain(frac) = h.effect {
                 let max = run.stats().max_hp;
-                run.hp = (run.hp + dmg * frac).min(max);
+                run.hp = (run.hp + effective * frac).min(max);
+            }
+            skill_effects::damage_effects(&mut run, h.source, effective, &mut rng);
+            if !h.source.secondary && h.source.modifiers.ember > 0.0 && en.hp > 0.0 {
+                if en.dots.len() >= 6 {
+                    en.dots.remove(0);
+                }
+                en.dots.push(enemies::Dot {
+                    dps: dmg * h.source.modifiers.ember / 3.0,
+                    left: 3.0,
+                    tick: 1.0,
+                    every: 1.0,
+                    source: Source {
+                        secondary: true,
+                        ..h.source
+                    },
+                });
             }
         }
         if h.dot > 0.0 && h.dot_dur > 0.0 {
@@ -755,8 +839,10 @@ pub(super) fn apply_hits(
             }
             en.dots.push(enemies::Dot {
                 dps: h.dot,
-                left: h.dot_dur,
-                tick: 1.0,
+                left: f64::from(h.dot_dur),
+                tick: f64::from(h.interval),
+                every: f64::from(h.interval),
+                source: h.source,
             });
         }
         let boss = en.boss;
@@ -786,24 +872,36 @@ pub(super) fn apply_hits(
         marks.flush(e, guid.0, &mut store, &mut fields);
     }
 
-    // The over-time ticks, once a second each.
-    let mut periodic_effective = 0.0;
+    // Tick counts depend on the active time window, not the number of rendered frames.
     for (e, guid, tf, mut en, mut store, mut marks) in &mut enemies {
         if en.dead || en.dots.is_empty() {
             continue;
         }
+        let mut hp = en.hp;
+        let max_hp = en.max_hp;
         let mut dealt = 0.0;
         for d in &mut en.dots {
-            d.left -= dt;
-            d.tick -= dt;
-            if d.tick <= 0.0 {
-                d.tick += 1.0;
-                dealt += d.dps;
+            let count = skill_effects::ticks(&mut d.left, &mut d.tick, d.every, dt);
+            for _ in 0..count {
+                if hp <= 0.0 {
+                    break;
+                }
+                d.source.pulse += 1;
+                d.source.periodic = true;
+                let damage = d.dps
+                    * if !d.source.secondary && hp / max_hp < 0.3 {
+                        1.0 + d.source.modifiers.execute
+                    } else {
+                        1.0
+                    };
+                let effective = damage.min(hp.max(0.0));
+                hp -= damage;
+                dealt += damage;
+                skill_effects::damage_effects(&mut run, d.source, effective, &mut rng);
             }
         }
         en.dots.retain(|d| d.left > 0.0);
         if dealt > 0.0 {
-            periodic_effective += dealt.min(en.hp.max(0.0));
             en.hp -= dealt;
             run.damage_done += f64::from(dealt);
             fx.number(e, dealt, false, COLOR_SPELL);
@@ -814,6 +912,294 @@ pub(super) fn apply_hits(
                 marks.flush(e, guid.0, &mut store, &mut fields);
             }
         }
-        super::talents::periodic_heal(&mut run, periodic_effective, dt);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::{
+        Owned, data,
+        gear::{EnhKind, SkillRoll},
+    };
+    use super::*;
+    use crate::creature_anim::{CastEvent, PlaySeq, SpellGoTargets, SwingMessage};
+    use benilla_protocol::messages::ObjectFields;
+    use std::time::Duration;
+
+    fn app() -> App {
+        let mut app = App::new();
+        app.init_resource::<Run>()
+            .insert_resource(Rng(12345))
+            .init_resource::<Time>()
+            .init_resource::<PendingHits>()
+            .init_resource::<PlaySeq>()
+            .add_message::<Hit>()
+            .add_message::<Loot>()
+            .add_message::<FieldChanged>()
+            .add_message::<CastEvent>()
+            .add_message::<SpellGoTargets>()
+            .add_message::<SwingMessage>()
+            .add_message::<crate::combat_text::CombatTextSpawn>();
+        app
+    }
+
+    fn foe(app: &mut App, x: f32, hp: f32) -> Entity {
+        app.world_mut()
+            .spawn((
+                Transform::from_xyz(x, 0.0, 0.0),
+                Guid(123),
+                ObjectStore(ObjectFields::from_pairs(&[])),
+                Marks::debuffs(),
+                Enemy {
+                    def: &data::ENEMIES[0],
+                    hp,
+                    max_hp: hp,
+                    speed: 0.0,
+                    damage: 0.0,
+                    radius: 0.0,
+                    xp: 0,
+                    boss: false,
+                    attack_cd: 0.0,
+                    slow: 1.0,
+                    slow_t: 0.0,
+                    root_t: 0.0,
+                    stun_t: 0.0,
+                    fear_t: 0.0,
+                    weaken: 1.0,
+                    weaken_t: 0.0,
+                    dots: Vec::new(),
+                    dead: false,
+                },
+            ))
+            .id()
+    }
+
+    fn step(app: &mut App, dt: f32) {
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_secs_f32(dt));
+        app.update();
+        app.world_mut().resource_mut::<Run>().elapsed += dt;
+    }
+
+    fn enhance(app: &mut App, kind: EnhKind, ability: Option<&'static str>, value: f32) {
+        let mut run = app.world_mut().resource_mut::<Run>();
+        let at = run.gear.enh.iter().position(Option::is_none).unwrap();
+        run.gear.enh[at] = Some(SkillRoll {
+            item: at as u64 + 1,
+            index: 0,
+            ability,
+            kind,
+            value,
+        });
+    }
+
+    #[test]
+    fn actual_bolt_cast_adds_targets_and_only_supported_global_radius_changes_area_hits() {
+        let mut app = app();
+        app.add_systems(Update, (cast_abilities, apply_hits).chain());
+        app.world_mut()
+            .spawn((Hero { vy: 0.0, air: 0.0 }, Transform::default()));
+        let first = foe(&mut app, 4.0, 1000.0);
+        let second = foe(&mut app, 7.0, 1000.0);
+        enhance(&mut app, EnhKind::Count, Some("frostbolt"), 1.0);
+        enhance(&mut app, EnhKind::Radius, None, 1.0);
+        app.world_mut().resource_mut::<Run>().abilities.push(Owned {
+            def: data::ability("frostbolt"),
+            level: 1,
+            cd: 0.0,
+        });
+        step(&mut app, 0.1);
+        assert!(app.world().get::<Enemy>(first).unwrap().hp < 1000.0);
+        assert!(app.world().get::<Enemy>(second).unwrap().hp < 1000.0);
+        let mut run = app.world_mut().resource_mut::<Run>();
+        run.abilities.clear();
+        run.abilities.push(Owned {
+            def: data::ability("arcane_explosion"),
+            level: 1,
+            cd: 0.0,
+        });
+        let distant = foe(&mut app, 12.0, 1000.0);
+        step(&mut app, 0.1);
+        assert!(app.world().get::<Enemy>(distant).unwrap().hp < 1000.0);
+    }
+
+    #[test]
+    fn cast_frequency_reaches_dot_scheduler_without_reducing_single_tick_damage() {
+        let mut app = app();
+        app.add_systems(Update, (cast_abilities, apply_hits).chain());
+        app.world_mut()
+            .spawn((Hero { vy: 0.0, air: 0.0 }, Transform::default()));
+        let e = foe(&mut app, 4.0, 1000.0);
+        enhance(&mut app, EnhKind::Frequency, Some("corruption"), 1.0);
+        app.world_mut().resource_mut::<Run>().abilities.push(Owned {
+            def: data::ability("corruption"),
+            level: 1,
+            cd: 0.0,
+        });
+        step(&mut app, 0.1);
+        let dot = &app.world().get::<Enemy>(e).unwrap().dots[0];
+        assert_eq!(dot.every, 0.5);
+        assert_eq!(dot.dps, 4.0);
+        app.world_mut().resource_mut::<Run>().abilities.clear();
+        step(&mut app, 10.5);
+        assert_eq!(app.world().get::<Enemy>(e).unwrap().hp, 920.0);
+    }
+
+    #[test]
+    fn echo_schedules_one_half_strength_hit_without_splash_or_recursive_echo() {
+        use bevy::ecs::system::RunSystemOnce;
+        let mut app = app();
+        app.world_mut()
+            .run_system_once(
+                |mut pending: ResMut<PendingHits>, mut hits: MessageWriter<Hit>| {
+                    let mut hit = Hit::direct(Entity::PLACEHOLDER, 100.0, false);
+                    hit.source.echo = true;
+                    hit.splash = 3.0;
+                    schedule(&mut pending, &mut hits, 0.0, 0.0, hit);
+                },
+            )
+            .unwrap();
+        let pending = app.world().resource::<PendingHits>();
+        assert_eq!(pending.0.len(), 1);
+        let (at, hit) = &pending.0[0];
+        assert_eq!(*at, 0.25);
+        assert_eq!(hit.damage, 50.0);
+        assert_eq!(hit.splash, 0.0);
+        assert!(hit.source.secondary);
+        assert!(!hit.source.echo);
+    }
+
+    #[test]
+    fn actual_dot_ticks_double_damage_without_missing_ticks_on_long_frames() {
+        for (interval, expected) in [(1.0, 600.0), (0.5, 1200.0)] {
+            let mut app = app();
+            app.add_systems(Update, apply_hits);
+            let e = foe(&mut app, 1.0, 2000.0);
+            app.world_mut()
+                .get_mut::<Enemy>(e)
+                .unwrap()
+                .dots
+                .push(enemies::Dot {
+                    dps: 100.0,
+                    left: 6.0,
+                    tick: interval,
+                    every: interval,
+                    source: Source {
+                        ability: Some("corruption"),
+                        batch: 1,
+                        ..default()
+                    },
+                });
+            for _ in 0..4 {
+                step(&mut app, 1.7);
+            }
+            assert_eq!(app.world().get::<Enemy>(e).unwrap().hp, 2000.0 - expected);
+            assert!(app.world().get::<Enemy>(e).unwrap().dots.is_empty());
+        }
+    }
+
+    #[test]
+    fn ground_and_totem_use_independent_tick_frequency_and_damage_provenance() {
+        for interval in [1.0, 0.5] {
+            let mut app = app();
+            app.add_systems(Update, (tick_areas, apply_hits).chain());
+            let e = foe(&mut app, 1.0, 5000.0);
+            let source = Source {
+                ability: Some("blizzard"),
+                batch: 1,
+                ..default()
+            };
+            app.world_mut().spawn((
+                Transform::default(),
+                GroundArea {
+                    damage: 100.0,
+                    dot: 0.0,
+                    dot_dur: 0.0,
+                    radius: 5.0,
+                    left: 6.0,
+                    every: interval,
+                    next_tick: interval,
+                    effect: Effect::None,
+                    mark: 0,
+                    impact: 0,
+                    source,
+                },
+            ));
+            app.world_mut().spawn((
+                Transform::default(),
+                Totem {
+                    cast: 403,
+                    damage: 100.0,
+                    range: 20.0,
+                    radius: 0.0,
+                    left: 6.0,
+                    tick: interval,
+                    pulse: false,
+                    every: interval,
+                    source: Source {
+                        ability: Some("searing_totem"),
+                        batch: 2,
+                        ..default()
+                    },
+                },
+            ));
+            for _ in 0..4 {
+                step(&mut app, 1.7);
+            }
+            let mut rng = Rng(12345);
+            let stats = Run::default().stats();
+            let expected: f32 = (0..(2.0 * 6.0 / interval) as u32)
+                .map(|_| roll(&mut rng, &stats, 100.0).0)
+                .sum();
+            assert_eq!(app.world().get::<Enemy>(e).unwrap().hp, 5000.0 - expected);
+        }
+    }
+
+    #[test]
+    fn healing_uses_effective_damage_instead_of_overkill_in_the_real_hit_pipeline() {
+        let mut app = app();
+        app.add_systems(Update, apply_hits);
+        let e = foe(&mut app, 1.0, 10.0);
+        app.world_mut().resource_mut::<Run>().hp = 50.0;
+        let mut hit = Hit::direct(e, 1000.0, false);
+        hit.source = Source {
+            ability: Some("frostbolt"),
+            batch: 1,
+            modifiers: skill_effects::Modifiers {
+                leech: 0.1,
+                ..default()
+            },
+            ..default()
+        };
+        app.world_mut().resource_mut::<Messages<Hit>>().write(hit);
+        step(&mut app, 1.0);
+        assert_eq!(app.world().resource::<Run>().hp, 51.0);
+    }
+
+    #[test]
+    fn echo_and_ember_do_not_recursively_generate_secondary_effects() {
+        let mut app = app();
+        app.add_systems(Update, (cast_abilities, apply_hits).chain());
+        app.world_mut()
+            .spawn((Hero { vy: 0.0, air: 0.0 }, Transform::default()));
+        let e = foe(&mut app, 4.0, 10000.0);
+        enhance(&mut app, EnhKind::Ember, Some("frostbolt"), 0.3);
+        enhance(&mut app, EnhKind::Echo, Some("frostbolt"), 0.5);
+        app.world_mut().resource_mut::<Run>().abilities.push(Owned {
+            def: data::ability("frostbolt"),
+            level: 1,
+            cd: 0.0,
+        });
+        step(&mut app, 0.1);
+        assert_eq!(app.world().get::<Enemy>(e).unwrap().dots.len(), 1);
+        app.world_mut().resource_mut::<Run>().abilities.clear();
+        step(&mut app, 0.5);
+        assert_eq!(app.world().get::<Enemy>(e).unwrap().dots.len(), 1);
+        assert!(app.world().resource::<PendingHits>().0.is_empty());
+        for _ in 0..4 {
+            step(&mut app, 1.0);
+        }
+        assert!(app.world().get::<Enemy>(e).unwrap().dots.is_empty());
     }
 }

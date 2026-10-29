@@ -274,7 +274,11 @@ fn icon(spell: u32, size: f32) -> impl Bundle {
     )
 }
 
-pub(super) fn spell_name(spells: Option<&crate::ui_action::Spells>, spell: u32, fallback: &str) -> String {
+pub(super) fn spell_name(
+    spells: Option<&crate::ui_action::Spells>,
+    spell: u32,
+    fallback: &str,
+) -> String {
     spells
         .and_then(|s| s.catalog.get(spell))
         .map(|d| d.name.clone())
@@ -770,7 +774,10 @@ pub(super) fn setup_hud(
             ));
             for (label, action) in [
                 (localization::text("Resume", "继续"), UiAction::Resume),
-                (localization::text("Equipment (B)", "装备 (B)"), UiAction::Gear),
+                (
+                    localization::text("Equipment (B)", "装备 (B)"),
+                    UiAction::Gear,
+                ),
                 (
                     localization::text("Abandon run", "放弃本局"),
                     UiAction::MainMenu,
@@ -1925,21 +1932,24 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
                 format!("Strikes a {} yd area {at} for {d} damage", num(c.radius))
             } else {
                 format!(
-                    "Covers a {} yd area {at} for {} sec, dealing {d} damage every second",
+                    "Covers a {} yd area {at} for {} sec, dealing {d} damage every {} sec",
                     num(c.radius),
-                    num(c.duration)
+                    num(c.duration),
+                    num(c.modifiers.interval(1.0))
                 )
             }
         }
         Kind::Chain => format!(
-            "Strikes the nearest enemy for {d} damage, then jumps to {} more within {} yd of each other, 15% weaker with every jump",
+            "Strikes the nearest enemy for {d} damage, then jumps to {} more within {} yd of each other, {} weaker with every jump",
             c.count,
-            num(c.radius)
+            num(c.radius),
+            pct((0.15 - c.modifiers.chain).max(0.0))
         ),
         Kind::Dot => format!(
-            "Afflicts {} enemies in range with {} damage every second for {} sec",
+            "Afflicts {} enemies in range with {} damage every {} sec for {} sec",
             c.count,
             num(c.dot),
+            num(c.modifiers.interval(1.0)),
             num(c.duration)
         ),
         Kind::Aura => format!(
@@ -1974,14 +1984,16 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
             num(c.duration)
         ),
         Kind::Totem if def.key == "magma_totem" => format!(
-            "Drops a totem for {} sec that burns every enemy within {} yd for {d} damage every 2 sec",
+            "Drops a totem for {} sec that burns every enemy within {} yd for {d} damage every {} sec",
             num(c.duration),
-            num(c.radius)
+            num(c.radius),
+            num(c.modifiers.interval(2.0))
         ),
         Kind::Totem => format!(
-            "Drops a totem for {} sec that hits the nearest enemy within {} yd for {d} damage every second",
+            "Drops a totem for {} sec that hits the nearest enemy within {} yd for {d} damage every {} sec",
             num(c.duration),
-            num(c.range)
+            num(c.range),
+            num(c.modifiers.interval(1.0))
         ),
     };
     // Areas that tick carry no over-time part; a burst leaves a 5 second one.
@@ -1989,12 +2001,13 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
     if c.dot > 0.0 && def.kind != Kind::Dot && (!ground || burst) {
         let secs = if ground { 5.0 } else { c.duration };
         s += &format!(
-            ", then {} damage every second for {} sec",
+            ", then {} damage every {} sec for {} sec",
             num(c.dot),
+            num(c.modifiers.interval(1.0)),
             num(secs)
         );
     }
-    if let Some(e) = effect_text(def.effect) {
+    if let Some(e) = effect_text(c.modifiers.effect(def.effect)) {
         s += ", ";
         s += &e;
     }
@@ -2057,22 +2070,25 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
                 )
             } else {
                 format!(
-                    "覆盖{at}{}码范围，持续{}秒，每秒造成{}点伤害",
+                    "覆盖{at}{}码范围，持续{}秒，每{}秒造成{}点伤害",
                     num(c.radius),
                     num(c.duration),
+                    num(c.modifiers.interval(1.0)),
                     damage
                 )
             }
         }
         Kind::Chain => format!(
-            "对最近的敌人造成{}点伤害，随后在彼此{}码内跳跃至另外{}个目标，每次跳跃伤害降低15%",
+            "对最近的敌人造成{}点伤害，随后在彼此{}码内跳跃至另外{}个目标，每次跳跃伤害降低{}",
             damage,
             num(c.radius),
-            c.count
+            c.count,
+            pct((0.15 - c.modifiers.chain).max(0.0))
         ),
         Kind::Dot => format!(
-            "使射程内{}名敌人每秒受到{}点伤害，持续{}秒",
+            "使射程内{}名敌人每{}秒受到{}点伤害，持续{}秒",
             c.count,
+            num(c.modifiers.interval(1.0)),
             num(c.dot),
             num(c.duration)
         ),
@@ -2106,14 +2122,16 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
             damage
         ),
         Kind::Totem if def.key == "magma_totem" => format!(
-            "放置图腾，持续{}秒；每2秒灼烧{}码内的所有敌人，造成{}点伤害",
+            "放置图腾，持续{}秒；每{}秒灼烧{}码内的所有敌人，造成{}点伤害",
             num(c.duration),
+            num(c.modifiers.interval(2.0)),
             num(c.radius),
             damage
         ),
         Kind::Totem => format!(
-            "放置图腾，持续{}秒；每秒攻击{}码内最近的敌人，造成{}点伤害",
+            "放置图腾，持续{}秒；每{}秒攻击{}码内最近的敌人，造成{}点伤害",
             num(c.duration),
+            num(c.modifiers.interval(1.0)),
             num(c.range),
             damage
         ),
@@ -2121,9 +2139,14 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
     let ground = matches!(def.kind, Kind::Ground | Kind::GroundSelf);
     if c.dot > 0.0 && def.kind != Kind::Dot && (!ground || burst) {
         let secs = if ground { 5.0 } else { c.duration };
-        body += &format!("，之后每秒造成{}点伤害，持续{}秒", num(c.dot), num(secs));
+        body += &format!(
+            "，之后每{}秒造成{}点伤害，持续{}秒",
+            num(c.modifiers.interval(1.0)),
+            num(c.dot),
+            num(secs)
+        );
     }
-    if let Some(effect) = effect_text(def.effect) {
+    if let Some(effect) = effect_text(c.modifiers.effect(def.effect)) {
         body.push('，');
         body.push_str(&effect);
     }
@@ -2147,7 +2170,7 @@ fn next_rank(def: &AbilityDef, now: &Cast, next: &Cast) -> String {
             ));
         }
         if next.dot > now.dot {
-            gains.push(format!("每秒{}点伤害", num(next.dot)));
+            gains.push(format!("每跳{}点伤害", num(next.dot)));
         }
         if next.count != now.count
             && matches!(
@@ -2179,7 +2202,7 @@ fn next_rank(def: &AbilityDef, now: &Cast, next: &Cast) -> String {
         gains.push(format!("{} {what}", num(next.dmg)));
     }
     if next.dot > 0.0 {
-        gains.push(format!("{} damage per second", num(next.dot)));
+        gains.push(format!("{} damage per tick", num(next.dot)));
     }
     if next.count != now.count
         && matches!(
@@ -2546,10 +2569,7 @@ pub(super) fn icon_tooltip(
             vec![
                 TipLine::new(spell_name(spells.as_deref(), m.spell, m.name), Color::WHITE).header(),
                 TipLine::new(localization::text("Press F", "按 F"), Color::WHITE).right(
-                    format!(
-                        "{} sec cooldown",
-                        num(m.cooldown * run.mobility_cooldown())
-                    ),
+                    format!("{} sec cooldown", num(m.cooldown * run.mobility_cooldown())),
                     Color::WHITE,
                 ),
                 TipLine::new(m.desc, GOLD),

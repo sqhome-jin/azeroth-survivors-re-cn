@@ -16,13 +16,14 @@ pub(super) const SLOT_COUNT: usize = 9;
 const MAIN_SLOT: usize = 7;
 const OFF_SLOT: usize = 8;
 
-/// Affix counts per rarity; a primal also carries one skill enhancement.
-pub(super) const AFFIX_COUNTS: [usize; RARITY_COUNT] = [2, 4, 6, 8, 10, 10];
+/// Ordinary and skill-affix counts per rarity.
+pub(super) const AFFIX_COUNTS: [usize; RARITY_COUNT] = [1, 2, 3, 4, 5, 5];
+pub(super) const ENH_COUNTS: [usize; RARITY_COUNT] = [0, 0, 1, 2, 3, 4];
+pub(super) const MAX_ENH: usize = SLOT_COUNT * 4;
 
 const NORMAL_WEIGHTS: [f32; RARITY_COUNT] = [50.0, 30.0, 13.0, 5.0, 1.6, 0.4];
 const BOSS_WEIGHTS: [f32; RARITY_COUNT] = [0.0, 20.0, 38.0, 28.0, 11.0, 3.0];
-pub(super) const NORMAL_DROP_CHANCE: f32 = 0.008;
-pub(super) const BOSS_EXTRA_CHANCE: f32 = 0.25;
+const NORMAL_DROP_CHANCE: f32 = 0.002;
 
 pub(super) const RARITY_NAMES: [(&str, &str); RARITY_COUNT] = [
     ("Common", "普通"),
@@ -371,20 +372,20 @@ const fn af(en: &'static str, zh: &'static str, lo: u32, hi: u32, percent: bool)
 
 pub(super) const AFFIX_COUNT: usize = 14;
 pub(super) const AFFIXES: [AffixDef; AFFIX_COUNT] = [
-    af("Damage", "伤害", 200, 600, true),
-    af("Max Health", "最大生命", 300, 800, true),
-    af("Move Speed", "移动速度", 200, 500, true),
-    af("Health Regen /s", "每秒生命回复", 1000, 4000, false),
-    af("Haste", "急速", 100, 400, true),
-    af("Area", "范围", 200, 600, true),
-    af("Pickup Range", "拾取范围", 400, 1200, true),
-    af("Experience", "经验获取", 200, 600, true),
-    af("Armor", "护甲", 3000, 10000, false),
-    af("Crit Chance", "暴击几率", 50, 200, true),
-    af("Crit Damage", "暴击伤害", 300, 1000, true),
-    af("Life Leech", "生命偷取", 10, 40, true),
-    af("Damage Reduction", "伤害减免", 50, 200, true),
-    af("Mobility Cooldown", "位移冷却缩减", 100, 400, true),
+    af("Damage", "伤害", 400, 1200, true),
+    af("Max Health", "最大生命", 600, 1600, true),
+    af("Move Speed", "移动速度", 400, 1000, true),
+    af("Health Regen /s", "每秒生命回复", 2000, 8000, false),
+    af("Haste", "急速", 200, 800, true),
+    af("Area", "范围", 400, 1200, true),
+    af("Pickup Range", "拾取范围", 800, 2400, true),
+    af("Experience", "经验获取", 400, 1200, true),
+    af("Armor", "护甲", 6000, 20000, false),
+    af("Crit Chance", "暴击几率", 100, 400, true),
+    af("Crit Damage", "暴击伤害", 600, 2000, true),
+    af("Life Leech", "生命偷取", 20, 80, true),
+    af("Damage Reduction", "伤害减免", 100, 400, true),
+    af("Mobility Cooldown", "位移冷却缩减", 200, 800, true),
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -394,24 +395,190 @@ pub(super) enum EnhKind {
     Count,
     Radius,
     Duration,
+    Frequency,
+    Range,
+    ChainPower,
+    Echo,
+    Splash,
+    Ember,
+    Execute,
+    Leech,
+    Control,
+    BuffDamage,
+    BuffHaste,
+    BuffCrit,
+    BuffSpeed,
+    BuffDefense,
 }
 
-pub(super) const ENH_KINDS: [EnhKind; 5] = [
+pub(super) const ENH_KINDS: [EnhKind; 19] = [
     EnhKind::Damage,
     EnhKind::Cooldown,
     EnhKind::Count,
     EnhKind::Radius,
     EnhKind::Duration,
+    EnhKind::Frequency,
+    EnhKind::Range,
+    EnhKind::ChainPower,
+    EnhKind::Echo,
+    EnhKind::Splash,
+    EnhKind::Ember,
+    EnhKind::Execute,
+    EnhKind::Leech,
+    EnhKind::Control,
+    EnhKind::BuffDamage,
+    EnhKind::BuffHaste,
+    EnhKind::BuffCrit,
+    EnhKind::BuffSpeed,
+    EnhKind::BuffDefense,
 ];
 
 impl EnhKind {
+    pub fn is_buff(self) -> bool {
+        matches!(
+            self,
+            Self::BuffDamage
+                | Self::BuffHaste
+                | Self::BuffCrit
+                | Self::BuffSpeed
+                | Self::BuffDefense
+        )
+    }
+
+    pub fn supports(self, def: &data::AbilityDef) -> bool {
+        use data::Kind;
+        match self {
+            Self::Damage => def.damage > 0.0 || def.dot > 0.0,
+            Self::Cooldown => true,
+            Self::Count => matches!(
+                def.kind,
+                Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Chain | Kind::Dot | Kind::Orbit
+            ),
+            Self::Radius => {
+                def.radius > 0.0
+                    && (matches!(
+                        def.kind,
+                        Kind::Bolt
+                            | Kind::Strike
+                            | Kind::Nova
+                            | Kind::Cone
+                            | Kind::Ground
+                            | Kind::GroundSelf
+                            | Kind::Chain
+                            | Kind::Aura
+                            | Kind::Orbit
+                    ) || (def.kind == Kind::Totem && def.key == "magma_totem"))
+            }
+            Self::Duration => {
+                def.duration > 0.0
+                    && (def.dot > 0.0
+                        || matches!(
+                            def.kind,
+                            Kind::Ground
+                                | Kind::GroundSelf
+                                | Kind::Shield
+                                | Kind::Immune
+                                | Kind::Thorns
+                                | Kind::Totem
+                        ))
+            }
+            Self::Frequency => {
+                def.dot > 0.0
+                    || matches!(def.kind, Kind::Ground | Kind::GroundSelf | Kind::Totem)
+                        && def.duration > 0.0
+            }
+            Self::Range => {
+                matches!(
+                    def.kind,
+                    Kind::Bolt | Kind::Strike | Kind::Dot | Kind::Ground | Kind::Totem
+                ) && def.range > 0.0
+            }
+            Self::ChainPower => def.kind == Kind::Chain,
+            Self::Echo => matches!(
+                def.kind,
+                Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Nova | Kind::Cone | Kind::Chain
+            ),
+            Self::Splash => matches!(def.kind, Kind::Bolt | Kind::Strike) && def.radius == 0.0,
+            Self::Ember => {
+                def.dot == 0.0
+                    && matches!(
+                        def.kind,
+                        Kind::Bolt
+                            | Kind::Strike
+                            | Kind::Melee
+                            | Kind::Nova
+                            | Kind::Cone
+                            | Kind::Chain
+                    )
+            }
+            Self::Control => matches!(
+                def.effect,
+                data::Effect::Slow(..)
+                    | data::Effect::Root(_)
+                    | data::Effect::Stun(_)
+                    | data::Effect::Fear(_)
+                    | data::Effect::Weaken(..)
+            ),
+            Self::Execute
+            | Self::Leech
+            | Self::BuffDamage
+            | Self::BuffHaste
+            | Self::BuffCrit
+            | Self::BuffSpeed
+            | Self::BuffDefense => {
+                (def.damage > 0.0 || def.dot > 0.0)
+                    && !matches!(def.kind, Kind::Shield | Kind::Heal)
+            }
+        }
+    }
+
     /// Roll range in 1/10000 units; a count is whole numbers.
     fn range(self) -> (u32, u32) {
         match self {
             Self::Damage => (2500, 5000),
             Self::Cooldown => (1500, 3000),
-            Self::Count => (10_000, 10_000),
+            Self::Count => (10_000, 20_000),
             Self::Radius | Self::Duration => (2000, 4000),
+            Self::Frequency => (3000, 10_000),
+            Self::Range => (2000, 4000),
+            Self::ChainPower => (500, 1000),
+            Self::Echo => (1500, 3000),
+            Self::Splash => (2000, 3500),
+            Self::Ember => (2000, 4000),
+            Self::Execute => (3000, 6000),
+            Self::Leech => (300, 600),
+            Self::Control => (1500, 3000),
+            Self::BuffDamage => (3000, 3000),
+            Self::BuffHaste => (2000, 2000),
+            Self::BuffCrit => (1000, 1000),
+            Self::BuffSpeed => (2500, 2500),
+            Self::BuffDefense => (2000, 2000),
+        }
+    }
+
+    fn roll_range(self, all: bool) -> (u32, u32) {
+        if !all {
+            return if self == Self::Cooldown {
+                (1000, 2500)
+            } else {
+                self.range()
+            };
+        }
+        match self {
+            Self::Count => (10_000, 10_000),
+            Self::Damage => (800, 1500),
+            Self::Cooldown => (400, 1000),
+            Self::Radius | Self::Duration | Self::Range => (800, 1500),
+            Self::Frequency => (1000, 3000),
+            Self::Leech => (100, 200),
+            Self::BuffDamage => (1500, 1500),
+            Self::BuffHaste | Self::BuffDefense => (1000, 1000),
+            Self::BuffCrit => (500, 500),
+            Self::BuffSpeed => (1200, 1200),
+            _ => {
+                let (lo, hi) = self.range();
+                (lo / 2, hi / 2)
+            }
         }
     }
 
@@ -422,6 +589,22 @@ impl EnhKind {
             Self::Count => localization::text("Projectiles / Hits", "数量"),
             Self::Radius => localization::text("Area", "范围"),
             Self::Duration => localization::text("Duration", "持续时间"),
+            Self::Frequency => localization::text("Tick frequency", "触发频率"),
+            Self::Range => localization::text("Cast range", "施法距离"),
+            Self::ChainPower => localization::text("Chain retention", "弹跳伤害保留"),
+            Self::Echo => localization::text("Echo chance (50% damage)", "回响概率（50%伤害）"),
+            Self::Splash => localization::text("Splash damage (3 yd)", "溅射伤害（3码）"),
+            Self::Ember => localization::text("Extra damage over 3 sec", "额外3秒余烬伤害"),
+            Self::Execute => {
+                localization::text("Damage below 30% health", "对生命低于30%的敌人增伤")
+            }
+            Self::Leech => localization::text("Damage converted to healing", "伤害转化为治疗"),
+            Self::Control => localization::text("Control duration", "控制持续时间"),
+            Self::BuffDamage => localization::text("Damage buff", "毁灭之力·伤害"),
+            Self::BuffHaste => localization::text("Haste buff", "施法狂热·急速"),
+            Self::BuffCrit => localization::text("Crit buff", "致命洞察·暴击率"),
+            Self::BuffSpeed => localization::text("Speed buff", "灵动疾行·移速"),
+            Self::BuffDefense => localization::text("Defense buff", "坚韧护体·减伤"),
         }
     }
 
@@ -444,6 +627,7 @@ pub(super) struct Roll {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
 pub(super) struct EnhRoll {
+    /// Empty for enhancements affecting every compatible skill.
     pub ability: String,
     pub kind: u8,
     pub value: u32,
@@ -461,6 +645,8 @@ pub(super) struct Item {
     pub affixes: Vec<Roll>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enhancement: Option<EnhRoll>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enhancements: Vec<EnhRoll>,
 }
 
 impl Item {
@@ -519,18 +705,57 @@ pub(super) fn describe(roll: &Roll) -> String {
 
 pub(super) fn describe_enhancement(enh: &EnhRoll, ability_name: &str) -> String {
     let kind = ENH_KINDS[usize::from(enh.kind).min(ENH_KINDS.len() - 1)];
+    let target = if enh.ability.is_empty() {
+        localization::text("All compatible skills", "所有相关技能")
+    } else {
+        ability_name
+    };
+    if kind.is_buff() {
+        return format!(
+            "{target}: {}% {} → {} {} ({})",
+            if enh.ability.is_empty() { 15 } else { 30 },
+            localization::text("on damage", "伤害触发"),
+            kind.label(),
+            kind.show(enh.value as f32 / SCALE),
+            localization::text("30s / ICD 30s", "持续30秒 / 内置冷却30秒")
+        );
+    }
     format!(
-        "{ability_name}: {} {}",
+        "{target}: {} {}",
         kind.label(),
         kind.show(enh.value as f32 / SCALE)
     )
 }
 
 /// The derived effect of everything a class wears, folded into [`Stats`].
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub(super) struct Bonuses {
     sum: [f32; AFFIX_COUNT],
-    enh: [Option<(&'static str, EnhKind, f32)>; SLOT_COUNT],
+    pub enh: [Option<SkillRoll>; MAX_ENH],
+}
+
+impl Default for Bonuses {
+    fn default() -> Self {
+        Self {
+            sum: [0.0; AFFIX_COUNT],
+            enh: [None; MAX_ENH],
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct SkillRoll {
+    pub item: u64,
+    pub index: u8,
+    pub ability: Option<&'static str>,
+    pub kind: EnhKind,
+    pub value: f32,
+}
+
+impl SkillRoll {
+    pub fn matches(self, def: &data::AbilityDef) -> bool {
+        self.ability.is_none_or(|key| key == def.key) && self.kind.supports(def)
+    }
 }
 
 impl Bonuses {
@@ -560,11 +785,12 @@ impl Bonuses {
         &'a self,
         ability: &'a str,
     ) -> impl Iterator<Item = (EnhKind, f32)> + 'a {
+        let def = data::ability(ability);
         self.enh
             .iter()
             .flatten()
-            .filter(move |(key, _, _)| *key == ability)
-            .map(|&(_, kind, value)| (kind, value))
+            .filter(move |roll| roll.matches(def))
+            .map(|roll| (roll.kind, roll.value))
     }
 }
 
@@ -595,6 +821,14 @@ pub(super) fn roll_rarity(rng: &mut Rng, boss: bool) -> u8 {
     weights.iter().rposition(|w| *w > 0.0).unwrap_or(0) as u8
 }
 
+pub(super) fn roll_drop_rarity(rng: &mut Rng, boss: bool) -> Option<u8> {
+    if boss || rng.f32() < NORMAL_DROP_CHANCE {
+        Some(roll_rarity(rng, boss))
+    } else {
+        None
+    }
+}
+
 fn roll_value(rng: &mut Rng, lo: u32, hi: u32, primal: bool) -> u32 {
     let one = |rng: &mut Rng| lo + (rng.f32() * (hi - lo + 1) as f32) as u32;
     let v = one(rng).min(hi);
@@ -622,16 +856,13 @@ pub(super) fn roll_item(rng: &mut Rng, class: &data::ClassDef, rarity: u8) -> It
         });
     }
 
-    let enhancement = primal.then(|| {
-        let ability = class.pool[rng.index(class.pool.len())];
-        let kind = rng.index(ENH_KINDS.len());
-        let (lo, hi) = ENH_KINDS[kind].range();
-        EnhRoll {
-            ability: ability.to_owned(),
-            kind: kind as u8,
-            value: roll_value(rng, lo, hi, true),
-        }
-    });
+    let enhancements = roll_enhancements(
+        rng,
+        class,
+        ENH_COUNTS[usize::from(rarity)],
+        primal,
+        Vec::new(),
+    );
 
     Item {
         id: 0,
@@ -640,8 +871,75 @@ pub(super) fn roll_item(rng: &mut Rng, class: &data::ClassDef, rarity: u8) -> It
         base: base as u8,
         class: class.id,
         affixes,
-        enhancement,
+        enhancement: None,
+        enhancements,
     }
+}
+
+fn roll_enhancements(
+    rng: &mut Rng,
+    class: &data::ClassDef,
+    count: usize,
+    primal: bool,
+    mut out: Vec<EnhRoll>,
+) -> Vec<EnhRoll> {
+    let mut candidates = Vec::new();
+    for (kind, effect) in ENH_KINDS.into_iter().enumerate() {
+        if class
+            .pool
+            .iter()
+            .any(|key| effect.supports(data::ability(key)))
+        {
+            candidates.push((String::new(), kind));
+        }
+        for &key in class.pool {
+            if effect.supports(data::ability(key)) {
+                candidates.push((key.to_owned(), kind));
+            }
+        }
+    }
+    while out.len() < count {
+        let targeted: BTreeMap<_, _> = out
+            .iter()
+            .filter(|e| !e.ability.is_empty())
+            .map(|e| (e.ability.as_str(), ()))
+            .collect();
+        let has_buff = out.iter().any(|e| ENH_KINDS[usize::from(e.kind)].is_buff());
+        let eligible: Vec<_> = candidates
+            .iter()
+            .filter(|(key, kind)| {
+                !out.iter()
+                    .any(|e| e.ability == *key && usize::from(e.kind) == *kind)
+                    && (!has_buff || !ENH_KINDS[*kind].is_buff())
+                    && (key.is_empty() || targeted.len() < 2 || targeted.contains_key(key.as_str()))
+            })
+            .collect();
+        // Choose the scope first so numerous specific skills don't crowd out global rolls.
+        let all = rng.f32() < 0.35;
+        let scoped: Vec<_> = eligible
+            .iter()
+            .copied()
+            .filter(|(key, _)| key.is_empty() == all)
+            .collect();
+        let pool = if scoped.is_empty() {
+            &eligible
+        } else {
+            &scoped
+        };
+        let (key, kind) = pool[rng.index(pool.len())];
+        let (lo, hi) = ENH_KINDS[*kind].roll_range(key.is_empty());
+        let value = if ENH_KINDS[*kind] == EnhKind::Count {
+            roll_value(rng, lo / 10_000, hi / 10_000, primal) * 10_000
+        } else {
+            roll_value(rng, lo, hi, primal)
+        };
+        out.push(EnhRoll {
+            ability: key.clone(),
+            kind: *kind as u8,
+            value,
+        });
+    }
+    out
 }
 
 #[derive(Serialize, Deserialize)]
@@ -657,11 +955,103 @@ struct Save {
 impl Default for Save {
     fn default() -> Self {
         Self {
-            version: 1,
+            version: 3,
             next_id: 1,
             bag: Vec::new(),
             worn: BTreeMap::new(),
         }
+    }
+}
+
+impl Save {
+    fn validate_skills(&self) -> Result<(), &'static str> {
+        for item in &self.bag {
+            if usize::from(item.rarity) >= RARITY_COUNT
+                || !data::CLASSES.iter().any(|c| c.id == item.class)
+                || item.enhancements.len() + usize::from(item.enhancement.is_some()) > 4
+            {
+                return Err("invalid equipment skill data");
+            }
+            for enh in item.enhancements.iter().chain(item.enhancement.iter()) {
+                if usize::from(enh.kind) >= ENH_KINDS.len()
+                    || (!enh.ability.is_empty()
+                        && !data::ABILITIES.iter().any(|a| a.key == enh.ability))
+                    || enh.value > 100_000
+                {
+                    return Err("invalid skill enhancement");
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn upgrade_affixes(&mut self) -> Result<(), &'static str> {
+        if self.version == 1 {
+            for item in &mut self.bag {
+                let count = AFFIX_COUNTS
+                    .get(usize::from(item.rarity))
+                    .ok_or("invalid item rarity")?;
+                item.affixes.truncate(*count);
+                for roll in &mut item.affixes {
+                    roll.value = roll.value.checked_mul(2).ok_or("affix value overflow")?;
+                }
+            }
+            self.version = 2;
+        }
+        Ok(())
+    }
+
+    /// Old rolls could target an unused parameter. Replace only those with a valid cooldown roll.
+    fn repair_enhancements(&mut self) -> usize {
+        let mut repaired = 0;
+        for item in &mut self.bag {
+            for enh in item
+                .enhancement
+                .iter_mut()
+                .chain(item.enhancements.iter_mut())
+            {
+                let Some(def) = data::ABILITIES.iter().find(|a| a.key == enh.ability) else {
+                    continue;
+                };
+                if ENH_KINDS
+                    .get(usize::from(enh.kind))
+                    .is_some_and(|kind| !kind.supports(def))
+                {
+                    let (lo, hi) = EnhKind::Cooldown.range();
+                    enh.kind = ENH_KINDS
+                        .iter()
+                        .position(|k| *k == EnhKind::Cooldown)
+                        .expect("cooldown enhancement") as u8;
+                    enh.value = enh.value.clamp(lo, hi);
+                    repaired += 1;
+                }
+            }
+        }
+        repaired
+    }
+
+    fn upgrade_skills(&mut self) {
+        if self.version != 2 {
+            return;
+        }
+        for item in &mut self.bag {
+            if let Some(old) = item.enhancement.take() {
+                item.enhancements.push(old);
+            }
+            let class = data::CLASSES.iter().find(|c| c.id == item.class);
+            if let Some(class) = class {
+                // Stable migration: the same old item gets the same additional rolls on retry.
+                let mut rng = Rng(item.id.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
+                item.enhancements = roll_enhancements(
+                    &mut rng,
+                    class,
+                    ENH_COUNTS[usize::from(item.rarity)],
+                    item.rarity == 5,
+                    std::mem::take(&mut item.enhancements),
+                );
+            }
+        }
+        self.version = 3;
     }
 }
 
@@ -844,16 +1234,33 @@ impl Gear {
             for roll in &item.affixes {
                 out.sum[usize::from(roll.kind).min(AFFIX_COUNT - 1)] += roll.value as f32 / SCALE;
             }
-            let found = item.enhancement.as_ref().and_then(|e| {
-                data::ABILITIES
-                    .iter()
-                    .find(|a| a.key == e.ability)
-                    .map(|d| (e, d))
-            });
-            if let Some((e, def)) = found {
-                let kind = ENH_KINDS[usize::from(e.kind).min(ENH_KINDS.len() - 1)];
-                out.enh[enh] = Some((def.key, kind, e.value as f32 / SCALE));
-                enh += 1;
+            for (index, e) in item
+                .enhancements
+                .iter()
+                .chain(item.enhancement.iter())
+                .enumerate()
+            {
+                let found = if e.ability.is_empty() {
+                    Some(None)
+                } else {
+                    data::ABILITIES
+                        .iter()
+                        .find(|a| a.key == e.ability)
+                        .map(|d| Some(d.key))
+                };
+                if let Some(ability) = found {
+                    let kind = ENH_KINDS[usize::from(e.kind).min(ENH_KINDS.len() - 1)];
+                    if enh < MAX_ENH {
+                        out.enh[enh] = Some(SkillRoll {
+                            item: item.id,
+                            index: index as u8,
+                            ability,
+                            kind,
+                            value: e.value as f32 / SCALE,
+                        });
+                        enh += 1;
+                    }
+                }
             }
         }
         out
@@ -868,7 +1275,35 @@ fn load(mut gear: ResMut<Gear>) {
     let Some(path) = save_path() else { return };
     match crate::local_state::read_to_string(&path) {
         Ok(text) => match toml::from_str::<Save>(&text) {
-            Ok(save) if save.version == 1 => gear.save = save,
+            Ok(mut save) if matches!(save.version, 1..=3) => {
+                if let Err(error) = save.validate_skills() {
+                    fail_load(&mut gear, error);
+                    return;
+                }
+                let skill_upgrade = save.version < 3;
+                let upgraded = save.version == 1;
+                if let Err(error) = save.upgrade_affixes() {
+                    fail_load(&mut gear, error);
+                    return;
+                }
+                if upgraded {
+                    info!("survivors gear: upgraded affixes to save version 2");
+                    gear.dirty = true;
+                }
+                let repaired = save.repair_enhancements();
+                if repaired > 0 {
+                    warn!(
+                        "survivors gear: repaired {repaired} ineffective skill enhancements to cooldown reduction"
+                    );
+                    gear.dirty = true;
+                }
+                if skill_upgrade {
+                    save.upgrade_skills();
+                    gear.dirty = true;
+                    info!("survivors gear: upgraded skill enhancements to save version 3");
+                }
+                gear.save = save;
+            }
             Ok(_) => fail_load(&mut gear, "unsupported save version"),
             Err(error) => fail_load(&mut gear, &error.to_string()),
         },
@@ -931,13 +1366,21 @@ fn persist(
 /// What the run wears, kept current whenever the worn set changes.
 fn sync_run(gear: Res<Gear>, mut run: ResMut<Run>) {
     let bonuses = gear.bonuses(run.class.id);
+    apply_to_run(&mut run, bonuses);
+}
+
+pub(super) fn apply_to_run(run: &mut Run, bonuses: Bonuses) {
+    run.effects.reconcile(&bonuses, run.elapsed);
     run.gear = bonuses;
 }
 
 pub(super) fn plugin(app: &mut App) {
     app.init_resource::<Gear>()
         .add_systems(Startup, load)
-        .add_systems(OnEnter(Phase::Playing), sync_run)
+        .add_systems(
+            OnEnter(Phase::Playing),
+            sync_run.before(super::talents::lock_loadout),
+        )
         .add_systems(
             Update,
             (sync_run.run_if(resource_changed::<Gear>), persist).chain(),
@@ -967,21 +1410,339 @@ mod tests {
                     let def = affix(roll.kind);
                     assert!((def.lo..=def.hi).contains(&roll.value));
                 }
-                assert_eq!(item.enhancement.is_some(), usize::from(rarity) == 5);
+                assert_eq!(item.enhancements.len(), ENH_COUNTS[usize::from(rarity)]);
+                assert!(item.enhancement.is_none());
             }
         }
     }
 
     #[test]
     fn enhancement_targets_the_droppers_ability() {
-        let mut rng = Rng::default();
+        let mut rng = Rng(12345);
         for c in data::CLASSES {
-            let item = roll_item(&mut rng, c, 5);
-            let e = item.enhancement.expect("primal");
-            assert!(c.pool.contains(&e.ability.as_str()));
-            let (lo, hi) = ENH_KINDS[usize::from(e.kind)].range();
-            assert!((lo..=hi).contains(&e.value));
+            for _ in 0..1000 {
+                let item = roll_item(&mut rng, c, 5);
+                for e in item.enhancements {
+                    assert!(e.ability.is_empty() || c.pool.contains(&e.ability.as_str()));
+                    let kind = ENH_KINDS[usize::from(e.kind)];
+                    if !e.ability.is_empty() {
+                        assert!(kind.supports(data::ability(&e.ability)));
+                    }
+                    let (lo, hi) = kind.roll_range(e.ability.is_empty());
+                    assert!((lo..=hi).contains(&e.value));
+                }
+            }
         }
+    }
+
+    #[test]
+    fn normal_drop_rate_is_two_per_thousand_and_bosses_drop_once() {
+        let mut rng = Rng(12345);
+        assert_eq!(NORMAL_DROP_CHANCE, 0.002);
+        let drops = (0..100_000)
+            .filter_map(|_| roll_drop_rarity(&mut rng, false))
+            .count();
+        assert!((150..=250).contains(&drops), "got {drops} drops");
+        for _ in 0..1000 {
+            assert!(matches!(roll_drop_rarity(&mut rng, true), Some(1..=5)));
+        }
+    }
+
+    fn enhanced_item(ability: &str, kind: EnhKind, value: u32) -> Item {
+        Item {
+            id: 0,
+            slot: 0,
+            rarity: 5,
+            base: 0,
+            class: 1,
+            affixes: Vec::new(),
+            enhancement: Some(EnhRoll {
+                ability: ability.to_owned(),
+                kind: ENH_KINDS.iter().position(|k| *k == kind).unwrap() as u8,
+                value,
+            }),
+            enhancements: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn every_supported_enhancement_changes_the_corresponding_cast_parameter() {
+        for def in data::ABILITIES {
+            for kind in ENH_KINDS.into_iter().take(5) {
+                if !kind.supports(def) {
+                    continue;
+                }
+                let value = if kind == EnhKind::Count { 10_000 } else { 2500 };
+                let mut gear = Gear::default();
+                let id = gear.add(enhanced_item(def.key, kind, value));
+                assert!(gear.equip(1, id));
+                let mut run = Run::default();
+                let plain = super::super::talents::cast(def, 1, &run.stats());
+                run.gear = gear.bonuses(1);
+                let enhanced = super::super::talents::cast(def, 1, &run.stats());
+                let close = |a: f32, b: f32| assert!((a - b).abs() < 0.0001, "{}", def.key);
+                close(
+                    enhanced.dmg,
+                    plain.dmg * if kind == EnhKind::Damage { 1.25 } else { 1.0 },
+                );
+                close(
+                    enhanced.dot,
+                    plain.dot * if kind == EnhKind::Damage { 1.25 } else { 1.0 },
+                );
+                close(
+                    enhanced.cooldown,
+                    plain.cooldown * if kind == EnhKind::Cooldown { 0.75 } else { 1.0 },
+                );
+                assert_eq!(
+                    enhanced.count,
+                    plain.count + u32::from(kind == EnhKind::Count)
+                );
+                close(
+                    enhanced.radius,
+                    plain.radius * if kind == EnhKind::Radius { 1.25 } else { 1.0 },
+                );
+                close(
+                    enhanced.duration,
+                    plain.duration * if kind == EnhKind::Duration { 1.25 } else { 1.0 },
+                );
+                close(enhanced.range, plain.range);
+            }
+        }
+    }
+
+    #[test]
+    fn gear_sync_stacks_enhancements_only_for_the_worn_class_and_target_skill() {
+        let mut gear = Gear::default();
+        let first = gear.add(enhanced_item("frostbolt", EnhKind::Damage, 5000));
+        let mut second = enhanced_item("frostbolt", EnhKind::Damage, 2500);
+        second.slot = 1;
+        let second = gear.add(second);
+        gear.equip(1, first);
+        gear.equip(1, second);
+        let mut app = App::new();
+        app.insert_resource(gear)
+            .init_resource::<Run>()
+            .add_systems(Update, sync_run);
+        let frost = data::ability("frostbolt");
+        let fire = data::ability("fireball");
+        let damage = |app: &App, def| {
+            super::super::talents::cast(def, 1, &app.world().resource::<Run>().stats()).dmg
+        };
+        let base = damage(&app, frost);
+        let other = damage(&app, fire);
+        app.update();
+        assert_eq!(damage(&app, frost), base * 1.75);
+        assert_eq!(damage(&app, fire), other);
+        app.world_mut().resource_mut::<Gear>().unequip(1, 0);
+        app.update();
+        assert_eq!(damage(&app, frost), base * 1.25);
+        app.world_mut().resource_mut::<Gear>().equip(9, second);
+        app.update();
+        assert_eq!(damage(&app, frost), base);
+    }
+
+    #[test]
+    fn incompatible_legacy_enhancements_are_repaired_once_without_losing_items() {
+        let cases = [
+            ("frostbolt", EnhKind::Duration, 4000, 3000),
+            ("frost_nova", EnhKind::Count, 10_000, 3000),
+            ("divine_shield", EnhKind::Damage, 5000, 3000),
+            ("fire_blast", EnhKind::Radius, 2000, 2000),
+            ("searing_totem", EnhKind::Count, 10_000, 3000),
+        ];
+        let mut gear = Gear::default();
+        for (ability, kind, value, _) in cases {
+            gear.add(enhanced_item(ability, kind, value));
+        }
+        let valid = gear.add(enhanced_item("fireball", EnhKind::Damage, 5000));
+        gear.equip(1, valid);
+        assert_eq!(gear.save.repair_enhancements(), cases.len());
+        assert_eq!(gear.save.repair_enhancements(), 0);
+        assert_eq!(gear.bag().len(), cases.len() + 1);
+        for (item, (ability, _, _, expected)) in gear.bag().iter().zip(cases) {
+            let e = item.enhancement.as_ref().unwrap();
+            assert_eq!(e.ability, ability);
+            assert!(ENH_KINDS[usize::from(e.kind)] == EnhKind::Cooldown);
+            assert_eq!(e.value, expected);
+            let mut run = Run::default();
+            let def = data::ability(ability);
+            let plain = super::super::talents::cast(def, 1, &run.stats());
+            run.gear.enh[0] = Some(SkillRoll {
+                item: item.id,
+                index: 0,
+                ability: Some(def.key),
+                kind: EnhKind::Cooldown,
+                value: e.value as f32 / SCALE,
+            });
+            assert!(super::super::talents::cast(def, 1, &run.stats()).cooldown < plain.cooldown);
+        }
+        assert_eq!(gear.worn(1, 0).unwrap().id, valid);
+        assert_eq!(
+            gear.item(valid)
+                .unwrap()
+                .enhancement
+                .as_ref()
+                .unwrap()
+                .value,
+            5000
+        );
+    }
+
+    #[test]
+    fn affix_ranges_are_doubled_and_counts_are_halved() {
+        assert_eq!(AFFIX_COUNTS, [1, 2, 3, 4, 5, 5]);
+        let original = [
+            (200, 600),
+            (300, 800),
+            (200, 500),
+            (1000, 4000),
+            (100, 400),
+            (200, 600),
+            (400, 1200),
+            (200, 600),
+            (3000, 10000),
+            (50, 200),
+            (300, 1000),
+            (10, 40),
+            (50, 200),
+            (100, 400),
+        ];
+        for (def, (lo, hi)) in AFFIXES.iter().zip(original) {
+            assert_eq!((def.lo, def.hi), (lo * 2, hi * 2));
+        }
+        assert_eq!(EnhKind::Damage.range(), (2500, 5000));
+        assert_eq!(EnhKind::Cooldown.range(), (1500, 3000));
+        assert_eq!(EnhKind::Count.range(), (10_000, 20_000));
+        assert_eq!(EnhKind::Radius.range(), (2000, 4000));
+        assert_eq!(EnhKind::Duration.range(), (2000, 4000));
+    }
+
+    #[test]
+    fn legacy_affixes_upgrade_in_order_with_double_values_only_once() {
+        let mut gear = Gear::default();
+        for (rarity, count) in [2, 4, 6, 8, 10, 10].into_iter().enumerate() {
+            let mut item = enhanced_item("fireball", EnhKind::Damage, 5000);
+            item.rarity = rarity as u8;
+            item.slot = rarity as u8;
+            item.affixes = (0..count)
+                .map(|kind| Roll {
+                    kind,
+                    value: AFFIXES[usize::from(kind)].lo / 2,
+                })
+                .collect();
+            if rarity != 5 {
+                item.enhancement = None;
+            }
+            let id = gear.add(item);
+            gear.equip(1, id);
+        }
+        let worn = gear.save.worn.clone();
+        let old = gear.save.bag.clone();
+        gear.save.version = 1;
+        gear.save.upgrade_affixes().unwrap();
+        assert_eq!(gear.save.version, 2);
+        assert_eq!(gear.save.worn, worn);
+        for (before, after) in old.iter().zip(&gear.save.bag) {
+            assert_eq!(before.id, after.id);
+            assert_eq!(before.enhancement, after.enhancement);
+            assert_eq!(after.affixes.len(), AFFIX_COUNTS[usize::from(after.rarity)]);
+            for (a, b) in before.affixes.iter().zip(&after.affixes) {
+                assert_eq!(a.kind, b.kind);
+                assert_eq!(a.value * 2, b.value);
+            }
+        }
+        let encoded = toml::to_string(&gear.save).unwrap();
+        let mut reloaded: Save = toml::from_str(&encoded).unwrap();
+        reloaded.upgrade_affixes().unwrap();
+        assert_eq!(toml::to_string(&reloaded).unwrap(), encoded);
+    }
+
+    #[test]
+    fn skill_rolls_follow_quality_scopes_and_uniqueness_rules() {
+        let mut rng = Rng(12345);
+        let mut globals = 0;
+        let mut targeted = 0;
+        for class in data::CLASSES {
+            for rarity in 0..6 {
+                for _ in 0..100 {
+                    let item = roll_item(&mut rng, class, rarity);
+                    assert_eq!(item.enhancements.len(), ENH_COUNTS[usize::from(rarity)]);
+                    let mut unique = BTreeMap::new();
+                    let mut skills = BTreeMap::new();
+                    let mut buffs = 0;
+                    for e in item.enhancements {
+                        assert!(unique.insert((e.ability.clone(), e.kind), ()).is_none());
+                        let kind = ENH_KINDS[usize::from(e.kind)];
+                        buffs += usize::from(kind.is_buff());
+                        if e.ability.is_empty() {
+                            globals += 1;
+                            assert!(
+                                class
+                                    .pool
+                                    .iter()
+                                    .any(|key| kind.supports(data::ability(key)))
+                            );
+                        } else {
+                            targeted += 1;
+                            skills.insert(e.ability.clone(), ());
+                        }
+                        let (lo, hi) = kind.roll_range(e.ability.is_empty());
+                        assert!((lo..=hi).contains(&e.value));
+                        if kind == EnhKind::Count {
+                            assert_eq!(e.value % 10_000, 0);
+                        }
+                    }
+                    assert!(skills.len() <= 2);
+                    assert!(buffs <= 1);
+                }
+            }
+        }
+        assert!(globals > 0 && targeted > globals);
+    }
+
+    #[test]
+    fn legacy_skill_migration_adds_quality_rolls_preserves_old_effect_and_is_idempotent() {
+        let class = data::CLASSES.iter().find(|c| c.id == 8).unwrap();
+        let mut rng = Rng(12345);
+        let mut save = Save {
+            version: 2,
+            ..default()
+        };
+        for rarity in 0..6 {
+            let mut item = roll_item(&mut rng, class, rarity);
+            item.id = u64::from(rarity) + 1;
+            item.enhancements.clear();
+            if rarity == 5 {
+                item.enhancement = Some(EnhRoll {
+                    ability: "fireball".into(),
+                    kind: 0,
+                    value: 5000,
+                });
+            }
+            save.bag.push(item);
+        }
+        let before = save.bag.clone();
+        save.upgrade_skills();
+        assert_eq!(save.version, 3);
+        for (old, new) in before.iter().zip(&save.bag) {
+            assert_eq!(new.id, old.id);
+            assert_eq!(new.affixes, old.affixes);
+            assert_eq!(new.enhancements.len(), ENH_COUNTS[usize::from(new.rarity)]);
+            assert!(new.enhancement.is_none());
+            if let Some(old) = &old.enhancement {
+                assert_eq!(&new.enhancements[0], old);
+            }
+        }
+        let encoded = toml::to_string(&save).unwrap();
+        save.upgrade_skills();
+        assert_eq!(toml::to_string(&save).unwrap(), encoded);
+        let mut retried = Save {
+            version: 2,
+            bag: before,
+            ..default()
+        };
+        retried.upgrade_skills();
+        assert_eq!(retried.bag, save.bag);
     }
 
     #[test]
@@ -1025,6 +1786,7 @@ mod tests {
             class: warlock.id,
             affixes: Vec::new(),
             enhancement: None,
+            enhancements: Vec::new(),
         });
         gear.equip(warlock.id, id);
         let weapons = gear.weapons(warlock);
