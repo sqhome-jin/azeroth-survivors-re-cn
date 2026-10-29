@@ -13,11 +13,14 @@
 | Any | **G** | toggle the picture polish (`?grade=0` starts it off) |
 | Playing | **mouse wheel** | zoom, from over the shoulder out to 70 yd |
 | Playing | **drag** (camera unlocked) | swing and tilt the camera |
+| Playing | **click an enemy or health bar** | inspect its portrait, health, cast and debuffs; click empty ground to clear |
+| Playing | **Tab / Shift+Tab** | cycle visible enemies forward / backward within 45 yd; does not change automatic targeting |
+| Playing | **hover a buff icon** | inspect its actual effects, sources and remaining duration beside the minimap |
 | Playing | **Esc** | pause |
 | Playing | — | abilities cast themselves (no aim) |
 | Level up | **1 / 2 / 3** (or click a card) | pick an upgrade |
 | Paused | **Esc** | resume |
-| Game over | **Enter** (or **Play again**) | back to the menu |
+| Game over | **Enter** (or **Return to main menu**) | back to the menu |
 | Any | minimap **+ / −** / minimize | minimap zoom / collapse |
 
 The camera follows the hero, locked top-down by default (laptop-friendly). **C** unlocks it so a

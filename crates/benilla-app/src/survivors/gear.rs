@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use super::{Phase, Rng, Run, Stats, data, localization};
+use super::{data, localization, Phase, Rng, Run, Stats};
 
 pub(super) const BAG_CAP: usize = 200;
 const SCALE: f32 = 10_000.0;
@@ -446,6 +446,9 @@ impl EnhKind {
     }
 
     pub fn supports(self, def: &data::AbilityDef) -> bool {
+        if let Some(supported) = super::spell_expansion::supports(def, self) {
+            return supported;
+        }
         use data::Kind;
         match self {
             Self::Damage => def.damage > 0.0 || def.dot > 0.0,
@@ -808,8 +811,19 @@ pub(super) fn modify_stats(stats: &mut Stats, b: &Bonuses) {
     stats.gear = *b;
 }
 
-pub(super) fn roll_rarity(rng: &mut Rng, boss: bool) -> u8 {
+#[cfg(test)]
+fn roll_rarity(rng: &mut Rng, boss: bool) -> u8 {
+    roll_rarity_with_luck(rng, boss, 0.0)
+}
+
+fn rarity_weights(boss: bool, luck: f32) -> [f32; RARITY_COUNT] {
     let weights = if boss { BOSS_WEIGHTS } else { NORMAL_WEIGHTS };
+    let luck = luck.clamp(0.0, 200.0) / 100.0;
+    std::array::from_fn(|index| weights[index] * (1.0 + luck * index as f32 / 5.0))
+}
+
+pub(super) fn roll_rarity_with_luck(rng: &mut Rng, boss: bool, luck: f32) -> u8 {
+    let weights = rarity_weights(boss, luck);
     let total: f32 = weights.iter().sum();
     let mut pick = rng.f32() * total;
     for (i, w) in weights.iter().enumerate() {
@@ -821,9 +835,18 @@ pub(super) fn roll_rarity(rng: &mut Rng, boss: bool) -> u8 {
     weights.iter().rposition(|w| *w > 0.0).unwrap_or(0) as u8
 }
 
-pub(super) fn roll_drop_rarity(rng: &mut Rng, boss: bool) -> Option<u8> {
-    if boss || rng.f32() < NORMAL_DROP_CHANCE {
-        Some(roll_rarity(rng, boss))
+#[cfg(test)]
+fn roll_drop_rarity(rng: &mut Rng, boss: bool) -> Option<u8> {
+    roll_drop_with_luck(rng, boss, 0.0)
+}
+
+pub(super) fn drop_chance(luck: f32) -> f32 {
+    NORMAL_DROP_CHANCE * (1.0 + luck.clamp(0.0, 200.0) / 100.0)
+}
+
+pub(super) fn roll_drop_with_luck(rng: &mut Rng, boss: bool, luck: f32) -> Option<u8> {
+    if boss || rng.f32() < drop_chance(luck) {
+        Some(roll_rarity_with_luck(rng, boss, luck))
     } else {
         None
     }
@@ -832,7 +855,11 @@ pub(super) fn roll_drop_rarity(rng: &mut Rng, boss: bool) -> Option<u8> {
 fn roll_value(rng: &mut Rng, lo: u32, hi: u32, primal: bool) -> u32 {
     let one = |rng: &mut Rng| lo + (rng.f32() * (hi - lo + 1) as f32) as u32;
     let v = one(rng).min(hi);
-    if primal { v.max(one(rng).min(hi)) } else { v }
+    if primal {
+        v.max(one(rng).min(hi))
+    } else {
+        v
+    }
 }
 
 /// A fresh item. `id` is assigned by the store.
@@ -1127,6 +1154,32 @@ impl Gear {
         id
     }
 
+    pub fn award_primal(
+        &mut self,
+        rng: &mut Rng,
+        class: &'static data::ClassDef,
+    ) -> Result<String, String> {
+        if self.read_only {
+            return Err(localization::text(
+                "Primal reward blocked: gear save is unreadable. Back up and repair the save.",
+                "太古奖励发放失败：装备存档无法读取，请备份并修复存档。",
+            )
+            .into());
+        }
+        let item = roll_item(rng, class, (RARITY_COUNT - 1) as u8);
+        let label = format!("[{}] {}", item.rarity_name(), item.name());
+        if self.add(item) == 0 {
+            return Err(localization::text(
+                "Primal reward blocked: no unworn backpack slot is available.",
+                "太古奖励发放失败：背包已满且没有可替换的未穿戴装备。",
+            )
+            .into());
+        }
+        // Force the existing persistence path this frame, before entering the results screen.
+        self.save_elapsed = 5.0;
+        Ok(label)
+    }
+
     /// An item is worn by one class at a time; wearing it elsewhere takes it off.
     pub fn equip(&mut self, class: u8, id: u64) -> bool {
         let Some(slot) = self.item(id).map(|i| i.slot) else {
@@ -1383,13 +1436,101 @@ pub(super) fn plugin(app: &mut App) {
         )
         .add_systems(
             Update,
-            (sync_run.run_if(resource_changed::<Gear>), persist).chain(),
+            (
+                sync_run.run_if(resource_changed::<Gear>),
+                persist
+                    .after(super::enemies::drop_loot)
+                    .before(super::hero::hero_vitals),
+            )
+                .chain(),
         );
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn luck_zero_preserves_the_original_drop_sequence() {
+        let mut baseline = Rng(12345);
+        let mut lucky = Rng(12345);
+        for boss in [false, true] {
+            for _ in 0..10_000 {
+                let expected = if boss || baseline.f32() < NORMAL_DROP_CHANCE {
+                    Some(roll_rarity(&mut baseline, boss))
+                } else {
+                    None
+                };
+                assert_eq!(expected, roll_drop_with_luck(&mut lucky, boss, 0.0),);
+            }
+        }
+        assert_eq!(drop_chance(0.0), 0.002);
+        assert_eq!(drop_chance(100.0), 0.004);
+        assert_eq!(drop_chance(200.0), 0.006);
+        assert_eq!(drop_chance(20_000.0), 0.006);
+    }
+
+    #[test]
+    fn luck_improves_both_drop_frequency_and_quality_without_opening_forbidden_tiers() {
+        let mean = |weights: [f32; RARITY_COUNT]| {
+            weights
+                .iter()
+                .enumerate()
+                .map(|(i, weight)| i as f32 * weight)
+                .sum::<f32>()
+                / weights.iter().sum::<f32>()
+        };
+        for boss in [false, true] {
+            assert!(mean(rarity_weights(boss, 100.0)) > mean(rarity_weights(boss, 0.0)));
+            assert!(mean(rarity_weights(boss, 200.0)) > mean(rarity_weights(boss, 100.0)));
+        }
+        assert_eq!(rarity_weights(true, 200.0)[0], 0.0);
+        let mut normal_rng = Rng(12345);
+        let mut lucky_rng = Rng(12345);
+        let mut normal = 0;
+        let mut lucky = 0;
+        for _ in 0..200_000 {
+            normal += usize::from(roll_drop_with_luck(&mut normal_rng, false, 0.0).is_some());
+            lucky += usize::from(roll_drop_with_luck(&mut lucky_rng, false, 100.0).is_some());
+        }
+        assert!((300..500).contains(&normal), "{normal}");
+        assert!((650..950).contains(&lucky), "{lucky}");
+        assert!(lucky > normal);
+    }
+
+    #[test]
+    fn final_reward_is_class_compatible_primal_even_when_backpack_is_full() {
+        let mut gear = Gear::default();
+        let mut rng = Rng(12345);
+        for _ in 0..BAG_CAP {
+            gear.add(roll_item(&mut rng, class(0), 0));
+        }
+        for class in data::CLASSES {
+            let reward = gear.award_primal(&mut rng, class).unwrap();
+            assert!(!reward.is_empty());
+            assert_eq!(gear.bag().len(), BAG_CAP);
+            let item = gear.bag().last().unwrap();
+            assert_eq!(item.rarity, 5);
+            assert_eq!(item.enhancements.len(), ENH_COUNTS[5]);
+            assert!(gear.dirty);
+            assert!(gear.save_elapsed >= 5.0);
+            let serialized = toml::to_string(&gear.save).unwrap();
+            let restored: Save = toml::from_str(&serialized).unwrap();
+            assert_eq!(restored.bag.last().unwrap().id, item.id);
+            assert_eq!(restored.bag.last().unwrap().rarity, 5);
+        }
+    }
+
+    #[test]
+    fn unreadable_gear_never_silently_claims_final_reward_success() {
+        let mut gear = Gear {
+            read_only: true,
+            ..default()
+        };
+        assert!(gear.award_primal(&mut Rng(1), class(0)).is_err());
+        assert!(gear.bag().is_empty());
+        assert!(!gear.dirty);
+    }
 
     fn class(i: usize) -> &'static data::ClassDef {
         &data::CLASSES[i]
@@ -1676,12 +1817,10 @@ mod tests {
                         buffs += usize::from(kind.is_buff());
                         if e.ability.is_empty() {
                             globals += 1;
-                            assert!(
-                                class
-                                    .pool
-                                    .iter()
-                                    .any(|key| kind.supports(data::ability(key)))
-                            );
+                            assert!(class
+                                .pool
+                                .iter()
+                                .any(|key| kind.supports(data::ability(key))));
                         } else {
                             targeted += 1;
                             skills.insert(e.ability.clone(), ());

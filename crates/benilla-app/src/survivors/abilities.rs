@@ -7,8 +7,8 @@ use super::data::{AbilityDef, Effect, Kind};
 use super::enemies::{self, Enemy, Loot};
 use super::hero::{self, Hero};
 use super::skill_effects::{self, Source};
-use super::units::{self, flat, Fx, Marks, UnitSpec, COLOR_HEAL, COLOR_MELEE, COLOR_SPELL};
-use super::{class_mechanics, warlock, Rng, Run, RunEntity, Stats};
+use super::units::{self, COLOR_HEAL, COLOR_MELEE, COLOR_SPELL, Fx, Marks, UnitSpec, flat};
+use super::{Rng, Run, RunEntity, Stats, class_mechanics, spell_expansion, warlock};
 use crate::net::{FieldChanged, Guid, ObjectStore};
 
 /// One blow landing on one enemy.
@@ -82,6 +82,7 @@ pub(super) struct Totem {
     pulse: bool,
     every: f64,
     source: Source,
+    effect: Effect,
 }
 
 #[derive(Clone, Copy)]
@@ -91,6 +92,9 @@ struct Foe {
     hp: f32,
     dist: f32,
     radius: f32,
+    hp_fraction: f32,
+    caster: bool,
+    controlled: bool,
 }
 
 /// The numbers one cast uses, from the ability's level and the hero's stats.
@@ -157,8 +161,8 @@ fn schedule(
 ) {
     if hit.source.echo && !hit.source.secondary {
         let mut echo = hit.clone();
-        echo.damage *= 0.5;
-        echo.dot *= 0.5;
+        echo.damage *= 0.5 + hit.source.modifiers.echo_damage;
+        echo.dot *= 0.5 + hit.source.modifiers.echo_damage;
         echo.source.secondary = true;
         echo.source.echo = false;
         echo.splash = 0.0;
@@ -238,7 +242,11 @@ pub(super) fn cast_abilities(
     mut hits: MessageWriter<Hit>,
 ) {
     let dt = time.delta_secs();
-    if run.dead_t.is_some() || dt <= 0.0 {
+    if run.dead_t.is_some() || run.hp <= 0.0 || dt <= 0.0 {
+        return;
+    }
+    spell_expansion::observe(&mut run);
+    if run.immune_t > 0.0 {
         return;
     }
     let Ok((me, htf)) = hero.single() else { return };
@@ -253,9 +261,36 @@ pub(super) fn cast_abilities(
             hp: en.hp,
             dist: hero::reach(hpos, tf.translation),
             radius: en.radius,
+            hp_fraction: en.hp / en.max_hp.max(1.0),
+            caster: spell_expansion::caster(en),
+            controlled: en.stun_t > 0.0 || en.root_t > 0.0 || en.fear_t > 0.0,
         })
         .collect();
     foes.sort_by(|a, b| a.dist.total_cmp(&b.dist));
+    if let Some(foe) = foes.first().filter(|f| f.dist <= 5.0) {
+        if spell_expansion::weapon_swing(&mut run) {
+            let damage = 8.0 * run.stats().might;
+            fx.swing(me, foe.e, damage);
+            let batch = run.guid();
+            hits.write(Hit {
+                source: Source { batch, ..default() },
+                ..Hit::direct(foe.e, damage, false)
+            });
+        }
+    }
+    if spell_expansion::frost_pulse(&mut run) {
+        for foe in foes.iter().filter(|f| f.dist <= 4.0) {
+            hits.write(Hit {
+                effect: Effect::Slow(0.6, 2.0),
+                source: Source {
+                    ability: Some("frost_armor"),
+                    secondary: true,
+                    ..default()
+                },
+                ..Hit::direct(foe.e, 0.0, false)
+            });
+        }
+    }
     let speed_of = |spell: u32| {
         spells
             .as_deref()
@@ -270,9 +305,26 @@ pub(super) fn cast_abilities(
         }
         let o = &run.abilities[i];
         let def = o.def;
+        let owned_growth = o.growth;
+        if !spell_expansion::reactive(&run, def.key) {
+            run.abilities[i].cd = 0.2;
+            continue;
+        }
         let mut stats = run.stats();
-        let mut cast = super::talents::cast(def, o.level, &stats);
+        let mut cast = super::talents::cast_with_growth(def, o.level, o.growth, &stats);
         class_mechanics::modify_cast(&run, def.key, &mut cast, &mut stats);
+        spell_expansion::modify_cast(&run, def.key, &mut cast, &mut stats);
+        let eligible: Vec<Foe> = foes
+            .iter()
+            .copied()
+            .filter(|f| match def.key {
+                "execute" | "drain_soul" => f.hp_fraction <= 0.3,
+                "shield_bash" | "curse_of_tongues" => f.caster,
+                "ambush" => f.hp_fraction >= 0.9,
+                _ => true,
+            })
+            .collect();
+        let foes = &eligible;
         let source = Source {
             ability: Some(def.key),
             batch: run.guid(),
@@ -292,304 +344,362 @@ pub(super) fn cast_abilities(
             source,
         };
         let speed = speed_of(def.spell);
-        let fired = match def.kind {
-            Kind::Bolt | Kind::Strike | Kind::Melee => {
-                let reach = if def.kind == Kind::Melee {
-                    p.range + 0.5
-                } else {
-                    p.range
-                };
-                let targets = if matches!(
-                    def.key,
-                    "pyroblast" | "aimed_shot" | "exorcism" | "starfire"
-                ) {
-                    toughest(&foes, reach, p.count)
-                } else {
-                    nearest(&foes, reach, p.count)
-                };
-                if targets.is_empty() {
-                    false
-                } else {
-                    if def.kind == Kind::Melee {
-                        fx.swing(me, targets[0].e, p.dmg);
-                        for f in &targets {
-                            fx.impact(f.e, def.spell);
-                        }
+        let fired = if let Some(fired) = spell_expansion::utility(
+            &mut run,
+            def.key,
+            &cast,
+            foes.first().is_some_and(|f| f.dist <= 30.0),
+        ) {
+            if fired {
+                fx.cast(me, def.spell, &[me], None);
+            }
+            fired
+        } else {
+            match def.kind {
+                Kind::Bolt | Kind::Strike | Kind::Melee => {
+                    let reach = if def.kind == Kind::Melee {
+                        p.range + 0.5
                     } else {
-                        fx.cast(me, def.spell, &entities(&targets), None);
-                    }
-                    for f in &targets {
-                        let (dmg, crit) = roll(&mut rng, &stats, p.dmg);
-                        let delay = if speed > 0.0 { f.dist / speed } else { 0.0 };
-                        schedule(
-                            &mut pending,
-                            &mut hits,
-                            now,
-                            delay,
-                            hit_for(def, &p, f.e, dmg, crit),
-                        );
-                    }
-                    true
-                }
-            }
-            Kind::Nova | Kind::Cone => {
-                let mut targets = around(&foes, hpos, p.radius);
-                if def.kind == Kind::Cone {
-                    if let Some(first) = targets.first().copied() {
-                        let aim = flat(first.pos - hpos).normalize_or_zero();
-                        targets.retain(|f| {
-                            let d = flat(f.pos - hpos);
-                            d.length() < 2.0 || d.normalize_or_zero().dot(aim) >= 0.8
-                        });
-                    }
-                }
-                if targets.is_empty() {
-                    false
-                } else {
-                    fx.cast(me, def.spell, &entities(&targets), None);
-                    for f in &targets {
-                        let (dmg, crit) = roll(&mut rng, &stats, p.dmg);
-                        let delay = if speed > 0.0 { f.dist / speed } else { 0.0 };
-                        schedule(
-                            &mut pending,
-                            &mut hits,
-                            now,
-                            delay,
-                            hit_for(def, &p, f.e, dmg, crit),
-                        );
-                    }
-                    true
-                }
-            }
-            Kind::Ground | Kind::GroundSelf => {
-                let center = if def.kind == Kind::GroundSelf {
-                    foes.first()
-                        .filter(|f| f.dist <= p.radius + 4.0)
-                        .map(|_| hpos)
-                } else {
-                    densest(&foes, p.range, p.radius)
-                };
-                match center {
-                    None => false,
-                    Some(center) => {
-                        fx.cast(me, def.spell, &[], Some(center));
-                        let area = if def.overhead {
-                            commands
-                                .spawn((Transform::from_translation(center), RunEntity))
-                                .id()
+                        p.range
+                    };
+                    let targets = if matches!(
+                        def.key,
+                        "pyroblast" | "aimed_shot" | "exorcism" | "starfire"
+                    ) {
+                        toughest(foes, reach, p.count)
+                    } else {
+                        nearest(foes, reach, p.count)
+                    };
+                    if targets.is_empty() {
+                        false
+                    } else {
+                        if def.kind == Kind::Melee {
+                            fx.swing(me, targets[0].e, p.dmg);
+                            for f in &targets {
+                                fx.impact(f.e, def.spell);
+                            }
                         } else {
-                            let serial = run.guid();
-                            units::spawn_area_object(
-                                &mut commands,
-                                serial,
-                                def.spell,
-                                p.radius,
-                                center,
-                            )
-                        };
-                        let burst = def.duration <= 0.0;
-                        commands.entity(area).insert(GroundArea {
-                            damage: p.dmg,
-                            dot: p.dot,
-                            dot_dur: if burst { 5.0 } else { 0.0 },
-                            radius: p.radius,
-                            left: if burst { 1.5 } else { f64::from(p.duration) },
-                            every: if burst {
-                                f64::INFINITY
+                            fx.cast(me, def.spell, &entities(&targets), None);
+                        }
+                        for f in &targets {
+                            let bonus = if def.key == "backstab" && f.controlled {
+                                1.5
                             } else {
-                                f64::from(p.source.modifiers.interval(1.0))
-                            },
-                            next_tick: if burst { 0.0 } else { 0.4 },
-                            effect: p.source.modifiers.effect(def.effect),
-                            mark: def.mark,
-                            impact: if def.overhead { def.spell } else { 0 },
-                            source,
-                        });
+                                1.0
+                            };
+                            let (dmg, crit) = roll(&mut rng, &stats, p.dmg * bonus);
+                            let delay = if def.key == "curse_of_doom" {
+                                hits.write(hit_for(def, &p, f.e, 0.0, false));
+                                p.duration
+                            } else if speed > 0.0 {
+                                f.dist / speed
+                            } else {
+                                0.0
+                            };
+                            schedule(
+                                &mut pending,
+                                &mut hits,
+                                now,
+                                delay,
+                                hit_for(def, &p, f.e, dmg, crit),
+                            );
+                        }
                         true
                     }
                 }
-            }
-            Kind::Chain => match nearest(&foes, p.range, 1).first().copied() {
-                None => false,
-                Some(first) => {
-                    let mut chain = vec![first];
-                    while chain.len() < p.count + 1 {
-                        let last = chain[chain.len() - 1].pos;
-                        let next = foes
-                            .iter()
-                            .filter(|f| !chain.iter().any(|c| c.e == f.e))
-                            .filter(|f| flat(f.pos - last).length() <= p.radius)
-                            .min_by(|a, b| {
-                                flat(a.pos - last)
-                                    .length()
-                                    .total_cmp(&flat(b.pos - last).length())
+                Kind::Nova | Kind::Cone => {
+                    let mut targets = around(foes, hpos, p.radius);
+                    if def.kind == Kind::Cone {
+                        if let Some(first) = targets.first().copied() {
+                            let aim = flat(first.pos - hpos).normalize_or_zero();
+                            targets.retain(|f| {
+                                let d = flat(f.pos - hpos);
+                                d.length() < 2.0 || d.normalize_or_zero().dot(aim) >= 0.8
                             });
-                        match next {
-                            Some(f) => chain.push(*f),
-                            None => break,
                         }
                     }
-                    fx.cast(me, def.spell, &entities(&chain), None);
-                    for (k, f) in chain.iter().enumerate() {
-                        let (dmg, crit) = roll(
-                            &mut rng,
-                            &stats,
-                            p.dmg * (0.85 + p.source.modifiers.chain).min(1.0).powi(k as i32),
-                        );
-                        schedule(
-                            &mut pending,
-                            &mut hits,
-                            now,
-                            0.08 * k as f32,
-                            hit_for(def, &p, f.e, dmg, crit),
-                        );
+                    if targets.is_empty() {
+                        false
+                    } else {
+                        fx.cast(me, def.spell, &entities(&targets), None);
+                        for f in &targets {
+                            let (dmg, crit) = roll(&mut rng, &stats, p.dmg);
+                            let delay = if speed > 0.0 { f.dist / speed } else { 0.0 };
+                            schedule(
+                                &mut pending,
+                                &mut hits,
+                                now,
+                                delay,
+                                hit_for(def, &p, f.e, dmg, crit),
+                            );
+                        }
+                        true
                     }
-                    true
                 }
-            },
-            Kind::Dot => {
-                let mut pool: Vec<Foe> = foes
-                    .iter()
-                    .filter(|f| f.dist <= p.range)
-                    .take(p.count * 3)
-                    .copied()
-                    .collect();
-                if pool.is_empty() {
-                    false
-                } else {
-                    let mut targets = Vec::with_capacity(p.count);
-                    while targets.len() < p.count && !pool.is_empty() {
-                        targets.push(pool.swap_remove(rng.index(pool.len())));
-                    }
-                    fx.cast(me, def.spell, &entities(&targets), None);
-                    for f in &targets {
-                        let delay = if speed > 0.0 { f.dist / speed } else { 0.0 };
-                        schedule(
-                            &mut pending,
-                            &mut hits,
-                            now,
-                            delay,
-                            hit_for(def, &p, f.e, 0.0, false),
-                        );
-                    }
-                    true
-                }
-            }
-            Kind::Aura => {
-                let targets = around(&foes, hpos, p.radius);
-                if targets.is_empty() {
-                    false
-                } else {
-                    for f in targets.iter().take(6) {
-                        fx.impact(f.e, def.spell);
-                    }
-                    for f in &targets {
-                        let (dmg, crit) = roll(&mut rng, &stats, p.dmg);
-                        hits.write(hit_for(def, &p, f.e, dmg, crit));
-                    }
-                    true
-                }
-            }
-            Kind::Orbit => {
-                let targets = nearest(&foes, p.radius, p.count);
-                if targets.is_empty() {
-                    false
-                } else {
-                    for f in &targets {
-                        fx.impact(f.e, 403);
-                        let (dmg, crit) = roll(&mut rng, &stats, p.dmg);
-                        hits.write(hit_for(def, &p, f.e, dmg, crit));
-                    }
-                    true
-                }
-            }
-            Kind::Shield => {
-                run.shield = p.dmg;
-                run.shield_t = p.duration;
-                fx.cast(me, def.spell, &[me], None);
-                true
-            }
-            Kind::Immune => {
-                if foes.first().is_some_and(|f| f.dist <= 5.0) {
-                    run.immune_t = p.duration;
-                    fx.cast(me, def.spell, &[me], None);
-                    true
-                } else {
-                    false
-                }
-            }
-            Kind::Thorns => {
-                if foes.first().is_some_and(|f| f.dist <= 8.0) {
-                    run.thorns = p.dmg;
-                    run.thorns_t = p.duration;
-                    run.thorns_spell = def.spell;
-                    run.thorns_source = source;
-                    fx.cast(me, def.spell, &[me], None);
-                    true
-                } else {
-                    false
-                }
-            }
-            Kind::Heal => {
-                if run.hp < stats.max_hp * 0.85 {
-                    run.heal_rate = p.dmg / p.duration.max(1.0);
-                    run.heal_t = p.duration;
-                    fx.cast(me, def.spell, &[me], None);
-                    fx.number(me, p.dmg, false, COLOR_HEAL);
-                    true
-                } else {
-                    false
-                }
-            }
-            Kind::Totem => {
-                if foes
-                    .first()
-                    .is_some_and(|f| f.dist <= p.range.max(p.radius) + 6.0)
-                {
-                    fx.cast(me, def.spell, &[], None);
-                    let a = rng.range(0.0, std::f32::consts::TAU);
-                    let pos = hpos + Vec3::new(a.cos(), 0.0, a.sin()) * 2.0;
-                    let serial = run.guid();
-                    let totem = units::spawn_unit(
-                        &mut commands,
-                        &UnitSpec {
-                            serial,
-                            display: def.totem.0,
-                            scale: 1.0,
-                            level: 60,
-                            faction: units::FACTION_FRIENDLY,
-                            bytes0: 0,
-                            weapons: &[],
-                            sheath: 0,
-                        },
-                        pos,
-                        0.0,
-                    );
-                    commands.entity(totem).insert(Totem {
-                        cast: def.totem.1,
-                        damage: p.dmg,
-                        range: p.range,
-                        radius: p.radius,
-                        left: f64::from(p.duration),
-                        tick: 0.3,
-                        pulse: def.key == "magma_totem",
-                        every: f64::from(
-                            p.source.modifiers.interval(if def.key == "magma_totem" {
-                                2.0
+                Kind::Ground | Kind::GroundSelf => {
+                    let center = if def.kind == Kind::GroundSelf {
+                        foes.first()
+                            .filter(|f| f.dist <= p.radius + 4.0)
+                            .map(|_| hpos)
+                    } else {
+                        densest(foes, p.range, p.radius)
+                    };
+                    match center {
+                        None => false,
+                        Some(center) => {
+                            fx.cast(me, def.spell, &[], Some(center));
+                            let area = if def.overhead {
+                                commands
+                                    .spawn((Transform::from_translation(center), RunEntity))
+                                    .id()
                             } else {
-                                1.0
-                            }),
-                        ),
-                        source,
-                    });
-                    true
-                } else {
-                    false
+                                let serial = run.guid();
+                                units::spawn_area_object(
+                                    &mut commands,
+                                    serial,
+                                    def.spell,
+                                    p.radius,
+                                    center,
+                                )
+                            };
+                            let burst = def.duration <= 0.0;
+                            commands.entity(area).insert(GroundArea {
+                                damage: p.dmg,
+                                dot: p.dot,
+                                dot_dur: if burst { 5.0 } else { 0.0 },
+                                radius: p.radius,
+                                left: if burst { 1.5 } else { f64::from(p.duration) },
+                                every: if burst {
+                                    f64::INFINITY
+                                } else {
+                                    f64::from(p.source.modifiers.interval(1.0))
+                                },
+                                next_tick: if burst { 0.0 } else { 0.4 },
+                                effect: p.source.modifiers.effect(def.effect),
+                                mark: def.mark,
+                                impact: if def.overhead { def.spell } else { 0 },
+                                source,
+                            });
+                            true
+                        }
+                    }
+                }
+                Kind::Chain => match nearest(foes, p.range, 1).first().copied() {
+                    None => false,
+                    Some(first) => {
+                        let mut chain = vec![first];
+                        while chain.len() < p.count + 1 {
+                            let last = chain[chain.len() - 1].pos;
+                            let next = foes
+                                .iter()
+                                .filter(|f| !chain.iter().any(|c| c.e == f.e))
+                                .filter(|f| flat(f.pos - last).length() <= p.radius)
+                                .min_by(|a, b| {
+                                    flat(a.pos - last)
+                                        .length()
+                                        .total_cmp(&flat(b.pos - last).length())
+                                });
+                            match next {
+                                Some(f) => chain.push(*f),
+                                None => break,
+                            }
+                        }
+                        fx.cast(me, def.spell, &entities(&chain), None);
+                        for (k, f) in chain.iter().enumerate() {
+                            let (dmg, crit) = roll(
+                                &mut rng,
+                                &stats,
+                                p.dmg * (0.85 + p.source.modifiers.chain).min(1.0).powi(k as i32),
+                            );
+                            schedule(
+                                &mut pending,
+                                &mut hits,
+                                now,
+                                0.08 * k as f32,
+                                hit_for(def, &p, f.e, dmg, crit),
+                            );
+                        }
+                        true
+                    }
+                },
+                Kind::Dot => {
+                    let mut pool: Vec<Foe> = foes
+                        .iter()
+                        .filter(|f| f.dist <= p.range)
+                        .take(p.count * 3)
+                        .copied()
+                        .collect();
+                    if pool.is_empty() {
+                        false
+                    } else {
+                        let mut targets = Vec::with_capacity(p.count);
+                        while targets.len() < p.count && !pool.is_empty() {
+                            targets.push(pool.swap_remove(rng.index(pool.len())));
+                        }
+                        fx.cast(me, def.spell, &entities(&targets), None);
+                        for f in &targets {
+                            let delay = if speed > 0.0 { f.dist / speed } else { 0.0 };
+                            schedule(
+                                &mut pending,
+                                &mut hits,
+                                now,
+                                delay,
+                                hit_for(def, &p, f.e, 0.0, false),
+                            );
+                        }
+                        true
+                    }
+                }
+                Kind::Aura => {
+                    let targets = around(foes, hpos, p.radius);
+                    if targets.is_empty() {
+                        false
+                    } else {
+                        for f in targets.iter().take(6) {
+                            fx.impact(f.e, def.spell);
+                        }
+                        for f in &targets {
+                            let (dmg, crit) = roll(&mut rng, &stats, p.dmg);
+                            hits.write(hit_for(def, &p, f.e, dmg, crit));
+                        }
+                        true
+                    }
+                }
+                Kind::Orbit => {
+                    let targets = nearest(foes, p.radius, p.count);
+                    if targets.is_empty() {
+                        false
+                    } else {
+                        for f in &targets {
+                            fx.impact(f.e, 403);
+                            let (dmg, crit) = roll(&mut rng, &stats, p.dmg);
+                            hits.write(hit_for(def, &p, f.e, dmg, crit));
+                        }
+                        true
+                    }
+                }
+                Kind::Shield => {
+                    let threshold = if def.key == "last_stand" { 0.65 } else { 0.85 };
+                    if run.hp < stats.max_hp * threshold && run.shield <= 0.0 {
+                        run.shield = p.dmg;
+                        run.shield_t = p.duration;
+                        fx.cast(me, def.spell, &[me], None);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Kind::Immune => {
+                    if foes.first().is_some_and(|f| f.dist <= 5.0)
+                        && (def.key != "ice_block" || run.hp < stats.max_hp * 0.65)
+                    {
+                        run.immune_t = p.duration;
+                        run.shield += owned_growth;
+                        run.shield_t = run.shield_t.max(p.duration + 3.0);
+                        fx.cast(me, def.spell, &[me], None);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Kind::Thorns => {
+                    if foes.first().is_some_and(|f| f.dist <= 8.0) {
+                        run.thorns = p.dmg;
+                        run.thorns_t = p.duration;
+                        run.thorns_spell = def.spell;
+                        run.thorns_source = source;
+                        fx.cast(me, def.spell, &[me], None);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Kind::Heal => {
+                    if run.hp < stats.max_hp * 0.85 {
+                        if p.duration <= 0.0 {
+                            run.hp = (run.hp + p.dmg).min(stats.max_hp);
+                        } else {
+                            let immediate = if def.key == "regrowth" {
+                                p.dmg * 0.4
+                            } else {
+                                0.0
+                            };
+                            run.hp = (run.hp + immediate).min(stats.max_hp);
+                            run.heal_rate = (p.dmg - immediate) / p.duration.max(1.0);
+                            run.heal_t = p.duration;
+                        }
+                        fx.cast(me, def.spell, &[me], None);
+                        fx.number(me, p.dmg, false, COLOR_HEAL);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Kind::Totem => {
+                    if (def.key == "healing_stream_totem" && run.hp < stats.max_hp * 0.85)
+                        || (def.key != "healing_stream_totem"
+                            && foes
+                                .first()
+                                .is_some_and(|f| f.dist <= p.range.max(p.radius) + 6.0))
+                    {
+                        fx.cast(me, def.spell, &[], None);
+                        let a = rng.range(0.0, std::f32::consts::TAU);
+                        let pos = hpos + Vec3::new(a.cos(), 0.0, a.sin()) * 2.0;
+                        let serial = run.guid();
+                        let totem = units::spawn_unit(
+                            &mut commands,
+                            &UnitSpec {
+                                serial,
+                                display: def.totem.0,
+                                scale: 1.0,
+                                level: 60,
+                                faction: units::FACTION_FRIENDLY,
+                                bytes0: 0,
+                                weapons: &[],
+                                sheath: 0,
+                            },
+                            pos,
+                            0.0,
+                        );
+                        commands.entity(totem).insert(Totem {
+                            cast: def.totem.1,
+                            damage: p.dmg,
+                            range: p.range,
+                            radius: p.radius,
+                            left: f64::from(p.duration),
+                            tick: 0.3,
+                            pulse: matches!(
+                                def.key,
+                                "magma_totem" | "earthbind_totem" | "stoneclaw_totem"
+                            ),
+                            every: f64::from(
+                                p.source.modifiers.interval(if def.key == "magma_totem" {
+                                    2.0
+                                } else {
+                                    1.0
+                                }),
+                            ),
+                            source,
+                            effect: p.source.modifiers.effect(def.effect),
+                        });
+                        true
+                    } else {
+                        false
+                    }
                 }
             }
         };
         if fired {
             class_mechanics::on_cast(&mut run, def.key, source.batch);
+            spell_expansion::on_cast(
+                &mut run,
+                def.key,
+                p.dmg > 0.0
+                    && matches!(
+                        def.kind,
+                        Kind::Bolt | Kind::Strike | Kind::Nova | Kind::Cone | Kind::Chain
+                    ),
+            );
         }
         run.abilities[i].cd = if fired { p.cooldown } else { 0.2 };
     }
@@ -618,12 +728,13 @@ pub(super) fn update_talent_environment(
 pub(super) fn tick_areas(
     mut commands: Commands,
     time: Res<Time>,
-    run: Res<Run>,
+    mut run: ResMut<Run>,
     mut rng: ResMut<Rng>,
     spells: Option<Res<crate::ui_action::Spells>>,
     mut areas: Query<(Entity, &Transform, &mut GroundArea)>,
     mut totems: Query<(Entity, &Transform, &mut Totem), Without<GroundArea>>,
     enemies: Query<(Entity, &Transform, &Enemy), (Without<GroundArea>, Without<Totem>)>,
+    hero: Query<(Entity, &Transform), With<Hero>>,
     mut fx: Fx,
     mut pending: ResMut<PendingHits>,
     mut hits: MessageWriter<Hit>,
@@ -643,6 +754,9 @@ pub(super) fn tick_areas(
             hp: en.hp,
             dist: 0.0,
             radius: en.radius,
+            hp_fraction: en.hp / en.max_hp.max(1.0),
+            caster: spell_expansion::caster(en),
+            controlled: en.stun_t > 0.0 || en.root_t > 0.0 || en.fear_t > 0.0,
         })
         .collect();
 
@@ -687,6 +801,22 @@ pub(super) fn tick_areas(
         for _ in 0..count {
             totem.source.pulse += 1;
             let pos = tf.translation;
+            if totem.source.ability == Some("healing_stream_totem") {
+                if let Ok((hero, at)) = hero.single() {
+                    if run.dead_t.is_none()
+                        && run.hp > 0.0
+                        && flat(at.translation - pos).length() <= totem.radius
+                    {
+                        let healed = totem.damage.min((stats.max_hp - run.hp).max(0.0));
+                        run.hp += healed;
+                        if healed > 0.0 {
+                            fx.cast(e, totem.cast, &[hero], None);
+                            fx.number(hero, healed, false, COLOR_HEAL);
+                        }
+                    }
+                }
+                continue;
+            }
             if totem.pulse {
                 let targets = around(&live, pos, totem.radius);
                 if targets.is_empty() {
@@ -698,6 +828,7 @@ pub(super) fn tick_areas(
                     hits.write(Hit {
                         color: COLOR_SPELL,
                         source: totem.source,
+                        effect: totem.effect,
                         ..Hit::direct(f.e, dmg, crit)
                     });
                 }
@@ -755,6 +886,7 @@ pub(super) fn apply_hits(
     )>,
     mut fx: Fx,
     mut loot: MessageWriter<Loot>,
+    bosses: Query<&super::bosses::Boss>,
     mut fields: MessageWriter<FieldChanged>,
 ) {
     let dt = time.delta_secs();
@@ -806,11 +938,21 @@ pub(super) fn apply_hits(
                 pos,
                 xp: en.xp,
                 boss: en.boss,
+                final_boss: bosses
+                    .get(e)
+                    .is_ok_and(|boss| boss.ordinal == super::data::BOSS_COUNT as u8),
             });
             run.kills += 1;
             if en.boss {
                 run.boss_kills += 1;
-                run.banner = Some((format!("{} is slain!", en.def.name), 3.0));
+                run.banner = Some((
+                    format!(
+                        "{}{}",
+                        super::bosses::name(en.def),
+                        super::localization::text(" is slain!", "已被击败！"),
+                    ),
+                    3.0,
+                ));
             }
         };
 
@@ -825,7 +967,13 @@ pub(super) fn apply_hits(
             class_mechanics::adjust_critical(&run, h.source, &en, h.damage, h.crit, &mut rng);
         let mut dmg = damage
             * warlock::damage_multiplier(&run, h.source, &en)
-            * class_mechanics::damage_multiplier(&run, h.source, &en);
+            * class_mechanics::damage_multiplier(&run, h.source, &en)
+            * spell_expansion::damage_multiplier(&run, h.source, e);
+        if let Some(extra) =
+            spell_expansion::on_hit(&mut run, h.source, e, &mut en, 0.0, h.mark_dur, &mut rng)
+        {
+            pending.0.push((now, extra));
+        }
         if !h.source.secondary && en.hp / en.max_hp < 0.3 {
             dmg *= 1.0 + h.source.modifiers.execute;
         }
@@ -848,6 +996,11 @@ pub(super) fn apply_hits(
                 }
             }
             skill_effects::damage_effects(&mut run, h.source, effective, &mut rng);
+            if let Some(extra) =
+                spell_expansion::on_hit(&mut run, h.source, e, &mut en, effective, 0.0, &mut rng)
+            {
+                pending.0.push((now, extra));
+            }
             warlock::on_damage(&mut run, h.source, critical, &mut en, &mut marks, &mut rng);
             if let Some(extra) = class_mechanics::on_damage(
                 &mut run, h.source, critical, e, &mut en, effective, &mut rng,
@@ -931,14 +1084,18 @@ pub(super) fn apply_hits(
                 }
                 d.source.pulse += 1;
                 d.source.periodic = true;
-                let base = d.dps
+                let mut base = d.dps
                     * warlock::damage_multiplier(&run, d.source, &en)
                     * class_mechanics::damage_multiplier(&run, d.source, &en)
+                    * spell_expansion::damage_multiplier(&run, d.source, e)
                     * if !d.source.secondary && en.hp / max_hp < 0.3 {
                         1.0 + d.source.modifiers.execute
                     } else {
                         1.0
                     };
+                if d.source.ability == Some("drain_soul") && !en.boss && en.hp / max_hp <= 0.15 {
+                    base = base.max(en.hp);
+                }
                 let (damage, crit) = if (run.class.id == 9
                     && warlock::periodic_crits(run.talents, d.source))
                     || class_mechanics::periodic_crits(&run, d.source)
@@ -953,6 +1110,11 @@ pub(super) fn apply_hits(
                 fx.number(e, damage, crit, COLOR_SPELL);
                 skill_effects::damage_effects(&mut run, d.source, effective, &mut rng);
                 if effective > 0.0 {
+                    if let Some(extra) = spell_expansion::on_hit(
+                        &mut run, d.source, e, &mut en, effective, 0.0, &mut rng,
+                    ) {
+                        pending.0.push((now, extra));
+                    }
                     warlock::on_damage(&mut run, d.source, crit, &mut en, &mut marks, &mut rng);
                     if let Some(extra) = class_mechanics::on_damage(
                         &mut run, d.source, crit, e, &mut en, effective, &mut rng,
@@ -992,9 +1154,8 @@ pub(super) fn apply_hits(
 #[cfg(test)]
 mod tests {
     use super::super::{
-        data,
+        Owned, data,
         gear::{EnhKind, SkillRoll},
-        Owned,
     };
     use super::*;
     use crate::creature_anim::{CastEvent, PlaySeq, SpellGoTargets, SwingMessage};
@@ -1016,6 +1177,125 @@ mod tests {
             .add_message::<SwingMessage>()
             .add_message::<crate::combat_text::CombatTextSpawn>();
         app
+    }
+
+    fn finale_app() -> App {
+        let mut app = app();
+        app.init_resource::<super::super::gear::Gear>()
+            .init_resource::<NextState<super::super::Phase>>()
+            .add_systems(
+                Update,
+                (apply_hits, enemies::drop_loot, hero::hero_vitals).chain(),
+            );
+        app.world_mut().spawn((
+            Hero { vy: 0.0, air: 0.0 },
+            Guid(999),
+            ObjectStore(ObjectFields::from_pairs(&[])),
+            Marks::debuffs(),
+        ));
+        app
+    }
+
+    #[test]
+    fn ten_minutes_and_earlier_boss_kills_never_trigger_victory() {
+        let mut app = finale_app();
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            run.elapsed = 900.0;
+            run.bosses = 5;
+        }
+        let enemy = foe(&mut app, 1.0, 100.0);
+        app.world_mut().get_mut::<Enemy>(enemy).unwrap().boss = true;
+        app.world_mut()
+            .entity_mut(enemy)
+            .insert(super::super::bosses::spawn(4));
+        app.world_mut()
+            .write_message(Hit::direct(enemy, 200.0, false));
+        step(&mut app, 0.0);
+        let run = app.world().resource::<Run>();
+        assert_eq!(run.boss_kills, 1);
+        assert!(!run.won);
+        assert!(!run.final_boss_defeated);
+        assert!(
+            app.world()
+                .resource::<super::super::gear::Gear>()
+                .bag()
+                .is_empty()
+        );
+        assert!(matches!(
+            app.world().resource::<NextState<super::super::Phase>>(),
+            NextState::Unchanged
+        ));
+    }
+
+    #[test]
+    fn direct_and_periodic_final_kills_award_exactly_one_primal_before_results() {
+        for periodic in [false, true] {
+            let mut app = finale_app();
+            app.world_mut().resource_mut::<Run>().elapsed = 601.0;
+            let enemy = foe(&mut app, 1.0, 50.0);
+            app.world_mut().get_mut::<Enemy>(enemy).unwrap().boss = true;
+            app.world_mut()
+                .entity_mut(enemy)
+                .insert(super::super::bosses::spawn(5));
+            if periodic {
+                add_dot(&mut app, enemy, "corruption", 3.0);
+                step(&mut app, 1.0);
+            } else {
+                app.world_mut()
+                    .write_message(Hit::direct(enemy, 100.0, false));
+                step(&mut app, 0.0);
+            }
+            let run = app.world().resource::<Run>();
+            assert!(run.final_boss_defeated);
+            assert!(run.won);
+            assert!(run.final_reward.is_some());
+            assert_eq!(run.boss_kills, 1);
+            let bag = app.world().resource::<super::super::gear::Gear>().bag();
+            assert_eq!(bag.len(), 1);
+            assert_eq!(bag[0].rarity, 5);
+            assert!(matches!(
+                app.world().resource::<NextState<super::super::Phase>>(),
+                NextState::Pending(super::super::Phase::GameOver)
+            ));
+            app.world_mut().write_message(Loot {
+                pos: Vec3::ZERO,
+                xp: 500,
+                boss: true,
+                final_boss: true,
+            });
+            step(&mut app, 0.0);
+            assert_eq!(
+                app.world()
+                    .resource::<super::super::gear::Gear>()
+                    .bag()
+                    .len(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn simultaneous_hero_and_final_boss_death_keeps_reward_without_resurrection() {
+        let mut app = finale_app();
+        app.world_mut().resource_mut::<Run>().hp = 0.0;
+        let enemy = foe(&mut app, 1.0, 50.0);
+        app.world_mut().get_mut::<Enemy>(enemy).unwrap().boss = true;
+        app.world_mut()
+            .entity_mut(enemy)
+            .insert(super::super::bosses::spawn(5));
+        app.world_mut()
+            .write_message(Hit::direct(enemy, 100.0, false));
+        step(&mut app, 0.0);
+        let run = app.world().resource::<Run>();
+        assert_eq!(run.hp, 0.0);
+        assert!(!run.won);
+        assert!(run.dead_t.is_some());
+        assert!(run.final_reward.is_some());
+        assert_eq!(
+            app.world().resource::<super::super::gear::Gear>().bag()[0].rarity,
+            5
+        );
     }
 
     fn foe(app: &mut App, x: f32, hp: f32) -> Entity {
@@ -1057,6 +1337,304 @@ mod tests {
             .advance_by(Duration::from_secs_f32(dt));
         app.update();
         app.world_mut().resource_mut::<Run>().elapsed += dt;
+    }
+
+    fn caster_app(key: &'static str) -> App {
+        let mut app = app();
+        app.add_systems(Update, (cast_abilities, tick_areas, apply_hits).chain());
+        app.world_mut()
+            .spawn((Hero { vy: 0.0, air: 0.0 }, Transform::default()));
+        app.world_mut().resource_mut::<Run>().abilities.push(Owned {
+            def: data::ability(key),
+            level: 1,
+            growth: 1.0,
+            cd: 0.0,
+        });
+        app
+    }
+
+    #[test]
+    fn guardian_spells_never_target_hostile_units_or_create_damage_hits() {
+        for key in [
+            "ice_barrier",
+            "mana_shield",
+            "last_stand",
+            "flash_heal",
+            "healing_touch",
+            "shield_wall",
+            "barkskin",
+            "arcane_power",
+            "inner_fire",
+        ] {
+            let mut app = caster_app(key);
+            let enemy = foe(&mut app, 1.0, 1000.0);
+            app.world_mut().resource_mut::<Run>().hp = 20.0;
+            step(&mut app, 0.1);
+            assert_eq!(app.world().get::<Enemy>(enemy).unwrap().hp, 1000.0, "{key}");
+            assert!(app.world().resource::<PendingHits>().0.is_empty(), "{key}");
+            let gos: Vec<_> = app
+                .world_mut()
+                .resource_mut::<Messages<SpellGoTargets>>()
+                .drain()
+                .collect();
+            assert!(
+                gos.iter().any(|go| go.spell_id == data::ability(key).spell),
+                "{key} did not cast"
+            );
+            assert!(
+                gos.iter().all(|go| !go.hits.contains(&enemy)),
+                "{key} targeted a hostile"
+            );
+        }
+    }
+
+    #[test]
+    fn defensive_health_thresholds_gate_real_cast_events_and_effects() {
+        for key in [
+            "ice_barrier",
+            "mana_shield",
+            "last_stand",
+            "flash_heal",
+            "healing_touch",
+            "shield_wall",
+            "barkskin",
+            "evasion",
+            "ice_block",
+        ] {
+            let mut app = caster_app(key);
+            foe(&mut app, 1.0, 1000.0);
+            {
+                let mut run = app.world_mut().resource_mut::<Run>();
+                run.hp = run.stats().max_hp;
+            }
+            step(&mut app, 0.1);
+            assert_eq!(app.world().resource::<Run>().shield, 0.0, "{key}");
+            assert_eq!(app.world().resource::<Run>().immune_t, 0.0, "{key}");
+            assert!(
+                app.world()
+                    .resource::<Messages<SpellGoTargets>>()
+                    .is_empty(),
+                "{key}"
+            );
+            app.world_mut().resource_mut::<Run>().hp = 20.0;
+            step(&mut app, 0.3);
+            let gos: Vec<_> = app
+                .world_mut()
+                .resource_mut::<Messages<SpellGoTargets>>()
+                .drain()
+                .collect();
+            let go = gos
+                .iter()
+                .find(|go| go.spell_id == data::ability(key).spell)
+                .unwrap();
+            assert_eq!(go.hits, vec![go.caster], "{key}");
+            assert!(go.dest.is_none() && go.misses.is_empty(), "{key}");
+            let run = app.world().resource::<Run>();
+            assert!(
+                run.shield > 0.0
+                    || run.immune_t > 0.0
+                    || run.hp > 20.0
+                    || spell_expansion::incoming(run) < 1.0,
+                "{key} cast without its defense"
+            );
+        }
+    }
+
+    #[test]
+    fn timed_arcane_power_changes_actual_damage_then_expires() {
+        let mut app = caster_app("arcane_power");
+        let enemy = foe(&mut app, 1.0, 10000.0);
+        app.world_mut().resource_mut::<Run>().abilities.push(Owned {
+            def: data::ability("fire_blast"),
+            level: 1,
+            growth: 1.0,
+            cd: 0.0,
+        });
+        step(&mut app, 0.1);
+        let boosted = app.world().resource::<Run>().damage_done;
+        assert!(boosted > 0.0);
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            run.elapsed = 20.0;
+            run.damage_done = 0.0;
+            run.abilities.remove(0);
+            run.abilities[0].cd = 0.0;
+        }
+        app.world_mut().insert_resource(Rng(12345));
+        step(&mut app, 0.1);
+        let ordinary = app.world().resource::<Run>().damage_done;
+        assert!((boosted - ordinary * 1.3).abs() < 0.001);
+        assert!(
+            (10000.0 - app.world().get::<Enemy>(enemy).unwrap().hp - (boosted + ordinary) as f32)
+                .abs()
+                < 0.001
+        );
+    }
+
+    #[test]
+    fn drain_life_cast_creates_a_real_channel_that_heals_only_on_damage_ticks() {
+        let mut app = caster_app("drain_life");
+        let enemy = foe(&mut app, 1.0, 1000.0);
+        app.world_mut().resource_mut::<Run>().hp = 30.0;
+        step(&mut app, 0.1);
+        assert_eq!(app.world().resource::<Run>().hp, 30.0);
+        assert_eq!(app.world().get::<Enemy>(enemy).unwrap().dots.len(), 1);
+        {
+            let enemy = app.world().get::<Enemy>(enemy).unwrap();
+            let channel = &enemy.dots[0];
+            assert_eq!(channel.source.ability, Some("drain_life"));
+            assert!(!channel.source.secondary);
+            assert!(channel.source.batch > 0);
+            assert_eq!(channel.every, 1.0);
+        }
+        app.world_mut().resource_mut::<Run>().abilities.clear();
+        step(&mut app, 1.0);
+        let run = app.world().resource::<Run>();
+        assert!(run.hp > 30.0 && run.hp <= 30.0 + run.stats().max_hp * 0.04);
+        assert!(app.world().get::<Enemy>(enemy).unwrap().hp < 1000.0);
+        let hp = run.hp;
+        app.world_mut().get_mut::<Enemy>(enemy).unwrap().dead = true;
+        step(&mut app, 1.0);
+        assert_eq!(app.world().resource::<Run>().hp, hp);
+    }
+
+    #[test]
+    fn reactive_and_execute_abilities_keep_their_actual_target_constraints() {
+        for key in [
+            "overpower",
+            "mongoose_bite",
+            "execute",
+            "drain_soul",
+            "shield_bash",
+            "curse_of_tongues",
+        ] {
+            let mut app = caster_app(key);
+            let enemy = foe(&mut app, 1.0, 1000.0);
+            step(&mut app, 0.1);
+            let en = app.world().get::<Enemy>(enemy).unwrap();
+            assert_eq!(en.hp, 1000.0, "{key}");
+            assert!(en.dots.is_empty(), "{key}");
+            if matches!(key, "overpower" | "mongoose_bite") {
+                app.world_mut().resource_mut::<Run>().hp -= 10.0;
+            } else if matches!(key, "execute" | "drain_soul") {
+                app.world_mut().get_mut::<Enemy>(enemy).unwrap().hp = 200.0;
+            } else {
+                continue;
+            }
+            step(&mut app, 0.3);
+            let en = app.world().get::<Enemy>(enemy).unwrap();
+            assert!(
+                en.hp < 200.0
+                    || !en.dots.is_empty()
+                    || en.hp < 1000.0 && matches!(key, "overpower" | "mongoose_bite"),
+                "{key} failed its eligible target"
+            );
+        }
+    }
+
+    #[test]
+    fn expansion_periodic_leech_uses_effective_damage_and_shared_budget_without_reviving() {
+        for (hp, expected) in [(50.0, 52.0), (0.0, 0.0)] {
+            let mut app = app();
+            app.add_systems(Update, apply_hits);
+            app.world_mut().resource_mut::<Run>().hp = hp;
+            let enemy = foe(&mut app, 1.0, 4.0);
+            add_dot(&mut app, enemy, "siphon_life", 1.0);
+            step(&mut app, 1.0);
+            assert_eq!(app.world().resource::<Run>().hp, expected);
+        }
+    }
+
+    #[test]
+    fn drain_soul_channel_executes_low_health_trash_but_never_a_boss() {
+        for boss in [false, true] {
+            let mut app = app();
+            app.add_systems(Update, apply_hits);
+            let enemy = foe(&mut app, 1.0, 1000.0);
+            add_dot(&mut app, enemy, "drain_soul", 2.0);
+            {
+                let mut en = app.world_mut().get_mut::<Enemy>(enemy).unwrap();
+                en.hp = 100.0;
+                en.boss = boss;
+                en.dots[0].dps = 1.0;
+            }
+            step(&mut app, 1.0);
+            let en = app.world().get::<Enemy>(enemy).unwrap();
+            assert_eq!(en.dead, !boss);
+            assert_eq!(en.hp, if boss { 99.0 } else { 0.0 });
+        }
+    }
+
+    #[test]
+    fn weapon_procs_are_nonrecursive_and_curses_amplify_the_correct_damage_school() {
+        let mut app = caster_app("seal_of_righteousness");
+        let enemy = foe(&mut app, 1.0, 1000.0);
+        step(&mut app, 0.1);
+        step(&mut app, 0.1);
+        assert!(
+            app.world()
+                .resource::<PendingHits>()
+                .0
+                .iter()
+                .any(|(_, hit)| hit.source.secondary
+                    && hit.source.ability == Some("seal_of_righteousness"))
+        );
+        app.world_mut().resource_mut::<Run>().abilities.clear();
+        step(&mut app, 0.1);
+        assert!(app.world().resource::<PendingHits>().0.is_empty());
+        assert!(app.world().get::<Enemy>(enemy).unwrap().hp < 992.0);
+
+        let mut curse_app = self::app();
+        curse_app.add_systems(Update, apply_hits);
+        let enemy = foe(&mut curse_app, 1.0, 1000.0);
+        curse_app.world_mut().write_message(Hit {
+            mark_dur: 10.0,
+            source: Source {
+                ability: Some("curse_of_elements"),
+                ..default()
+            },
+            ..Hit::direct(enemy, 0.0, false)
+        });
+        step(&mut curse_app, 0.0);
+        damage(&mut curse_app, enemy, "frostbolt", 100.0, false);
+        assert!((curse_app.world().get::<Enemy>(enemy).unwrap().hp - 880.0).abs() < 0.01);
+        damage(&mut curse_app, enemy, "cleave", 100.0, false);
+        assert!((curse_app.world().get::<Enemy>(enemy).unwrap().hp - 780.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn new_totems_heal_or_control_without_any_summoning_burst() {
+        for key in ["healing_stream_totem", "earthbind_totem", "stoneclaw_totem"] {
+            let mut app = caster_app(key);
+            let enemy = foe(&mut app, 1.0, 1000.0);
+            app.world_mut().resource_mut::<Run>().hp = 20.0;
+            step(&mut app, 0.1);
+            assert_eq!(app.world().get::<Enemy>(enemy).unwrap().hp, 1000.0, "{key}");
+            step(&mut app, 1.0);
+            let en = app.world().get::<Enemy>(enemy).unwrap();
+            assert_eq!(en.hp, 1000.0, "{key}");
+            match key {
+                "healing_stream_totem" => assert!(app.world().resource::<Run>().hp > 20.0),
+                "earthbind_totem" => assert!(en.slow < 1.0 && en.slow_t > 0.0),
+                _ => assert!(en.weaken < 1.0 && en.weaken_t > 0.0),
+            }
+        }
+    }
+
+    #[test]
+    fn curse_of_doom_damages_only_after_its_timer_and_dead_heroes_cannot_cast() {
+        let mut app = caster_app("curse_of_doom");
+        let enemy = foe(&mut app, 1.0, 1000.0);
+        step(&mut app, 0.1);
+        assert_eq!(app.world().get::<Enemy>(enemy).unwrap().hp, 1000.0);
+        assert_eq!(app.world().resource::<PendingHits>().0.len(), 1);
+        app.world_mut().resource_mut::<Run>().elapsed = 9.0;
+        step(&mut app, 0.0);
+        assert!(app.world().get::<Enemy>(enemy).unwrap().hp < 1000.0);
+        let mut dead = caster_app("holy_light");
+        dead.world_mut().resource_mut::<Run>().hp = 0.0;
+        step(&mut dead, 1.0);
+        assert_eq!(dead.world().resource::<Run>().hp, 0.0);
     }
 
     fn enhance(app: &mut App, kind: EnhKind, ability: Option<&'static str>, value: f32) {
@@ -1342,6 +1920,7 @@ mod tests {
                 run.abilities.push(Owned {
                     def: data::ability(key),
                     level: 1,
+                    growth: 1.0,
                     cd,
                 });
             }
@@ -1515,6 +2094,7 @@ mod tests {
         app.world_mut().resource_mut::<Run>().abilities.push(Owned {
             def: data::ability("frostbolt"),
             level: 1,
+            growth: 1.0,
             cd: 0.0,
         });
         step(&mut app, 0.1);
@@ -1525,6 +2105,7 @@ mod tests {
         run.abilities.push(Owned {
             def: data::ability("arcane_explosion"),
             level: 1,
+            growth: 1.0,
             cd: 0.0,
         });
         let distant = foe(&mut app, 12.0, 1000.0);
@@ -1543,6 +2124,7 @@ mod tests {
         app.world_mut().resource_mut::<Run>().abilities.push(Owned {
             def: data::ability("corruption"),
             level: 1,
+            growth: 1.0,
             cd: 0.0,
         });
         step(&mut app, 0.1);
@@ -1646,6 +2228,7 @@ mod tests {
                     tick: interval,
                     pulse: false,
                     every: interval,
+                    effect: Effect::None,
                     source: Source {
                         ability: Some("searing_totem"),
                         batch: 2,
@@ -1698,6 +2281,7 @@ mod tests {
         app.world_mut().resource_mut::<Run>().abilities.push(Owned {
             def: data::ability("frostbolt"),
             level: 1,
+            growth: 1.0,
             cd: 0.0,
         });
         step(&mut app, 0.1);

@@ -63,8 +63,8 @@ pub(super) const NODES: [NodeDef; NODE_COUNT] = [
         "Fel Concentration",
         "恶魔专注",
         "Spell_Shadow_FingerOfDeath",
-        "Each Corruption, Curse of Agony or Immolate tick has a 4% chance per rank to extend that effect by 1 second; total extension is capped at 50% of its initial duration.",
-        "腐蚀术、痛苦诅咒和献祭每跳有每级4%概率使自身延长1秒；每个效果累计最多延长初始持续时间的50%。"
+        "Affliction ticks (Corruption, Agony, Immolate, Siphon Life, Drain Life, Drain Soul and Doom) have a 4% chance per rank to extend their effect by 1 second; total extension is capped at 50% of its initial duration.",
+        "腐蚀术、痛苦诅咒、献祭、生命虹吸、吸取生命、吸取灵魂和厄运诅咒每跳有每级4%概率使自身延长1秒；累计延长最多为初始持续时间的50%。"
     ),
     node!(
         "grim_reach",
@@ -88,23 +88,23 @@ pub(super) const NODES: [NodeDef; NODE_COUNT] = [
         "夜幕",
         "Spell_Shadow_ShadeTrueSight",
         "Affliction ticks have a 2% chance per rank to reset the learned direct spell with the longest remaining cooldown. Shared 3-second internal cooldown; no extra cast.",
-        "腐蚀术、痛苦诅咒和献祭每跳有每级2%概率刷新已学直伤法术中剩余冷却最长的一个；共用3秒内置冷却，不额外复制施法。"
+        "痛苦系持续伤害（含生命虹吸、吸取生命、吸取灵魂和厄运诅咒）每跳有每级2%概率刷新已学直伤法术中剩余冷却最长的一个；共用3秒内置冷却，不额外复制施法。"
     ),
     node!(
         "contagion",
         "Contagion",
         "蔓延痛苦",
         "Spell_Shadow_PlagueCloud",
-        "Corruption, Curse of Agony and Immolate ticks slow their target by 4% per rank for 3 seconds. Half strength on bosses; refreshes, never stacks.",
-        "腐蚀术、痛苦诅咒和献祭每跳使目标减速每级4%，持续3秒；首领效果减半，仅刷新、不叠加。"
+        "Affliction ticks, including Siphon Life, Drain Life, Drain Soul and Doom, slow their target by 4% per rank for 3 seconds. Half strength on bosses; refreshes, never stacks.",
+        "痛苦系持续伤害（含生命虹吸、吸取生命、吸取灵魂和厄运诅咒）每跳使目标减速每级4%，持续3秒；首领效果减半，仅刷新、不叠加。"
     ),
     node!(
         "dark_pact",
         "Dark Pact",
         "黑暗契约",
         "Spell_Shadow_DarkRitual",
-        "Corruption, Curse of Agony and Immolate ticks can crit using the same chance and multiplier as direct spells (including Ruin and gear). Periodic leech +2%, sharing the healing cap.",
-        "腐蚀术、痛苦诅咒和献祭每跳可暴击，与直伤共用暴击率和倍率（含毁灭之力与装备）；持续伤害额外吸血2%，共享恢复上限。"
+        "Affliction ticks, including Siphon Life, Drain Life, Drain Soul and Doom, can crit with direct-spell chance and multiplier. Periodic leech +2%, sharing the healing cap.",
+        "痛苦系持续伤害（含生命虹吸、吸取生命、吸取灵魂和厄运诅咒）每跳可暴击，与直伤共用暴击率和倍率；持续伤害额外吸血2%，共享恢复上限。"
     ),
     node!(
         "demonic_embrace",
@@ -696,10 +696,21 @@ pub(super) struct Cast {
     pub modifiers: super::skill_effects::Modifiers,
 }
 
-pub(super) fn cast(def: &'static data::AbilityDef, level: u8, stats: &Stats) -> Cast {
+#[cfg(test)]
+pub(super) fn cast(def: &'static data::AbilityDef, level: u32, stats: &Stats) -> Cast {
+    cast_with_growth(def, level, level as f32, stats)
+}
+
+pub(super) fn cast_with_growth(
+    def: &'static data::AbilityDef,
+    level: u32,
+    growth: f32,
+    stats: &Stats,
+) -> Cast {
     let owned = Owned {
         def,
         level,
+        growth,
         cd: 0.0,
     };
     let t = stats.talents;
@@ -722,10 +733,17 @@ pub(super) fn cast(def: &'static data::AbilityDef, level: u8, stats: &Stats) -> 
         "shadow_bolt" | "immolate" | "searing_pain" => 0.02 * r(19),
         _ => 0.0,
     };
-    let modifiers = super::skill_effects::Modifiers::from_stats(stats, def);
+    let mut modifiers = super::skill_effects::Modifiers::from_stats(stats, def);
+    modifiers.control = (1.0 + modifiers.control) * super::growth::control_multiplier(growth) - 1.0;
     let mult = owned.damage_mult() * stats.might * damage * (1.0 + modifiers.damage);
     let mut cast = Cast {
-        dmg: def.damage * mult,
+        dmg: def.damage
+            * mult
+            * if def.kind == data::Kind::Shield {
+                stats.shield_power
+            } else {
+                1.0
+            },
         dot: def.dot * mult,
         count: owned.count() + modifiers.count,
         radius: owned.radius(stats)
@@ -772,9 +790,16 @@ pub(super) fn modify_stats(stats: &mut Stats) {
     stats.crit = (stats.crit + 0.01 * t.rank(18)).min(1.0);
 }
 
-pub(super) fn cast_for_run(def: &'static data::AbilityDef, level: u8, run: &Run) -> Cast {
+pub(super) fn cast_for_run(def: &'static data::AbilityDef, level: u32, run: &Run) -> Cast {
     let mut stats = run.stats();
-    let mut cast = cast(def, level, &stats);
+    let growth = run
+        .abilities
+        .iter()
+        .find(|owned| owned.def.key == def.key)
+        .map_or(level as f32, |owned| {
+            owned.growth + level.saturating_sub(owned.level) as f32
+        });
+    let mut cast = cast_with_growth(def, level, growth, &stats);
     super::class_mechanics::modify_cast(run, def.key, &mut cast, &mut stats);
     cast
 }
@@ -794,7 +819,7 @@ pub(super) fn periodic_crits(stats: &Stats, source: super::skill_effects::Source
 }
 
 pub(super) fn periodic_heal(run: &mut Run, effective_damage: f32, dt: f32) {
-    if run.dead_t.is_some() {
+    if run.dead_t.is_some() || run.hp <= 0.0 {
         return;
     }
     let max_hp = run.stats().max_hp;
@@ -1394,6 +1419,7 @@ mod tests {
                 Owned {
                     def: data::ability("corruption"),
                     level: 1,
+                    growth: 1.0,
                     cd: 0.0,
                 }
                 .cooldown(&stats)
@@ -1526,6 +1552,26 @@ mod tests {
     }
 
     #[test]
+    fn quality_growth_controls_actual_effects_without_permanent_control() {
+        let stats = warlock().stats();
+        let def = data::ability("corruption");
+        let common = cast_with_growth(def, 5, 5.0, &stats);
+        let legendary = cast_with_growth(def, 5, 16.0, &stats);
+        let high = cast_with_growth(def, 1000, 3200.0, &stats);
+        let duration = |cast: &Cast| {
+            let data::Effect::Root(duration) = cast.modifiers.effect(data::Effect::Root(2.0))
+            else {
+                panic!("control effect must retain its kind");
+            };
+            duration
+        };
+        assert!(duration(&legendary) > duration(&common));
+        assert!(duration(&high) < 3.2);
+        assert!(legendary.dot > common.dot);
+        assert!(high.dot > legendary.dot);
+    }
+
+    #[test]
     fn casts_keep_zero_talent_behavior_and_modify_only_target_skills() {
         let run = warlock();
         let mut stats = run.stats();
@@ -1534,6 +1580,7 @@ mod tests {
         let o = Owned {
             def,
             level: 3,
+            growth: 3.0,
             cd: 0.0,
         };
         assert_eq!(plain.dot, def.dot * o.damage_mult() * stats.might);

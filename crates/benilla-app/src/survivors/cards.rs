@@ -1,16 +1,15 @@
 //! The level-up picker, as a survivors game deals it: three tall cards that flip up out of the
 //! deck one after another, tilt toward the cursor, lift under it and burst on the pick. Each card
-//! wears its rarity in WoW's item-quality colours, so what is better reads at a glance: a fresh
-//! spell is Rare, a rank up Uncommon, a rank that adds a target or reaches the top Epic.
+//! wears its rolled quality in WoW's item-quality colours. Quality is frozen when dealt and
+//! determines additive growth on the first learning just as it does on every later upgrade.
 
 use bevy::prelude::*;
 use bevy::ui::RelativeCursorPosition;
 
-use super::data::{self, Kind};
 use super::fill::FillMaterial;
-use super::hud::{self, Choice, HudFont, Offer, SpellIcon};
+use super::hud::{self, HudFont, Offer, SpellIcon};
 use super::localization;
-use super::{Phase, Rng, Run};
+use super::{growth, Phase, Rng, Run};
 
 /// WoW's item-quality colours (`ITEM_QUALITY_COLORS`).
 pub(super) const COMMON: Color = Color::srgb(1.0, 1.0, 1.0);
@@ -20,7 +19,7 @@ pub(super) const EPIC: Color = Color::srgb(0.639, 0.208, 0.933);
 pub(super) const LEGENDARY: Color = Color::srgb(1.0, 0.502, 0.0);
 
 const CARD_W: f32 = 236.0;
-const CARD_H: f32 = 330.0;
+const CARD_H: f32 = 370.0;
 /// Seconds between one card landing and the next.
 const DEAL_STAGGER: f32 = 0.09;
 const DEAL_SECS: f32 = 0.38;
@@ -54,86 +53,38 @@ impl Rarity {
             Self::Legendary => localization::text("Legendary", "传说"),
         }
     }
-}
 
-/// A spell's rough damage per second at rank 1 against a crowd: per-cast damage times the
-/// enemies it can reach, over its cooldown. Only for ranking a class's own spells against each
-/// other; the defensive kinds have none and sit in the middle.
-fn power(def: &data::AbilityDef) -> Option<f32> {
-    let area = |r: f32| 1.0 + r * 0.6;
-    let reach = match def.kind {
-        Kind::Bolt | Kind::Strike => def.count as f32 + def.radius * 0.4,
-        Kind::Melee | Kind::Orbit => def.count as f32,
-        Kind::Nova | Kind::Cone | Kind::Ground | Kind::GroundSelf | Kind::Aura => area(def.radius),
-        Kind::Chain => def.count as f32 + 1.0,
-        Kind::Dot => def.count as f32,
-        _ => return None,
-    };
-    let per = if def.damage > 0.0 {
-        def.damage
-    } else {
-        def.dot * def.duration.max(1.0)
-    };
-    let ticks = if matches!(def.kind, Kind::Ground | Kind::GroundSelf) && def.duration > 0.0 {
-        def.duration
-    } else {
-        1.0
-    };
-    Some(per * ticks * reach / def.cooldown.max(0.2))
-}
-
-/// Where a new spell stands among its class's: the strongest third Epic, the weakest third
-/// Uncommon, the rest (and the defensive spells) Rare.
-fn spell_tier(def: &data::AbilityDef, run: &Run) -> Rarity {
-    let Some(mine) = power(def) else {
-        return Rarity::Rare;
-    };
-    let mut all: Vec<f32> = run
-        .class
-        .pool
-        .iter()
-        .filter_map(|k| power(data::ability(k)))
-        .collect();
-    all.sort_by(f32::total_cmp);
-    let rank = all.iter().filter(|&&p| p < mine).count() as f32 / all.len().max(1) as f32;
-    if rank >= 0.66 {
-        Rarity::Epic
-    } else if rank < 0.33 {
-        Rarity::Uncommon
-    } else {
-        Rarity::Rare
-    }
-}
-
-/// What a choice is worth, by what it brings: a top rank is Legendary, a rank that adds a target
-/// Epic, a new spell by its power among the class's ([`spell_tier`]), a plain rank Uncommon.
-pub(super) fn rarity(choice: Choice, run: &Run) -> Rarity {
-    match choice {
-        Choice::NewAbility(def) => spell_tier(def, run),
-        Choice::Upgrade(k) => {
-            let o = &run.abilities[k];
-            let next = o.level + 1;
-            let targets = [3, 5, 7].contains(&next)
-                && matches!(
-                    o.def.kind,
-                    Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Dot | Kind::Chain | Kind::Orbit
-                );
-            if next == data::MAX_ABILITY_LEVEL {
-                Rarity::Legendary
-            } else if targets {
-                Rarity::Epic
-            } else {
-                Rarity::Uncommon
-            }
+    pub(super) fn growth(self) -> f32 {
+        match self {
+            Self::Common => 1.0,
+            Self::Uncommon => 1.35,
+            Self::Rare => 1.8,
+            Self::Epic => 2.4,
+            Self::Legendary => 3.2,
         }
-        Choice::NewPassive(_) => Rarity::Uncommon,
-        Choice::UpPassive(k) => match run.passives[k].1 + 1 {
-            n if n == data::MAX_PASSIVE_LEVEL => Rarity::Epic,
-            n if n + 1 == data::MAX_PASSIVE_LEVEL => Rarity::Rare,
-            2 => Rarity::Common,
-            _ => Rarity::Uncommon,
-        },
-        Choice::Heal => Rarity::Common,
+    }
+
+    pub(super) fn roll(rng: &mut Rng, luck: f32) -> Self {
+        Self::from_roll(rng.f32(), luck)
+    }
+
+    fn from_roll(roll: f32, luck: f32) -> Self {
+        let weights = growth::quality_weights(luck);
+        let mut pick = roll * weights.iter().sum::<f32>();
+        let qualities = [
+            Self::Common,
+            Self::Uncommon,
+            Self::Rare,
+            Self::Epic,
+            Self::Legendary,
+        ];
+        for (quality, weight) in qualities.into_iter().zip(weights) {
+            if pick < weight {
+                return quality;
+            }
+            pick -= weight;
+        }
+        Self::Legendary
     }
 }
 
@@ -181,8 +132,8 @@ pub(super) fn deal_cards(
     let f = &font.0;
     commands.entity(row).with_children(|row| {
         for (i, &choice) in offer.choices().iter().enumerate() {
-            let card = hud::describe_card(choice, &run, spells.as_deref());
-            let rarity = rarity(choice, &run);
+            let rarity = offer.quality(i);
+            let card = hud::describe_card(choice, rarity, &run, spells.as_deref());
             let rc = rarity.color();
             row.spawn((
                 Card {
@@ -313,34 +264,16 @@ pub(super) fn deal_cards(
                     rc.mix(&Color::WHITE, 0.25),
                 ));
                 c.spawn(hud::centered_bundle(f, card.tag, 14.0, card.tag_color));
-                // The pips: rank now, and the one this pick fills.
-                if let Some((have, max)) = card.ranks {
-                    c.spawn(Node {
-                        column_gap: Val::Px(4.0),
-                        margin: UiRect::vertical(Val::Px(2.0)),
-                        ..default()
-                    })
-                    .with_children(|pips| {
-                        for r in 0..max {
-                            let color = if r < have {
-                                hud::GOLD_TONE
-                            } else if r == have {
-                                rc
-                            } else {
-                                Color::srgba(1.0, 1.0, 1.0, 0.12)
-                            };
-                            pips.spawn((
-                                Node {
-                                    width: Val::Px(14.0),
-                                    height: Val::Px(6.0),
-                                    border_radius: BorderRadius::all(Val::Px(2.0)),
-                                    ..default()
-                                },
-                                BackgroundColor(color),
-                            ));
-                        }
-                    });
-                }
+                c.spawn(hud::centered_bundle(
+                    f,
+                    format!(
+                        "{} +{:.2}",
+                        localization::text("Growth", "成长"),
+                        rarity.growth()
+                    ),
+                    14.0,
+                    rc,
+                ));
                 c.spawn((
                     Node {
                         width: Val::Percent(80.0),
@@ -517,6 +450,7 @@ pub(super) fn choose_card(
     if *phase.get() != Phase::LevelUp || pending.0.is_some() {
         return;
     }
+
     let mut pick = cards
         .iter()
         .find(|(c, i)| **i == Interaction::Pressed && c.t >= DEAL_SECS)
@@ -531,5 +465,47 @@ pub(super) fn choose_card(
     }
     if let Some(i) = pick.filter(|&i| i < offer.len()) {
         pending.0 = Some((i, 0.0));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn qualities_contribute_additive_not_exponential_growth() {
+        let qualities = [
+            Rarity::Common,
+            Rarity::Uncommon,
+            Rarity::Rare,
+            Rarity::Epic,
+            Rarity::Legendary,
+        ];
+        let total: f32 = qualities.into_iter().map(Rarity::growth).sum();
+        assert!((total - 9.75).abs() < 0.0001);
+        assert!((growth::damage(total) - 3.625).abs() < 0.0001);
+    }
+
+    #[test]
+    fn deterministic_quality_distribution_and_luck_tilt() {
+        let count = |luck| {
+            let mut buckets = [0; 5];
+            for i in 0..100_000 {
+                let rarity = Rarity::from_roll((i as f32 + 0.5) / 100_000.0, luck);
+                let index = match rarity {
+                    Rarity::Common => 0,
+                    Rarity::Uncommon => 1,
+                    Rarity::Rare => 2,
+                    Rarity::Epic => 3,
+                    Rarity::Legendary => 4,
+                };
+                buckets[index] += 1;
+            }
+            buckets
+        };
+        assert_eq!(count(0.0), [50_000, 30_000, 13_000, 5_000, 2_000]);
+        let lucky = count(growth::effective_luck(100.0));
+        assert!(lucky[0] < 50_000);
+        assert!(lucky[4] > 2_000);
     }
 }

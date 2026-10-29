@@ -400,13 +400,24 @@ pub(super) fn place_camera(
 
 /// Returns damage through immunity, armour and shields, plus nonrecursive shield retaliation.
 pub(super) fn hurt_hero(run: &mut Run, raw: f32) -> (f32, f32) {
+    hurt(run, raw, true)
+}
+
+/// Boss spell damage uses the same defenses without triggering contact-only retaliation.
+pub(super) fn hurt_by_spell(run: &mut Run, raw: f32) -> f32 {
+    hurt(run, raw, false).0
+}
+
+fn hurt(run: &mut Run, raw: f32, contact: bool) -> (f32, f32) {
     if run.immune_t > 0.0 || run.dead_t.is_some() || run.hp <= 0.0 {
         return (0.0, 0.0);
     }
     let armored = (raw - run.stats().armor).max(1.0);
     let projected = run.hp
         - (armored * run.incoming() - if run.shield_t > 0.0 { run.shield } else { 0.0 }).max(0.0);
-    super::class_mechanics::before_contact(run, projected);
+    if contact {
+        super::class_mechanics::before_contact(run, projected);
+    }
     let mut dmg = armored * run.incoming();
     let mut absorbed = 0.0;
     if run.shield_t > 0.0 && run.shield > 0.0 {
@@ -415,7 +426,11 @@ pub(super) fn hurt_hero(run: &mut Run, raw: f32) -> (f32, f32) {
         dmg -= absorbed;
     }
     run.hp -= dmg;
-    let reflect = super::class_mechanics::on_contact(run, absorbed, dmg);
+    let reflect = if contact {
+        super::class_mechanics::on_contact(run, absorbed, dmg)
+    } else {
+        0.0
+    };
     (dmg, reflect)
 }
 
@@ -490,7 +505,7 @@ pub(super) fn hero_vitals(
         units::kill_unit(&mut store);
         marks.clear();
         marks.flush(entity, guid.0, &mut store, &mut fields);
-    } else if run.elapsed >= data::VICTORY_SECS {
+    } else if run.final_boss_defeated {
         run.won = true;
         // A last flourish before the results.
         fx.cast(entity, 642, &[entity], None);
@@ -526,6 +541,26 @@ mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::window::{CursorLeft, WindowFocused};
+
+    #[test]
+    fn boss_spells_respect_immunity_armor_shields_and_do_not_resurrect() {
+        let mut run = Run::default();
+        run.immune_t = 1.0;
+        assert_eq!(hurt_by_spell(&mut run, 100.0), 0.0);
+        assert_eq!(run.hp, super::super::BASE_HP);
+        run.immune_t = 0.0;
+        run.shield_t = 1.0;
+        run.shield = 60.0;
+        let expected = (100.0 - run.stats().armor).max(1.0) * run.incoming();
+        assert!((hurt_by_spell(&mut run, 100.0) - (expected - 60.0).max(0.0)).abs() < 0.001);
+        assert_eq!(run.shield, 0.0);
+        run.hp = 0.0;
+        assert_eq!(hurt_by_spell(&mut run, 100.0), 0.0);
+        run.hp = 50.0;
+        run.dead_t = Some(0.0);
+        assert_eq!(hurt_by_spell(&mut run, 100.0), 0.0);
+        assert_eq!(run.hp, 50.0);
+    }
 
     fn held_left() -> World {
         let mut world = World::new();
