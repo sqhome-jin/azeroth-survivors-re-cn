@@ -1324,6 +1324,19 @@ fn save_path() -> Option<std::path::PathBuf> {
     crate::local_state::home().map(|p| p.join("survivors-gear.toml"))
 }
 
+fn backup_before_overwrite(path: &std::path::Path) -> std::io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("survivors-gear.toml");
+    let backup = path.with_file_name(format!("{name}.bak"));
+    std::fs::copy(path, &backup)?;
+    Ok(())
+}
+
 fn load(mut gear: ResMut<Gear>) {
     let Some(path) = save_path() else { return };
     match crate::local_state::read_to_string(&path) {
@@ -1396,10 +1409,15 @@ fn persist(
     let result = save_path()
         .ok_or_else(|| "local persistence unavailable".to_owned())
         .and_then(|path| {
-            toml::to_string(&gear.save)
-                .map_err(|e| e.to_string())
-                .and_then(|text| {
-                    crate::local_state::write_atomic(&path, &text).map_err(|e| e.to_string())
+            backup_before_overwrite(&path)
+                .map_err(|e| format!("gear backup failed: {e}"))
+                .and_then(|_| {
+                    toml::to_string(&gear.save)
+                        .map_err(|e| e.to_string())
+                        .and_then(|text| {
+                            crate::local_state::write_atomic(&path, &text)
+                                .map_err(|e| e.to_string())
+                        })
                 })
         });
     match result {
@@ -1977,6 +1995,30 @@ mod tests {
         assert_eq!(gear.bag().len(), BAG_CAP);
         assert!(gear.item(kept).is_some(), "worn items survive");
         assert!(gear.item(fresh).is_some());
+    }
+
+    #[test]
+    fn backup_before_overwrite_keeps_the_last_known_gear_save() {
+        let dir = std::env::temp_dir().join(format!(
+            "survivors-gear-backup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = dir.join("survivors-gear.toml");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "version = 2\n").unwrap();
+
+        backup_before_overwrite(&path).unwrap();
+
+        let backup = path.with_file_name(format!(
+            "{}.bak",
+            path.file_name().unwrap().to_string_lossy()
+        ));
+        assert!(backup.exists());
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "version = 2\n");
     }
 
     #[test]
