@@ -1012,10 +1012,50 @@ pub(super) fn start_run(run: &mut Run, selection: &mut Selection) -> bool {
     true
 }
 
+fn ability_upgrade_has_benefit(run: &Run, index: usize) -> bool {
+    let owned = &run.abilities[index];
+    let next = owned.level.saturating_add(1);
+    let has_control_effect = matches!(
+        owned.def.effect,
+        data::Effect::Slow(..)
+            | data::Effect::Root(..)
+            | data::Effect::Stun(..)
+            | data::Effect::Fear(..)
+            | data::Effect::Weaken(..)
+    ) || owned.def.mark != 0;
+    let before = super::growth::cast_for_run(owned.def, owned.level, owned.growth, run);
+    let after = super::growth::cast_for_run(
+        owned.def,
+        next,
+        owned.growth + Rarity::Legendary.growth(),
+        run,
+    );
+    after.dmg > before.dmg
+        || after.dot > before.dot
+        || after.cooldown < before.cooldown
+        || after.count > before.count
+        || after.radius > before.radius
+        || after.duration > before.duration
+        || after.range > before.range
+        || (has_control_effect && after.modifiers.control > before.modifiers.control)
+}
+
+fn passive_has_combat_benefit(run: &Run, passive: &data::PassiveDef) -> bool {
+    passive.stat != Stat::Shield
+        || run.class.pool.iter().any(|key| {
+            matches!(
+                *key,
+                "power_word_shield" | "ice_barrier" | "mana_shield" | "last_stand"
+            )
+        })
+}
+
 fn choices_for(run: &Run, rng: &mut Rng) -> Vec<Choice> {
     let mut pool: Vec<(Choice, f32)> = Vec::new();
     for (i, _) in run.abilities.iter().enumerate() {
-        pool.push((Choice::Upgrade(i), 1.2));
+        if ability_upgrade_has_benefit(run, i) {
+            pool.push((Choice::Upgrade(i), 1.2));
+        }
     }
     if run.abilities.len() < data::MAX_ABILITIES {
         for key in run.class.pool {
@@ -1024,12 +1064,16 @@ fn choices_for(run: &Run, rng: &mut Rng) -> Vec<Choice> {
             }
         }
     }
-    for (i, _) in run.passives.iter().enumerate() {
-        pool.push((Choice::UpPassive(i), 0.8));
+    for (i, (passive, _)) in run.passives.iter().enumerate() {
+        if passive_has_combat_benefit(run, passive) {
+            pool.push((Choice::UpPassive(i), 0.8));
+        }
     }
     if run.passives.len() < data::MAX_PASSIVES {
         for p in data::PASSIVES {
-            if !run.passives.iter().any(|(q, _)| q.key == p.key) {
+            if !run.passives.iter().any(|(q, _)| q.key == p.key)
+                && passive_has_combat_benefit(run, p)
+            {
                 pool.push((Choice::NewPassive(p), 0.5));
             }
         }
@@ -1242,7 +1286,12 @@ pub(super) fn describe_card(
                 name: spell_name(spells, def.spell, def.key),
                 tag: localization::text("New spell · Rank 1", "新法术 · 等级 1").into(),
                 tag_color: new,
-                desc: format!("{}.", ability_body(def, &c)),
+                desc: format!(
+                    "{}\n{} {:.2}",
+                    ability_body(def, &c),
+                    localization::text("Initial growth", "初始成长"),
+                    added,
+                ),
             }
         }
         Choice::Upgrade(k) => {
@@ -1254,24 +1303,27 @@ pub(super) fn describe_card(
             );
             // What actually changes, as before → after.
             let mut lines = Vec::new();
-            let (da, db) = if a.dmg > 0.0 {
-                (a.dmg, b.dmg)
-            } else {
-                (a.dot, b.dot)
-            };
-            if db > da {
+            if b.dmg > a.dmg && num(a.dmg) != num(b.dmg) {
                 let label = match o.def.kind {
                     Kind::Shield | Kind::Immune => localization::text("Absorb", "吸收"),
                     Kind::Heal => localization::text("Healing", "治疗"),
                     _ => localization::text("Damage", "伤害"),
                 };
                 lines.push(if localization::is_zh_cn() {
-                    format!("{label} {} → {}", num(da), num(db))
+                    format!("{label} {} → {}", num(a.dmg), num(b.dmg))
                 } else {
-                    format!("{label} {} » {}", num(da), num(db))
+                    format!("{label} {} » {}", num(a.dmg), num(b.dmg))
                 });
             }
-            if b.cooldown < a.cooldown {
+            if b.dot > a.dot && num(a.dot) != num(b.dot) {
+                let label = localization::text("Damage per tick", "每跳伤害");
+                lines.push(if localization::is_zh_cn() {
+                    format!("{label} {} → {}", num(a.dot), num(b.dot))
+                } else {
+                    format!("{label} {} » {}", num(a.dot), num(b.dot))
+                });
+            }
+            if b.cooldown < a.cooldown && num(a.cooldown) != num(b.cooldown) {
                 lines.push(if localization::is_zh_cn() {
                     format!("冷却 {}秒 → {}秒", num(a.cooldown), num(b.cooldown))
                 } else {
@@ -1279,26 +1331,74 @@ pub(super) fn describe_card(
                 });
             }
             if b.count > a.count {
-                lines.push(if localization::is_zh_cn() {
-                    format!("目标数 {} → {}", a.count, b.count)
+                let label = if o.def.kind == Kind::Chain {
+                    localization::text("Jumps", "弹跳次数")
                 } else {
-                    format!("Targets {} » {}", a.count, b.count)
+                    localization::text("Targets", "目标数")
+                };
+                lines.push(if localization::is_zh_cn() {
+                    format!("{label} {} → {}", a.count, b.count)
+                } else {
+                    format!("{label} {} » {}", a.count, b.count)
                 });
             }
-            if b.radius > a.radius {
+            if b.radius > a.radius && num(a.radius) != num(b.radius) {
                 lines.push(if localization::is_zh_cn() {
                     format!("范围 {} → {}码", num(a.radius), num(b.radius))
                 } else {
                     format!("Area {} » {} yd", num(a.radius), num(b.radius))
                 });
             }
-            if b.duration > a.duration {
+            if b.range > a.range && num(a.range) != num(b.range) {
+                lines.push(if localization::is_zh_cn() {
+                    format!("施法距离 {} → {}码", num(a.range), num(b.range))
+                } else {
+                    format!("Cast range {} » {} yd", num(a.range), num(b.range))
+                });
+            }
+            if b.duration > a.duration && num(a.duration) != num(b.duration) {
                 lines.push(if localization::is_zh_cn() {
                     format!("持续 {}秒 → {}秒", num(a.duration), num(b.duration))
                 } else {
                     format!("Lasts {}s » {}s", num(a.duration), num(b.duration))
                 });
             }
+            let has_control_effect = matches!(
+                o.def.effect,
+                data::Effect::Slow(..)
+                    | data::Effect::Root(..)
+                    | data::Effect::Stun(..)
+                    | data::Effect::Fear(..)
+                    | data::Effect::Weaken(..)
+            ) || o.def.mark != 0;
+            if has_control_effect
+                && b.modifiers.control > a.modifiers.control
+                && num((1.0 + a.modifiers.control) * 100.0)
+                    != num((1.0 + b.modifiers.control) * 100.0)
+            {
+                lines.push(if localization::is_zh_cn() {
+                    format!(
+                        "控制时长倍率 {}% → {}%",
+                        num((1.0 + a.modifiers.control) * 100.0),
+                        num((1.0 + b.modifiers.control) * 100.0),
+                    )
+                } else {
+                    format!(
+                        "Control duration multiplier {}% » {}%",
+                        num((1.0 + a.modifiers.control) * 100.0),
+                        num((1.0 + b.modifiers.control) * 100.0),
+                    )
+                });
+            }
+            let changes = if lines.is_empty() {
+                localization::text(
+                    "No immediate change; growth accumulates for future upgrades.",
+                    "本次效果暂未变化；成长会累计，后续升级可能生效。",
+                )
+                .to_owned()
+            } else {
+                lines.join("\n")
+            };
             CardText {
                 spell: o.def.spell,
                 name: spell_name(spells, o.def.spell, o.def.key),
@@ -1310,7 +1410,7 @@ pub(super) fn describe_card(
                 tag_color: Color::WHITE,
                 desc: format!(
                     "{}\n{} {:.2} → {:.2}",
-                    lines.join("\n"),
+                    changes,
                     localization::text("Total growth", "累计成长"),
                     o.growth,
                     o.growth + added,
@@ -2665,10 +2765,60 @@ fn stat_total(stat: Stat, s: &Stats) -> String {
 fn passive_preview(p: &PassiveDef, added: f32, run: &Run) -> String {
     let before = run.stats();
     let after = run.stats_with_passive_growth(p, added);
+    let mut changes = Vec::new();
+    for stat in [
+        Stat::Might,
+        Stat::MaxHp,
+        Stat::Speed,
+        Stat::Regen,
+        Stat::Haste,
+        Stat::Area,
+        Stat::Magnet,
+        Stat::Growth,
+        Stat::Armor,
+        Stat::Crit,
+        Stat::Luck,
+        Stat::Targets,
+        Stat::Echo,
+        Stat::Duration,
+        Stat::Range,
+        Stat::CritDamage,
+        Stat::Leech,
+        Stat::Shield,
+    ] {
+        let before_total = stat_total(stat, &before);
+        let after_total = stat_total(stat, &after);
+        if before_total != after_total {
+            changes.push(format!("{before_total} → {after_total}"));
+        }
+    }
+    if before.echo_damage != after.echo_damage {
+        changes.push(if localization::is_zh_cn() {
+            format!(
+                "回响伤害 {}% → {}%",
+                num(before.echo_damage * 100.0),
+                num(after.echo_damage * 100.0)
+            )
+        } else {
+            format!(
+                "Echo damage {}% » {}%",
+                num(before.echo_damage * 100.0),
+                num(after.echo_damage * 100.0)
+            )
+        });
+    }
+    let effect = if changes.is_empty() {
+        localization::text(
+            "No immediate change; growth accumulates for future upgrades.",
+            "本次效果暂未变化；成长会累计，后续升级可能生效。",
+        )
+        .to_owned()
+    } else {
+        changes.join("\n")
+    };
     format!(
-        "{}\n↓\n{}\n{} {:.2} → {:.2}",
-        stat_total(p.stat, &before),
-        stat_total(p.stat, &after),
+        "{}\n{} {:.2} → {:.2}",
+        effect,
         localization::text("Total growth", "累计成长"),
         run.passive_growth(p),
         run.passive_growth(p) + added,
@@ -3314,5 +3464,59 @@ mod tests {
             NextState::Pending(Phase::Menu)
         ));
         assert!(app.world().resource::<Messages<AppExit>>().is_empty());
+    }
+
+    #[test]
+    fn shield_passive_is_only_beneficial_to_classes_with_shield_skills() {
+        let warding = data::PASSIVES
+            .iter()
+            .find(|passive| passive.key == "warding")
+            .unwrap();
+        let shield_keys = [
+            "power_word_shield",
+            "ice_barrier",
+            "mana_shield",
+            "last_stand",
+        ];
+        let class_without_shield = data::CLASSES
+            .iter()
+            .find(|class| !class.pool.iter().any(|key| shield_keys.contains(key)))
+            .unwrap();
+        let run = Run {
+            class: class_without_shield,
+            passives: vec![(warding, 1)],
+            ..Default::default()
+        };
+        assert!(!passive_has_combat_benefit(&run, warding));
+
+        let class_with_shield = data::CLASSES
+            .iter()
+            .find(|class| class.pool.iter().any(|key| shield_keys.contains(key)))
+            .unwrap();
+        let run = Run {
+            class: class_with_shield,
+            passives: vec![(warding, 1)],
+            ..Default::default()
+        };
+        assert!(passive_has_combat_benefit(&run, warding));
+    }
+
+    #[test]
+    fn card_descriptions_keep_growth_separate_from_effect_changes() {
+        let run = Run::default();
+        let ability = data::ability(run.class.pool[0]);
+        let new_card = describe_card(Choice::NewAbility(ability), Rarity::Common, &run, None);
+        assert!(new_card.desc.contains("Initial growth") || new_card.desc.contains("初始成长"));
+
+        let mut run = Run::default();
+        run.abilities.push(Owned {
+            def: ability,
+            level: 1,
+            growth: 1.0,
+            cd: 0.0,
+        });
+        let upgrade = describe_card(Choice::Upgrade(0), Rarity::Common, &run, None);
+        assert!(!upgrade.desc.starts_with('\n'));
+        assert!(upgrade.desc.contains("Total growth") || upgrade.desc.contains("累计成长"));
     }
 }

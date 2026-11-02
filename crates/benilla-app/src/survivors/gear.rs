@@ -799,13 +799,26 @@ impl EnhKind {
             Self::Frequency => localization::text("Tick frequency", "触发频率"),
             Self::Range => localization::text("Cast range", "施法距离"),
             Self::ChainPower => localization::text("Chain retention", "弹跳伤害保留"),
-            Self::Echo => localization::text("Echo chance (50% damage)", "回响概率（50%伤害）"),
-            Self::Splash => localization::text("Splash damage (3 yd)", "溅射伤害（3码）"),
-            Self::Ember => localization::text("Extra damage over 3 sec", "额外3秒余烬伤害"),
-            Self::Execute => {
-                localization::text("Damage below 30% health", "对生命低于30%的敌人增伤")
-            }
-            Self::Leech => localization::text("Damage converted to healing", "伤害转化为治疗"),
+            Self::Echo => localization::text(
+                "On cast: chance to echo (50% damage; no recursion)",
+                "施法时有概率触发回响（造成50%伤害；不递归）",
+            ),
+            Self::Splash => localization::text(
+                "On hit: splash damage to other enemies within 3 yd",
+                "命中时对3码内其他敌人造成溅射伤害",
+            ),
+            Self::Ember => localization::text(
+                "On direct hit: applies a 3-sec burn (1 tick/sec)",
+                "直接命中后施加灼烧，持续3秒（每秒1跳）",
+            ),
+            Self::Execute => localization::text(
+                "On hit vs targets below 30% health: bonus damage",
+                "命中生命低于30%的目标时增伤",
+            ),
+            Self::Leech => localization::text(
+                "On effective damage: convert damage to healing",
+                "造成有效伤害时将伤害转化为治疗",
+            ),
             Self::Control => localization::text("Control duration", "控制持续时间"),
             Self::BuffDamage => localization::text("Damage buff", "毁灭之力·伤害"),
             Self::BuffHaste => localization::text("Haste buff", "施法狂热·急速"),
@@ -982,9 +995,10 @@ pub(super) fn describe_enhancement(enh: &EnhRoll, ability_name: &str) -> String 
     };
     if kind.is_buff() {
         return format!(
-            "{target}: {}% {} → {} {} ({})",
+            "{target}: {}{}% {} {} {} ({})",
+            localization::text("On direct skill damage, ", "技能直接造成伤害时，",),
             if enh.ability.is_empty() { 15 } else { 30 },
-            localization::text("on damage", "伤害触发"),
+            localization::text("chance to gain", "概率获得"),
             kind.label(),
             kind.show(enh.value as f32 / SCALE),
             localization::text("30s / ICD 30s", "持续30秒 / 内置冷却30秒")
@@ -995,6 +1009,36 @@ pub(super) fn describe_enhancement(enh: &EnhRoll, ability_name: &str) -> String 
         kind.label(),
         kind.show(enh.value as f32 / SCALE)
     )
+}
+
+#[cfg(test)]
+mod enhancement_description_tests {
+    use super::*;
+
+    #[test]
+    fn buff_description_distinguishes_trigger_chance_and_duration() {
+        let kind = ENH_KINDS
+            .iter()
+            .position(|kind| *kind == EnhKind::BuffDamage)
+            .unwrap() as u8;
+        let enhancement = EnhRoll {
+            ability: "fireball".to_owned(),
+            kind,
+            value: 100,
+        };
+        let description = describe_enhancement(&enhancement, "Fireball");
+
+        assert!(description.contains("30%"));
+        assert!(
+            description.contains("On direct skill damage")
+                || description.contains("技能直接造成伤害时")
+        );
+        assert!(description.contains("chance to gain") || description.contains("概率获得"));
+        assert!(
+            description.contains("30s / ICD 30s")
+                || description.contains("持续30秒 / 内置冷却30秒")
+        );
+    }
 }
 
 /// The derived effect of everything a class wears, folded into [`Stats`].

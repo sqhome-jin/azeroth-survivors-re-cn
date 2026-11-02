@@ -522,11 +522,14 @@ pub(super) fn details(run: &Run, def: &'static AbilityDef, gear: Option<&Gear>) 
         def.kind,
         Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Chain | Kind::Dot | Kind::Orbit
     ) {
-        rank_effects.push(format!(
-            "{} +{}",
-            tr("growth targets (diminishing)", "成长目标数（收益渐减）"),
-            growth::bonus_targets(acquired),
-        ));
+        let bonus = growth::bonus_targets(acquired);
+        if bonus > 0 {
+            rank_effects.push(format!(
+                "{} +{}",
+                tr("growth targets (diminishing)", "成长目标数（收益渐减）"),
+                bonus,
+            ));
+        }
     }
     lines.push(format!(
         "{} {level} · {} {acquired:.2}: {}",
@@ -773,6 +776,25 @@ mod tests {
             class: data::CLASSES.iter().find(|c| c.id == class).unwrap(),
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn zero_growth_target_bonus_is_omitted() {
+        let ability = data::CLASSES
+            .iter()
+            .flat_map(|class| class.pool.iter())
+            .map(|key| data::ability(key))
+            .find(|def| {
+                matches!(
+                    def.kind,
+                    Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Chain | Kind::Dot | Kind::Orbit
+                )
+            })
+            .unwrap();
+        let details = details(&Run::default(), ability, None).join("\n");
+
+        assert!(!details.contains("growth targets (diminishing)"));
+        assert!(!details.contains("成长目标数（收益渐减）"));
     }
 
     #[test]
