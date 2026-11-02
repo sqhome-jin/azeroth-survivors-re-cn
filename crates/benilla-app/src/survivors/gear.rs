@@ -12,9 +12,9 @@ pub(super) const BAG_CAP: usize = 200;
 const SCALE: f32 = 10_000.0;
 
 pub(super) const RARITY_COUNT: usize = 6;
-pub(super) const SLOT_COUNT: usize = 9;
-const MAIN_SLOT: usize = 7;
-const OFF_SLOT: usize = 8;
+pub(super) const SLOT_COUNT: usize = 16;
+const MAIN_SLOT: usize = 14;
+const OFF_SLOT: usize = 15;
 
 /// Ordinary and skill-affix counts per rarity.
 pub(super) const AFFIX_COUNTS: [usize; RARITY_COUNT] = [1, 2, 3, 4, 5, 5];
@@ -45,12 +45,19 @@ pub(super) const RARITY_COLORS: [Color; RARITY_COUNT] = [
 
 pub(super) const SLOT_NAMES: [(&str, &str); SLOT_COUNT] = [
     ("Head", "头部"),
+    ("Neck", "项链"),
     ("Shoulder", "肩部"),
+    ("Back", "背部"),
     ("Chest", "胸部"),
+    ("Wrist", "护腕"),
     ("Hands", "手部"),
     ("Waist", "腰部"),
     ("Legs", "腿部"),
     ("Feet", "脚部"),
+    ("Ring 1", "戒指 1"),
+    ("Ring 2", "戒指 2"),
+    ("Trinket 1", "饰品 1"),
+    ("Trinket 2", "饰品 2"),
     ("Main Hand", "主手"),
     ("Off Hand", "副手"),
 ];
@@ -58,12 +65,19 @@ pub(super) const SLOT_NAMES: [(&str, &str); SLOT_COUNT] = [
 /// `UI-PaperDoll-Slot-*` empty-slot art, in slot order.
 pub(super) const SLOT_ART: [&str; SLOT_COUNT] = [
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Head",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Neck",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Shoulder",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Back",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Chest",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Wrist",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Hands",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Waist",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Legs",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Feet",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Finger",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Finger",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Trinket",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Trinket",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-MainHand",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-SecondaryHand",
 ];
@@ -98,6 +112,13 @@ const BASES: [&[Base]; SLOT_COUNT] = [
         ),
     ],
     &[
+        ("Moss Pendant", "苔藓吊坠", "Interface\\Icons\\INV_Misc_Necklace_01"),
+        ("Ward Charm", "守护护符", "Interface\\Icons\\INV_Misc_Necklace_02"),
+        ("Sunstone Amulet", "太阳石护符", "Interface\\Icons\\INV_Misc_Amulet_01"),
+        ("Dread Pendant", "恐惧吊坠", "Interface\\Icons\\INV_Misc_Necklace_03"),
+        ("Sage Locket", "贤者挂坠", "Interface\\Icons\\INV_Misc_Necklace_04"),
+    ],
+    &[
         (
             "Iron Spaulders",
             "铁肩甲",
@@ -130,6 +151,14 @@ const BASES: [&[Base]; SLOT_COUNT] = [
         ),
     ],
     &[
+        ("Travel Cloak", "旅行披风", "Interface\\Icons\\INV_Misc_Cape_01"),
+        ("Dusk Shawl", "暮色披纱", "Interface\\Icons\\INV_Misc_Cape_02"),
+        ("Warden Cloak", "守望者披风", "Interface\\Icons\\INV_Misc_Cape_07"),
+        ("Dread Mantle", "恐惧披风", "Interface\\Icons\\INV_Misc_Cape_04"),
+        ("Sage Veil", "贤者披纱", "Interface\\Icons\\INV_Misc_Cape_08"),
+        ("Ember Cape", "余烬披风", "Interface\\Icons\\INV_Misc_Cape_10"),
+    ],
+    &[
         (
             "Apprentice Robe",
             "学徒长袍",
@@ -160,6 +189,13 @@ const BASES: [&[Base]; SLOT_COUNT] = [
             "恐惧板甲",
             "Interface\\Icons\\INV_Chest_Plate03",
         ),
+    ],
+    &[
+        ("Fortified Bracer", "坚固护腕", "Interface\\Icons\\INV_Bracer_01"),
+        ("Runecarved Wrist", "符文护腕", "Interface\\Icons\\INV_Bracer_03"),
+        ("Sage Cuffs", "贤者护腕", "Interface\\Icons\\INV_Bracer_08"),
+        ("Dread Armband", "恐惧臂章", "Interface\\Icons\\INV_Bracer_10"),
+        ("Ember Wristlets", "火纹护腕", "Interface\\Icons\\INV_Bracer_12"),
     ],
     &[
         (
@@ -228,6 +264,34 @@ const BASES: [&[Base]; SLOT_COUNT] = [
             "贤者软鞋",
             "Interface\\Icons\\INV_Boots_Cloth_03",
         ),
+    ],
+    &[
+        ("Moonstone Ring", "月光戒指", "Interface\\Icons\\INV_Jewelry_Ring_01"),
+        ("Ward Ring", "守护戒指", "Interface\\Icons\\INV_Jewelry_Ring_02"),
+        ("Granite Band", "花岗岩戒指", "Interface\\Icons\\INV_Jewelry_Ring_03"),
+        ("Dread Signet", "恐惧指环", "Interface\\Icons\\INV_Jewelry_Ring_05"),
+        ("Sage Loop", "贤者指环", "Interface\\Icons\\INV_Jewelry_Ring_08"),
+    ],
+    &[
+        ("Moonstone Ring", "月光戒指", "Interface\\Icons\\INV_Jewelry_Ring_01"),
+        ("Ward Ring", "守护戒指", "Interface\\Icons\\INV_Jewelry_Ring_02"),
+        ("Granite Band", "花岗岩戒指", "Interface\\Icons\\INV_Jewelry_Ring_03"),
+        ("Dread Signet", "恐惧指环", "Interface\\Icons\\INV_Jewelry_Ring_05"),
+        ("Sage Loop", "贤者指环", "Interface\\Icons\\INV_Jewelry_Ring_08"),
+    ],
+    &[
+        ("Flicker Idol", "闪光神像", "Interface\\Icons\\INV_Misc_Idol_01"),
+        ("Raven Charm", "乌鸦护符", "Interface\\Icons\\INV_Misc_Amulet_02"),
+        ("Sunflare Idol", "日炎神像", "Interface\\Icons\\INV_Misc_Idol_02"),
+        ("Dread Relic", "恐惧遗物", "Interface\\Icons\\INV_Misc_Idol_05"),
+        ("Sage Talisman", "贤者护符", "Interface\\Icons\\INV_Misc_Amulet_03"),
+    ],
+    &[
+        ("Flicker Idol", "闪光神像", "Interface\\Icons\\INV_Misc_Idol_01"),
+        ("Raven Charm", "乌鸦护符", "Interface\\Icons\\INV_Misc_Amulet_02"),
+        ("Sunflare Idol", "日炎神像", "Interface\\Icons\\INV_Misc_Idol_02"),
+        ("Dread Relic", "恐惧遗物", "Interface\\Icons\\INV_Misc_Idol_05"),
+        ("Sage Talisman", "贤者护符", "Interface\\Icons\\INV_Misc_Amulet_03"),
     ],
     &[
         (
@@ -620,6 +684,14 @@ impl EnhKind {
     }
 }
 
+#[allow(dead_code)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub(super) struct ItemIdentity {
+    pub slot: u8,
+    pub base: u8,
+    pub class: u8,
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Roll {
@@ -653,6 +725,20 @@ pub(super) struct Item {
 }
 
 impl Item {
+    #[allow(dead_code)]
+    pub fn item_id(&self) -> u64 {
+        self.id
+    }
+
+    #[allow(dead_code)]
+    pub fn identity(&self) -> ItemIdentity {
+        ItemIdentity {
+            slot: self.slot,
+            base: self.base,
+            class: self.class,
+        }
+    }
+
     fn base(&self) -> &'static Base {
         let list = BASES[usize::from(self.slot).min(SLOT_COUNT - 1)];
         &list[usize::from(self.base).min(list.len() - 1)]
@@ -1552,6 +1638,43 @@ mod tests {
 
     fn class(i: usize) -> &'static data::ClassDef {
         &data::CLASSES[i]
+    }
+
+    #[test]
+    fn slot_schema_expands_to_the_full_default_roster_and_identity_stays_stable() {
+        assert_eq!(SLOT_COUNT, 16);
+        assert_eq!(SLOT_NAMES.len(), SLOT_COUNT);
+        assert_eq!(SLOT_ART.len(), SLOT_COUNT);
+        assert_eq!(MAIN_SLOT, 14);
+        assert_eq!(OFF_SLOT, 15);
+
+        let base = Item {
+            id: 7,
+            slot: 0,
+            rarity: 3,
+            base: 1,
+            class: 1,
+            affixes: Vec::new(),
+            enhancement: None,
+            enhancements: Vec::new(),
+        };
+        let rolled = Item {
+            id: 9,
+            slot: 0,
+            rarity: 5,
+            base: 1,
+            class: 1,
+            affixes: vec![Roll { kind: 0, value: 42 }],
+            enhancement: None,
+            enhancements: vec![EnhRoll {
+                ability: "fireball".to_owned(),
+                kind: 0,
+                value: 1234,
+            }],
+        };
+        assert_eq!(base.identity(), rolled.identity());
+        assert_eq!(base.item_id(), 7);
+        assert_eq!(rolled.item_id(), 9);
     }
 
     #[test]
