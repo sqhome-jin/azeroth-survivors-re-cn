@@ -2,12 +2,12 @@
 use bevy::prelude::*;
 
 use super::{
-    Rng, Run, Stats,
     abilities::Hit,
     data::{self, Kind},
     enemies::Enemy,
     skill_effects::Source,
     talents::Cast,
+    Rng, Run, Stats,
 };
 
 #[derive(Default)]

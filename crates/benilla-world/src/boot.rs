@@ -120,4 +120,3 @@ impl<S: bevy::log::tracing::Subscriber> bevy::log::tracing_subscriber::Layer<S> 
         !meta.is_span()
     }
 }
-

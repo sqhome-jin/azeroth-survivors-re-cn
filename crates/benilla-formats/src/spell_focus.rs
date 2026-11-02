@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::Chain;
 use crate::dbc::{localized_str_at, parse, preferred_locale, u32_at};
+use crate::Chain;
 
 const SPELL_FOCUS_OBJECT: &str = "DBFilesClient\\SpellFocusObject.dbc";
 const SPELL_FOCUS_FIELDS: usize = 10;

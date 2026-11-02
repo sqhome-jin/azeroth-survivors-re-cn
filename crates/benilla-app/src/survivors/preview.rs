@@ -2,12 +2,12 @@
 //! second camera into an image, so the orbiting battleground behind the menu never shows it.
 
 use bevy::app::Propagate;
-use bevy::camera::RenderTarget;
 use bevy::camera::visibility::RenderLayers;
+use bevy::camera::RenderTarget;
 use bevy::prelude::*;
 
-use super::Phase;
 use super::hero::Hero;
+use super::Phase;
 
 /// Clear of every booth layer in `portrait`.
 const PREVIEW_LAYER: usize = 40;

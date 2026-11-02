@@ -610,12 +610,10 @@ fn real_spell_catalog_reads_tooltip_columns() {
 
     // Frost Armor: 30 minutes, instant, its description naming the chill proc 6136.
     let frost_armor = cat.get(168).unwrap();
-    assert!(
-        frost_armor
-            .aura_description
-            .as_deref()
-            .is_some_and(|s| !s.is_empty())
-    );
+    assert!(frost_armor
+        .aura_description
+        .as_deref()
+        .is_some_and(|s| !s.is_empty()));
     assert_eq!(frost_armor.duration_index, 30);
     assert_eq!(durations.get(30).unwrap().base_ms, 1_800_000, "30 minutes");
     assert_eq!(frost_armor.casting_time_index, 1);

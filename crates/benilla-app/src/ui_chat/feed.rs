@@ -4,7 +4,7 @@
 use bevy::prelude::*;
 
 use benilla_protocol::messages::{
-    ChannelNoticeTail, ChatMessage, LevelUpInfo, MACRO_EXPANDED_TYPES, XpGain, channel_notice,
+    channel_notice, ChannelNoticeTail, ChatMessage, LevelUpInfo, XpGain, MACRO_EXPANDED_TYPES,
 };
 
 use benilla_assets::{LockRecover, WorldAssets};
@@ -14,8 +14,8 @@ use crate::names::NameCache;
 use crate::net::{GuidIndex, NetCommands, ObjectStore, SelfGuid};
 
 use super::edit::ChannelState;
-use super::event::{ChatEvent, ChatEventKind, flag_of_tag, kind_of_wire, language_name};
-use super::frames::{ChatWindows, route};
+use super::event::{flag_of_tag, kind_of_wire, language_name, ChatEvent, ChatEventKind};
+use super::frames::{route, ChatWindows};
 
 /// Frames a line waits on a name, about 2 s at 60 fps, before it gives up.
 const NAME_MAX_TRIES: u16 = 120;

@@ -112,11 +112,31 @@ const BASES: [&[Base]; SLOT_COUNT] = [
         ),
     ],
     &[
-        ("Moss Pendant", "苔藓吊坠", "Interface\\Icons\\INV_Misc_Necklace_01"),
-        ("Ward Charm", "守护护符", "Interface\\Icons\\INV_Misc_Necklace_02"),
-        ("Sunstone Amulet", "太阳石护符", "Interface\\Icons\\INV_Misc_Amulet_01"),
-        ("Dread Pendant", "恐惧吊坠", "Interface\\Icons\\INV_Misc_Necklace_03"),
-        ("Sage Locket", "贤者挂坠", "Interface\\Icons\\INV_Misc_Necklace_04"),
+        (
+            "Moss Pendant",
+            "苔藓吊坠",
+            "Interface\\Icons\\INV_Misc_Necklace_01",
+        ),
+        (
+            "Ward Charm",
+            "守护护符",
+            "Interface\\Icons\\INV_Misc_Necklace_02",
+        ),
+        (
+            "Sunstone Amulet",
+            "太阳石护符",
+            "Interface\\Icons\\INV_Misc_Amulet_01",
+        ),
+        (
+            "Dread Pendant",
+            "恐惧吊坠",
+            "Interface\\Icons\\INV_Misc_Necklace_03",
+        ),
+        (
+            "Sage Locket",
+            "贤者挂坠",
+            "Interface\\Icons\\INV_Misc_Necklace_04",
+        ),
     ],
     &[
         (
@@ -151,12 +171,36 @@ const BASES: [&[Base]; SLOT_COUNT] = [
         ),
     ],
     &[
-        ("Travel Cloak", "旅行披风", "Interface\\Icons\\INV_Misc_Cape_01"),
-        ("Dusk Shawl", "暮色披纱", "Interface\\Icons\\INV_Misc_Cape_02"),
-        ("Warden Cloak", "守望者披风", "Interface\\Icons\\INV_Misc_Cape_07"),
-        ("Dread Mantle", "恐惧披风", "Interface\\Icons\\INV_Misc_Cape_04"),
-        ("Sage Veil", "贤者披纱", "Interface\\Icons\\INV_Misc_Cape_08"),
-        ("Ember Cape", "余烬披风", "Interface\\Icons\\INV_Misc_Cape_10"),
+        (
+            "Travel Cloak",
+            "旅行披风",
+            "Interface\\Icons\\INV_Misc_Cape_01",
+        ),
+        (
+            "Dusk Shawl",
+            "暮色披纱",
+            "Interface\\Icons\\INV_Misc_Cape_02",
+        ),
+        (
+            "Warden Cloak",
+            "守望者披风",
+            "Interface\\Icons\\INV_Misc_Cape_07",
+        ),
+        (
+            "Dread Mantle",
+            "恐惧披风",
+            "Interface\\Icons\\INV_Misc_Cape_04",
+        ),
+        (
+            "Sage Veil",
+            "贤者披纱",
+            "Interface\\Icons\\INV_Misc_Cape_08",
+        ),
+        (
+            "Ember Cape",
+            "余烬披风",
+            "Interface\\Icons\\INV_Misc_Cape_10",
+        ),
     ],
     &[
         (
@@ -191,11 +235,27 @@ const BASES: [&[Base]; SLOT_COUNT] = [
         ),
     ],
     &[
-        ("Fortified Bracer", "坚固护腕", "Interface\\Icons\\INV_Bracer_01"),
-        ("Runecarved Wrist", "符文护腕", "Interface\\Icons\\INV_Bracer_03"),
+        (
+            "Fortified Bracer",
+            "坚固护腕",
+            "Interface\\Icons\\INV_Bracer_01",
+        ),
+        (
+            "Runecarved Wrist",
+            "符文护腕",
+            "Interface\\Icons\\INV_Bracer_03",
+        ),
         ("Sage Cuffs", "贤者护腕", "Interface\\Icons\\INV_Bracer_08"),
-        ("Dread Armband", "恐惧臂章", "Interface\\Icons\\INV_Bracer_10"),
-        ("Ember Wristlets", "火纹护腕", "Interface\\Icons\\INV_Bracer_12"),
+        (
+            "Dread Armband",
+            "恐惧臂章",
+            "Interface\\Icons\\INV_Bracer_10",
+        ),
+        (
+            "Ember Wristlets",
+            "火纹护腕",
+            "Interface\\Icons\\INV_Bracer_12",
+        ),
     ],
     &[
         (
@@ -266,32 +326,112 @@ const BASES: [&[Base]; SLOT_COUNT] = [
         ),
     ],
     &[
-        ("Moonstone Ring", "月光戒指", "Interface\\Icons\\INV_Jewelry_Ring_01"),
-        ("Ward Ring", "守护戒指", "Interface\\Icons\\INV_Jewelry_Ring_02"),
-        ("Granite Band", "花岗岩戒指", "Interface\\Icons\\INV_Jewelry_Ring_03"),
-        ("Dread Signet", "恐惧指环", "Interface\\Icons\\INV_Jewelry_Ring_05"),
-        ("Sage Loop", "贤者指环", "Interface\\Icons\\INV_Jewelry_Ring_08"),
+        (
+            "Moonstone Ring",
+            "月光戒指",
+            "Interface\\Icons\\INV_Jewelry_Ring_01",
+        ),
+        (
+            "Ward Ring",
+            "守护戒指",
+            "Interface\\Icons\\INV_Jewelry_Ring_02",
+        ),
+        (
+            "Granite Band",
+            "花岗岩戒指",
+            "Interface\\Icons\\INV_Jewelry_Ring_03",
+        ),
+        (
+            "Dread Signet",
+            "恐惧指环",
+            "Interface\\Icons\\INV_Jewelry_Ring_05",
+        ),
+        (
+            "Sage Loop",
+            "贤者指环",
+            "Interface\\Icons\\INV_Jewelry_Ring_08",
+        ),
     ],
     &[
-        ("Moonstone Ring", "月光戒指", "Interface\\Icons\\INV_Jewelry_Ring_01"),
-        ("Ward Ring", "守护戒指", "Interface\\Icons\\INV_Jewelry_Ring_02"),
-        ("Granite Band", "花岗岩戒指", "Interface\\Icons\\INV_Jewelry_Ring_03"),
-        ("Dread Signet", "恐惧指环", "Interface\\Icons\\INV_Jewelry_Ring_05"),
-        ("Sage Loop", "贤者指环", "Interface\\Icons\\INV_Jewelry_Ring_08"),
+        (
+            "Moonstone Ring",
+            "月光戒指",
+            "Interface\\Icons\\INV_Jewelry_Ring_01",
+        ),
+        (
+            "Ward Ring",
+            "守护戒指",
+            "Interface\\Icons\\INV_Jewelry_Ring_02",
+        ),
+        (
+            "Granite Band",
+            "花岗岩戒指",
+            "Interface\\Icons\\INV_Jewelry_Ring_03",
+        ),
+        (
+            "Dread Signet",
+            "恐惧指环",
+            "Interface\\Icons\\INV_Jewelry_Ring_05",
+        ),
+        (
+            "Sage Loop",
+            "贤者指环",
+            "Interface\\Icons\\INV_Jewelry_Ring_08",
+        ),
     ],
     &[
-        ("Flicker Idol", "闪光神像", "Interface\\Icons\\INV_Misc_Idol_01"),
-        ("Raven Charm", "乌鸦护符", "Interface\\Icons\\INV_Misc_Amulet_02"),
-        ("Sunflare Idol", "日炎神像", "Interface\\Icons\\INV_Misc_Idol_02"),
-        ("Dread Relic", "恐惧遗物", "Interface\\Icons\\INV_Misc_Idol_05"),
-        ("Sage Talisman", "贤者护符", "Interface\\Icons\\INV_Misc_Amulet_03"),
+        (
+            "Flicker Idol",
+            "闪光神像",
+            "Interface\\Icons\\INV_Misc_Idol_01",
+        ),
+        (
+            "Raven Charm",
+            "乌鸦护符",
+            "Interface\\Icons\\INV_Misc_Amulet_02",
+        ),
+        (
+            "Sunflare Idol",
+            "日炎神像",
+            "Interface\\Icons\\INV_Misc_Idol_02",
+        ),
+        (
+            "Dread Relic",
+            "恐惧遗物",
+            "Interface\\Icons\\INV_Misc_Idol_05",
+        ),
+        (
+            "Sage Talisman",
+            "贤者护符",
+            "Interface\\Icons\\INV_Misc_Amulet_03",
+        ),
     ],
     &[
-        ("Flicker Idol", "闪光神像", "Interface\\Icons\\INV_Misc_Idol_01"),
-        ("Raven Charm", "乌鸦护符", "Interface\\Icons\\INV_Misc_Amulet_02"),
-        ("Sunflare Idol", "日炎神像", "Interface\\Icons\\INV_Misc_Idol_02"),
-        ("Dread Relic", "恐惧遗物", "Interface\\Icons\\INV_Misc_Idol_05"),
-        ("Sage Talisman", "贤者护符", "Interface\\Icons\\INV_Misc_Amulet_03"),
+        (
+            "Flicker Idol",
+            "闪光神像",
+            "Interface\\Icons\\INV_Misc_Idol_01",
+        ),
+        (
+            "Raven Charm",
+            "乌鸦护符",
+            "Interface\\Icons\\INV_Misc_Amulet_02",
+        ),
+        (
+            "Sunflare Idol",
+            "日炎神像",
+            "Interface\\Icons\\INV_Misc_Idol_02",
+        ),
+        (
+            "Dread Relic",
+            "恐惧遗物",
+            "Interface\\Icons\\INV_Misc_Idol_05",
+        ),
+        (
+            "Sage Talisman",
+            "贤者护符",
+            "Interface\\Icons\\INV_Misc_Amulet_03",
+        ),
     ],
     &[
         (
@@ -1452,16 +1592,23 @@ impl Gear {
         let current = self.worn(class, slot);
         let current_score = current.map(Item::score).unwrap_or(0.0);
         let score = item.score();
-        let compatible = item.enhancements.iter().chain(item.enhancement.iter()).all(|enh| {
-            if enh.ability.is_empty() {
-                return true;
-            }
-            let allowed = data::CLASSES.iter().any(|c| {
-                c.id == class
-                    && (c.start == enh.ability || c.pool.iter().any(|key| *key == enh.ability))
+        let compatible = item
+            .enhancements
+            .iter()
+            .chain(item.enhancement.iter())
+            .all(|enh| {
+                if enh.ability.is_empty() {
+                    return true;
+                }
+                let allowed = data::CLASSES.iter().any(|c| {
+                    c.id == class
+                        && (c.start == enh.ability || c.pool.iter().any(|key| *key == enh.ability))
+                });
+                allowed
+                    || !data::ABILITIES
+                        .iter()
+                        .any(|ability| ability.key == enh.ability)
             });
-            allowed || !data::ABILITIES.iter().any(|ability| ability.key == enh.ability)
-        });
         Some(ItemComparison {
             slot: item.slot,
             current: current.map(|item| item.id),
@@ -1479,7 +1626,11 @@ impl Gear {
             .copied()
             .filter_map(|id| self.compare(class, id).map(|comparison| (id, comparison)))
             .filter(|(_, comparison)| comparison.slot as usize == slot)
-            .max_by(|(_, a), (_, b)| a.delta.partial_cmp(&b.delta).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|(_, a), (_, b)| {
+                a.delta
+                    .partial_cmp(&b.delta)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .map(|(id, _)| id)
     }
 }
@@ -2105,7 +2256,10 @@ mod tests {
 
     #[test]
     fn armory_comparison_reports_delta_and_prefers_lower_loss_choice() {
-        let mage = data::CLASSES.iter().find(|c| c.start == "frostbolt").unwrap();
+        let mage = data::CLASSES
+            .iter()
+            .find(|c| c.start == "frostbolt")
+            .unwrap();
         let mut gear = Gear::default();
         let current = Item {
             id: 0,
@@ -2113,7 +2267,10 @@ mod tests {
             rarity: 3,
             base: 0,
             class: mage.id,
-            affixes: vec![Roll { kind: 0, value: 1000 }],
+            affixes: vec![Roll {
+                kind: 0,
+                value: 1000,
+            }],
             enhancement: None,
             enhancements: vec![EnhRoll {
                 ability: "frostbolt".to_owned(),
@@ -2130,7 +2287,10 @@ mod tests {
             rarity: 4,
             base: 1,
             class: mage.id,
-            affixes: vec![Roll { kind: 0, value: 3000 }],
+            affixes: vec![Roll {
+                kind: 0,
+                value: 3000,
+            }],
             enhancement: None,
             enhancements: vec![EnhRoll {
                 ability: "frostbolt".to_owned(),
@@ -2142,7 +2302,10 @@ mod tests {
         let delta = gear.compare(mage.id, better_id).unwrap();
         assert!(delta.delta > 0.0);
         assert!(delta.compatible);
-        assert_eq!(gear.best_replacement(mage.id, 0, &[better_id]), Some(better_id));
+        assert_eq!(
+            gear.best_replacement(mage.id, 0, &[better_id]),
+            Some(better_id)
+        );
     }
 
     #[test]

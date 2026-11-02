@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeSet, HashSet};
 
-use benilla_ui::script::{UiScript, widget_method_census};
+use benilla_ui::script::{widget_method_census, UiScript};
 
 use crate::local_state::test_env::ENV_LOCK;
 

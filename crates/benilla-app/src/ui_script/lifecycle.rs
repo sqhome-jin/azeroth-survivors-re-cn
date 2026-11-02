@@ -9,7 +9,7 @@ use benilla_assets::LockRecover;
 use benilla_ui::script::UiScript;
 
 use super::manifest::silenced_ui_load;
-use super::{CursorPayloadHeld, PlayerUiHover, UiClock, UiKeyboardCapture, load_ingame_ui};
+use super::{load_ingame_ui, CursorPayloadHeld, PlayerUiHover, UiClock, UiKeyboardCapture};
 use crate::ui_script::addons;
 use crate::ui_script::addons::Addon;
 

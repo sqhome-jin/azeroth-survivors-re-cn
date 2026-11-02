@@ -189,19 +189,17 @@ mod tests {
             got.iter().map(|(id, _, _, _)| *id).collect::<Vec<_>>(),
             [1, 2, 22, 23, 24, 25]
         );
-        assert!(
-            got.iter()
-                .all(|(_, _, pattern, shortcut)| { !pattern.is_empty() && !shortcut.is_empty() })
-        );
+        assert!(got
+            .iter()
+            .all(|(_, _, pattern, shortcut)| { !pattern.is_empty() && !shortcut.is_empty() }));
         for id in [1, 2, 22, 25] {
-            assert!(
-                cat.rows()
-                    .iter()
-                    .find(|row| row.id == id)
-                    .unwrap()
-                    .pattern
-                    .contains("%s")
-            );
+            assert!(cat
+                .rows()
+                .iter()
+                .find(|row| row.id == id)
+                .unwrap()
+                .pattern
+                .contains("%s"));
         }
 
         // The auto-join set is the reference's `chat-cache.txt` `ZONECHANNELS` mask.

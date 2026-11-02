@@ -42,6 +42,8 @@ impl Default for Grade {
     }
 }
 
+type UnmarkedCamera = (With<WorldCamera>, With<Camera3d>, Without<Grade>);
+
 impl FullscreenMaterial for Grade {
     fn fragment_shader() -> ShaderRef {
         "embedded://benilla_app/shaders/survivors_grade.wgsl".into()
@@ -72,10 +74,7 @@ pub(super) fn plugin(app: &mut App) {
         .add_systems(Update, (attach, toggle, drive).chain());
 }
 
-fn attach(
-    mut commands: Commands,
-    cams: Query<Entity, (With<WorldCamera>, With<Camera3d>, Without<Grade>)>,
-) {
+fn attach(mut commands: Commands, cams: Query<Entity, UnmarkedCamera>) {
     for e in &cams {
         commands.entity(e).insert(Grade::default());
     }

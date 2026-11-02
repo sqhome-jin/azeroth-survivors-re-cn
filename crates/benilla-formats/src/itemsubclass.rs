@@ -7,8 +7,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::Chain;
 use crate::dbc::{i32_at, localized_str_at, parse, preferred_locale, u32_at};
+use crate::Chain;
 
 const ITEM_SUB_CLASS: &str = "DBFilesClient\\ItemSubClass.dbc";
 /// The group names, read before [`ITEM_SUB_CLASS`] when a whole subclass mask needs a name.
@@ -308,10 +308,9 @@ mod tests {
 
         // Stage 1: the whole mask has a name; all three shipped rows.
         for (class, mask) in [(2, 0x0002_a5f3), (4, 0x60), (2, 0x0004_000c)] {
-            assert!(
-                cat.requirement_name(class, mask)
-                    .is_some_and(|name| !name.is_empty())
-            );
+            assert!(cat
+                .requirement_name(class, mask)
+                .is_some_and(|name| !name.is_empty()));
         }
         // The singular arm shares stage 1.
         assert!(cat.requirement_display_name(2, 0x0002_a5f3).is_some());
@@ -323,14 +322,12 @@ mod tests {
         // Stage 2, fist weapons (13) and daggers (15), no shipped group: joined for the tooltip,
         // first only for the cast-fail line.
         let mask = (1 << 13) | (1 << 15);
-        assert!(
-            cat.requirement_name(2, mask)
-                .is_some_and(|name| !name.is_empty())
-        );
-        assert!(
-            cat.requirement_display_name(2, mask)
-                .is_some_and(|name| !name.is_empty())
-        );
+        assert!(cat
+            .requirement_name(2, mask)
+            .is_some_and(|name| !name.is_empty()));
+        assert!(cat
+            .requirement_display_name(2, mask)
+            .is_some_and(|name| !name.is_empty()));
 
         // Class 6, projectile: the cast-fail `0x31` NEED_EXOTIC_AMMO arm's lookup (`0x6e1e5e`,
         // mask `1 << arg`). Three of the five shipped rows are `(OBSOLETE)` in the data itself.
