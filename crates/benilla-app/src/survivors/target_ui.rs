@@ -497,10 +497,11 @@ impl DebuffView {
 const VULNERABILITY_SPELL: u32 = 17800;
 
 /// The crowd control each enemy carries as plain timers, with the spell icon it reads as.
-const CONTROL: [(&str, u32); 5] = [
+const CONTROL: [(&str, u32); 6] = [
     ("stun", 853),
     ("fear", 5782),
     ("root", 122),
+    ("polymorph", 118),
     ("slow", 116),
     ("weaken", 1160),
 ];
@@ -510,6 +511,7 @@ fn control_name(key: &str) -> &'static str {
         "stun" => text("Stunned", "昏迷"),
         "fear" => text("Feared", "恐惧"),
         "root" => text("Rooted", "定身"),
+        "polymorph" => text("Polymorphed", "变羊"),
         "slow" => text("Slowed", "减速"),
         _ => text("Weakened", "虚弱"),
     }
@@ -524,6 +526,7 @@ pub(super) fn debuffs(enemy: &Enemy, run: Option<&Run>) -> Vec<DebuffView> {
             "stun" => enemy.stun_t,
             "fear" => enemy.fear_t,
             "root" => enemy.root_t,
+            "polymorph" => enemy.polymorph_t,
             "slow" if enemy.slow < 1.0 => enemy.slow_t,
             "weaken" if enemy.weaken < 1.0 => enemy.weaken_t,
             _ => 0.0,
@@ -1603,6 +1606,7 @@ mod tests {
             attack_cd: 0.0,
             slow: 1.0,
             slow_t: 0.0,
+            polymorph_t: 0.0,
             root_t: 0.0,
             stun_t: 0.0,
             fear_t: 0.0,
@@ -1790,6 +1794,20 @@ mod tests {
         let list = debuffs(&e, None);
         let dot = list.iter().find(|d| d.key == key).unwrap();
         assert_eq!((dot.stacks, dot.left), (2, 4.0));
+    }
+
+    #[test]
+    fn polymorph_appears_as_a_timed_target_debuff() {
+        let mut enemy = enemy(&data::ENEMIES[0], false);
+        enemy.polymorph_t = 3.5;
+
+        let debuff = debuffs(&enemy, None)
+            .into_iter()
+            .find(|debuff| debuff.key == "polymorph")
+            .unwrap();
+
+        assert_eq!(debuff.left, 3.5);
+        assert_eq!(debuff.spell, 118);
     }
 
     #[test]

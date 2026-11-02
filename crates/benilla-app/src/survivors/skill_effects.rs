@@ -90,6 +90,7 @@ impl Modifiers {
             Effect::Slow(m, t) => Effect::Slow(m, t * mult),
             Effect::Root(t) => Effect::Root(t * mult),
             Effect::Stun(t) => Effect::Stun(t * mult),
+            Effect::Polymorph(t) => Effect::Polymorph(t * mult),
             Effect::Fear(t) => Effect::Fear(t * mult),
             Effect::Weaken(m, t) => Effect::Weaken(m, t * mult),
             other => other,

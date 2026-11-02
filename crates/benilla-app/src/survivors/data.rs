@@ -64,6 +64,7 @@ pub(crate) enum Effect {
     Slow(f32, f32),
     Root(f32),
     Stun(f32),
+    Polymorph(f32),
     Fear(f32),
     /// Outgoing damage multiplier for seconds.
     Weaken(f32, f32),
@@ -1319,7 +1320,8 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
         Strike {
             range: 24.0,
             cooldown: 12.0,
-            effect: Effect::Stun(5.0),
+            count: 3,
+            effect: Effect::Polymorph(5.0),
             mark: 118
         }
     ),

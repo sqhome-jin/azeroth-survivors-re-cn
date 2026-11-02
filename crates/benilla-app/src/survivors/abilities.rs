@@ -95,6 +95,7 @@ struct Foe {
     hp_fraction: f32,
     caster: bool,
     controlled: bool,
+    polymorphed: bool,
 }
 
 /// The numbers one cast uses, from the ability's level and the hero's stats.
@@ -112,7 +113,7 @@ struct Params {
 fn mark_secs(def: &AbilityDef, duration: f32) -> f32 {
     match def.effect {
         Effect::Slow(_, t) | Effect::Weaken(_, t) => t,
-        Effect::Root(t) | Effect::Stun(t) | Effect::Fear(t) => t,
+        Effect::Root(t) | Effect::Stun(t) | Effect::Polymorph(t) | Effect::Fear(t) => t,
         _ if duration > 0.0 => duration,
         _ => 3.0,
     }
@@ -175,8 +176,17 @@ fn schedule(
     }
 }
 
+#[cfg(test)]
 fn roll(rng: &mut Rng, stats: &Stats, dmg: f32) -> (f32, bool) {
-    if rng.f32() < stats.crit {
+    roll_with_crit_bonus(rng, stats, dmg, 0.0)
+}
+
+fn roll_for_target(rng: &mut Rng, stats: &Stats, dmg: f32, foe: &Foe) -> (f32, bool) {
+    roll_with_crit_bonus(rng, stats, dmg, if foe.polymorphed { 0.2 } else { 0.0 })
+}
+
+fn roll_with_crit_bonus(rng: &mut Rng, stats: &Stats, dmg: f32, crit_bonus: f32) -> (f32, bool) {
+    if rng.f32() < (stats.crit + crit_bonus).min(1.0) {
         (dmg * stats.crit_multiplier(), true)
     } else {
         (dmg, false)
@@ -263,7 +273,11 @@ pub(super) fn cast_abilities(
             radius: en.radius,
             hp_fraction: en.hp / en.max_hp.max(1.0),
             caster: spell_expansion::caster(en),
-            controlled: en.stun_t > 0.0 || en.root_t > 0.0 || en.fear_t > 0.0,
+            controlled: en.stun_t > 0.0
+                || en.root_t > 0.0
+                || en.fear_t > 0.0
+                || en.polymorph_t > 0.0,
+            polymorphed: en.polymorph_t > 0.0,
         })
         .collect();
     foes.sort_by(|a, b| a.dist.total_cmp(&b.dist));
@@ -387,7 +401,7 @@ pub(super) fn cast_abilities(
                             } else {
                                 1.0
                             };
-                            let (dmg, crit) = roll(&mut rng, &stats, p.dmg * bonus);
+                            let (dmg, crit) = roll_for_target(&mut rng, &stats, p.dmg * bonus, f);
                             let delay = if def.key == "curse_of_doom" {
                                 hits.write(hit_for(def, &p, f.e, 0.0, false));
                                 p.duration
@@ -423,7 +437,7 @@ pub(super) fn cast_abilities(
                     } else {
                         fx.cast(me, def.spell, &entities(&targets), None);
                         for f in &targets {
-                            let (dmg, crit) = roll(&mut rng, &stats, p.dmg);
+                            let (dmg, crit) = roll_for_target(&mut rng, &stats, p.dmg, f);
                             let delay = if speed > 0.0 { f.dist / speed } else { 0.0 };
                             schedule(
                                 &mut pending,
@@ -506,10 +520,11 @@ pub(super) fn cast_abilities(
                         }
                         fx.cast(me, def.spell, &entities(&chain), None);
                         for (k, f) in chain.iter().enumerate() {
-                            let (dmg, crit) = roll(
+                            let (dmg, crit) = roll_with_crit_bonus(
                                 &mut rng,
                                 &stats,
                                 p.dmg * (0.85 + p.source.modifiers.chain).min(1.0).powi(k as i32),
+                                if f.polymorphed { 0.2 } else { 0.0 },
                             );
                             schedule(
                                 &mut pending,
@@ -559,7 +574,7 @@ pub(super) fn cast_abilities(
                             fx.impact(f.e, def.spell);
                         }
                         for f in &targets {
-                            let (dmg, crit) = roll(&mut rng, &stats, p.dmg);
+                            let (dmg, crit) = roll_for_target(&mut rng, &stats, p.dmg, f);
                             hits.write(hit_for(def, &p, f.e, dmg, crit));
                         }
                         true
@@ -572,7 +587,7 @@ pub(super) fn cast_abilities(
                     } else {
                         for f in &targets {
                             fx.impact(f.e, 403);
-                            let (dmg, crit) = roll(&mut rng, &stats, p.dmg);
+                            let (dmg, crit) = roll_for_target(&mut rng, &stats, p.dmg, f);
                             hits.write(hit_for(def, &p, f.e, dmg, crit));
                         }
                         true
@@ -580,9 +595,12 @@ pub(super) fn cast_abilities(
                 }
                 Kind::Shield => {
                     let threshold = if def.key == "last_stand" { 0.65 } else { 0.85 };
-                    if run.hp < stats.max_hp * threshold && run.shield <= 0.0 {
+                    if run.hp < stats.max_hp * threshold
+                        && (run.shield_t <= 0.0 || run.shield <= 0.0)
+                    {
                         run.shield = p.dmg;
                         run.shield_t = p.duration;
+                        run.shield_source = Some(def.key);
                         fx.cast(me, def.spell, &[me], None);
                         true
                     } else {
@@ -594,7 +612,11 @@ pub(super) fn cast_abilities(
                         && (def.key != "ice_block" || run.hp < stats.max_hp * 0.65)
                     {
                         run.immune_t = p.duration;
+                        let existing_shield = run.shield;
                         run.shield += owned_growth;
+                        if run.shield > existing_shield {
+                            run.shield_source = Some(def.key);
+                        }
                         run.shield_t = run.shield_t.max(p.duration + 3.0);
                         fx.cast(me, def.spell, &[me], None);
                         true
@@ -756,7 +778,11 @@ pub(super) fn tick_areas(
             radius: en.radius,
             hp_fraction: en.hp / en.max_hp.max(1.0),
             caster: spell_expansion::caster(en),
-            controlled: en.stun_t > 0.0 || en.root_t > 0.0 || en.fear_t > 0.0,
+            controlled: en.stun_t > 0.0
+                || en.root_t > 0.0
+                || en.fear_t > 0.0
+                || en.polymorph_t > 0.0,
+            polymorphed: en.polymorph_t > 0.0,
         })
         .collect();
 
@@ -772,7 +798,7 @@ pub(super) fn tick_areas(
                 if area.impact != 0 && i < 12 {
                     fx.impact(f.e, area.impact);
                 }
-                let (dmg, crit) = roll(&mut rng, &stats, area.damage);
+                let (dmg, crit) = roll_for_target(&mut rng, &stats, area.damage, &f);
                 hits.write(Hit {
                     target: f.e,
                     damage: dmg,
@@ -824,7 +850,7 @@ pub(super) fn tick_areas(
                 }
                 fx.cast(e, totem.cast, &[], None);
                 for f in &targets {
-                    let (dmg, crit) = roll(&mut rng, &stats, totem.damage);
+                    let (dmg, crit) = roll_for_target(&mut rng, &stats, totem.damage, f);
                     hits.write(Hit {
                         color: COLOR_SPELL,
                         source: totem.source,
@@ -845,7 +871,7 @@ pub(super) fn tick_areas(
                     .and_then(|s| s.catalog.get(totem.cast))
                     .map_or(0.0, |d| d.speed);
                 let delay = if speed > 0.0 { dist / speed } else { 0.0 };
-                let (dmg, crit) = roll(&mut rng, &stats, totem.damage);
+                let (dmg, crit) = roll_for_target(&mut rng, &stats, totem.damage, f);
                 schedule(
                     &mut pending,
                     &mut hits,
@@ -1046,6 +1072,12 @@ pub(super) fn apply_hits(
             }
             Effect::Root(t) => en.root_t = en.root_t.max(if boss { t * 0.3 } else { t }),
             Effect::Stun(t) => en.stun_t = en.stun_t.max(if boss { t * 0.3 } else { t }),
+            Effect::Polymorph(t) => {
+                en.polymorph_t = en.polymorph_t.max(if boss { t * 0.3 } else { t });
+                store
+                    .0
+                    .merge(benilla_protocol::ObjectFields::from_pairs(&[(131, 856)]));
+            }
             Effect::Fear(t) if !boss => en.fear_t = en.fear_t.max(t),
             Effect::Weaken(m, t) => {
                 en.weaken = if en.weaken_t > 0.0 {
@@ -1058,7 +1090,16 @@ pub(super) fn apply_hits(
             _ => {}
         }
         if h.mark != 0 {
-            marks.add(h.mark, h.mark_dur);
+            let mark_duration = if let Effect::Polymorph(duration) = h.effect {
+                if boss {
+                    duration * 0.3
+                } else {
+                    duration
+                }
+            } else {
+                h.mark_dur
+            };
+            marks.add(h.mark, mark_duration);
         }
         if en.hp <= 0.0 {
             kill(&mut commands, &mut run, e, tf.translation, &mut en);
@@ -1100,7 +1141,12 @@ pub(super) fn apply_hits(
                     && warlock::periodic_crits(run.talents, d.source))
                     || class_mechanics::periodic_crits(&run, d.source)
                 {
-                    roll(&mut rng, &run.stats(), base)
+                    roll_with_crit_bonus(
+                        &mut rng,
+                        &run.stats(),
+                        base,
+                        if en.polymorph_t > 0.0 { 0.2 } else { 0.0 },
+                    )
                 } else {
                     (base, false)
                 };
@@ -1317,6 +1363,7 @@ mod tests {
                     attack_cd: 0.0,
                     slow: 1.0,
                     slow_t: 0.0,
+                    polymorph_t: 0.0,
                     root_t: 0.0,
                     stun_t: 0.0,
                     fear_t: 0.0,
@@ -1511,6 +1558,101 @@ mod tests {
                 "{key} cast without its defense"
             );
         }
+    }
+
+    #[test]
+    fn expired_absorb_does_not_block_an_automatic_shield() {
+        let mut app = caster_app("ice_barrier");
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            run.hp = 20.0;
+            run.shield = 40.0;
+            run.shield_t = 0.0;
+        }
+
+        step(&mut app, 0.1);
+
+        let run = app.world().resource::<Run>();
+        assert_eq!(run.shield_source, Some("ice_barrier"));
+        assert!(run.shield > 40.0);
+    }
+
+    #[test]
+    fn polymorph_controls_three_targets_and_damage_does_not_break_it() {
+        let mut app = caster_app("polymorph");
+        let targets = [
+            foe(&mut app, 1.0, 1000.0),
+            foe(&mut app, 2.0, 1000.0),
+            foe(&mut app, 3.0, 1000.0),
+            foe(&mut app, 4.0, 1000.0),
+        ];
+        app.world_mut().get_mut::<Enemy>(targets[1]).unwrap().boss = true;
+
+        for _ in 0..30 {
+            step(&mut app, 0.1);
+        }
+
+        let transformed: Vec<_> = targets
+            .iter()
+            .copied()
+            .filter(|target| {
+                app.world()
+                    .get::<Enemy>(*target)
+                    .is_some_and(|enemy| enemy.polymorph_t > 0.0)
+            })
+            .collect();
+        assert_eq!(transformed.len(), 3);
+        assert!((app.world().get::<Enemy>(targets[1]).unwrap().polymorph_t - 1.5).abs() < 0.01);
+        for target in &transformed {
+            assert_eq!(
+                app.world()
+                    .get::<ObjectStore>(*target)
+                    .unwrap()
+                    .0
+                    .unit_displayid(),
+                Some(856)
+            );
+        }
+
+        let target = transformed[0];
+        let remaining = app.world().get::<Enemy>(target).unwrap().polymorph_t;
+        app.world_mut()
+            .write_message(Hit::direct(target, 1.0, false));
+        step(&mut app, 0.1);
+        assert_eq!(
+            app.world().get::<Enemy>(target).unwrap().polymorph_t,
+            remaining
+        );
+    }
+
+    #[test]
+    fn polymorphed_targets_gain_twenty_percentage_points_of_crit_chance() {
+        let mut stats = Run::default().stats();
+        stats.crit = 0.5;
+        let seed = (1..1000)
+            .find(|seed| {
+                let mut rng = Rng(*seed);
+                let sample = rng.f32();
+                (0.5..0.7).contains(&sample)
+            })
+            .unwrap();
+        let target = Foe {
+            e: Entity::PLACEHOLDER,
+            pos: Vec3::ZERO,
+            hp: 100.0,
+            dist: 0.0,
+            radius: 0.0,
+            hp_fraction: 1.0,
+            caster: false,
+            controlled: true,
+            polymorphed: false,
+        };
+        assert!(!roll_for_target(&mut Rng(seed), &stats, 10.0, &target).1);
+        let target = Foe {
+            polymorphed: true,
+            ..target
+        };
+        assert!(roll_for_target(&mut Rng(seed), &stats, 10.0, &target).1);
     }
 
     #[test]

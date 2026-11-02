@@ -30,6 +30,7 @@ pub(super) struct Enemy {
     pub slow_t: f32,
     pub root_t: f32,
     pub stun_t: f32,
+    pub polymorph_t: f32,
     pub fear_t: f32,
     pub weaken: f32,
     pub weaken_t: f32,
@@ -119,6 +120,27 @@ fn look_for(kind: GemKind) -> (u32, f32) {
     }
 }
 
+fn tick_polymorph(enemy: &mut Enemy, store: &mut ObjectStore, dt: f32) {
+    let was_polymorphed = enemy.polymorph_t > 0.0;
+    enemy.polymorph_t = (enemy.polymorph_t - dt).max(0.0);
+    if was_polymorphed && enemy.polymorph_t <= 0.0 {
+        store.0.merge(benilla_protocol::ObjectFields::from_pairs(&[(
+            131,
+            enemy.def.display,
+        )]));
+    }
+}
+
+fn movement_slow(enemy: &Enemy) -> f32 {
+    if enemy.polymorph_t <= 0.0 {
+        enemy.slow
+    } else if enemy.boss {
+        0.75
+    } else {
+        enemy.slow.min(0.6)
+    }
+}
+
 /// Body radius: the big beasts need more room.
 fn radius_for(def: &EnemyDef) -> f32 {
     (if def.big { 1.3 } else { 0.6 }) * def.scale
@@ -169,6 +191,7 @@ fn spawn_enemy(
             slow_t: 0.0,
             root_t: 0.0,
             stun_t: 0.0,
+            polymorph_t: 0.0,
             fear_t: 0.0,
             weaken: 1.0,
             weaken_t: 0.0,
@@ -296,7 +319,16 @@ pub(super) fn move_enemies(
     mut run: ResMut<Run>,
     world: WorldPoint,
     hero: Query<(Entity, &Transform), (With<Hero>, Without<Enemy>)>,
-    mut enemies: Query<(Entity, &mut Transform, &mut Enemy, &mut MovementState), Without<Hero>>,
+    mut enemies: Query<
+        (
+            Entity,
+            &mut Transform,
+            &mut Enemy,
+            &mut MovementState,
+            &mut crate::net::ObjectStore,
+        ),
+        Without<Hero>,
+    >,
     mut fx: Fx,
     mut hits: MessageWriter<Hit>,
 ) {
@@ -314,8 +346,8 @@ pub(super) fn move_enemies(
     const CELL: f32 = 3.0;
     let bodies: Vec<(Entity, Vec3, f32)> = enemies
         .iter()
-        .filter(|(_, _, e, _)| !e.dead)
-        .map(|(ent, tf, e, _)| (ent, tf.translation, e.radius))
+        .filter(|(_, _, e, _, _)| !e.dead)
+        .map(|(ent, tf, e, _, _)| (ent, tf.translation, e.radius))
         .collect();
     let key = |p: Vec3| ((p.x / CELL).floor() as i32, (p.z / CELL).floor() as i32);
     let mut grid: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
@@ -350,7 +382,7 @@ pub(super) fn move_enemies(
         push.insert(ent, acc);
     }
 
-    for (ent, mut tf, mut e, mut mv) in &mut enemies {
+    for (ent, mut tf, mut e, mut mv, mut store) in &mut enemies {
         let e = &mut *e;
         if e.dead {
             if mv.speed != 0.0 || mv.flags != 0 {
@@ -369,6 +401,7 @@ pub(super) fn move_enemies(
         ] {
             *t = (*t - dt).max(0.0);
         }
+        tick_polymorph(e, &mut store, dt);
         if e.slow_t <= 0.0 {
             e.slow = 1.0;
         }
@@ -399,7 +432,7 @@ pub(super) fn move_enemies(
                 to_hero.normalize_or_zero()
             };
             if !contact || e.fear_t > 0.0 {
-                speed = e.speed * e.slow;
+                speed = e.speed * movement_slow(e);
                 step = dir * speed;
             }
             if dir != Vec3::ZERO {
@@ -422,6 +455,7 @@ pub(super) fn move_enemies(
         if contact
             && !lost
             && e.stun_t <= 0.0
+            && e.polymorph_t <= 0.0
             && e.fear_t <= 0.0
             && e.attack_cd <= 0.0
             && !hero_down
@@ -757,5 +791,57 @@ mod loot_tests {
             world.resource::<NextState<Phase>>(),
             NextState::Unchanged
         ));
+    }
+
+    fn enemy(boss: bool) -> Enemy {
+        Enemy {
+            def: &data::ENEMIES[0],
+            hp: 100.0,
+            max_hp: 100.0,
+            speed: 1.0,
+            damage: 1.0,
+            radius: 1.0,
+            xp: 1,
+            boss,
+            attack_cd: 0.0,
+            slow: 1.0,
+            slow_t: 0.0,
+            root_t: 0.0,
+            stun_t: 0.0,
+            polymorph_t: 0.0,
+            fear_t: 0.0,
+            weaken: 1.0,
+            weaken_t: 0.0,
+            dots: Vec::new(),
+            warlock: Default::default(),
+            class_effects: Default::default(),
+            dead: false,
+        }
+    }
+
+    #[test]
+    fn polymorph_expiry_restores_the_enemy_display() {
+        let mut enemy = enemy(false);
+        enemy.polymorph_t = 0.1;
+        let mut store = ObjectStore(benilla_protocol::ObjectFields::from_pairs(&[(131, 856)]));
+
+        tick_polymorph(&mut enemy, &mut store, 0.1);
+
+        assert_eq!(enemy.polymorph_t, 0.0);
+        assert_eq!(store.0.unit_displayid(), Some(enemy.def.display as i32));
+    }
+
+    #[test]
+    fn polymorph_slow_uses_the_strongest_normal_slow_and_boss_cap() {
+        let mut ordinary = enemy(false);
+        ordinary.polymorph_t = 1.0;
+        assert_eq!(movement_slow(&ordinary), 0.6);
+        ordinary.slow = 0.5;
+        assert_eq!(movement_slow(&ordinary), 0.5);
+
+        let mut boss = enemy(true);
+        boss.polymorph_t = 1.0;
+        boss.slow = 0.5;
+        assert_eq!(movement_slow(&boss), 0.75);
     }
 }

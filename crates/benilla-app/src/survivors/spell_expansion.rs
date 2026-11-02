@@ -138,8 +138,8 @@ pub(super) fn description(key: &str) -> Option<&'static str> {
         "execute" | "drain_soul" => {
             "只选择生命不高于30%的敌人；吸取灵魂持续伤害，在低生命时处决非首领。"
         }
-        "shield_wall" => "生命低于65%时自动施放，短时间内受到的伤害降低60%。",
-        "last_stand" => "生命低于65%时获得临时吸收护盾；不永久增加生命上限。",
+        "shield_wall" => "短时间内受到的伤害降低60%。",
+        "last_stand" => "获得临时吸收护盾；不永久增加生命上限。",
         "seal_of_righteousness" => "持续期间，武器命中额外造成神圣伤害；每次攻击最多触发一次。",
         "seal_of_command" => "持续期间，武器命中有35%几率追加一次强力神圣打击。",
         "seal_of_wisdom" => "持续期间提高技能冷却恢复效率；本模式无独立法力系统。",
@@ -153,13 +153,14 @@ pub(super) fn description(key: &str) -> Option<&'static str> {
         "frost_armor" => "持续期间提高护甲，并自动减速身边的近战敌人。",
         "mage_armor" => "持续期间恢复生命并降低受到的伤害；本模式无独立法力系统。",
         "dampen_magic" => "持续期间受到的伤害降低20%，不提供直接伤害。",
-        "arcane_power" => "短时间法术伤害提高30%，不影响武器攻击。",
+        "arcane_power" => "非近战技能的直接伤害和持续伤害提高30%。",
         "presence_of_mind" => "下一次实际命中的直接法术获得50%伤害加成并回响一次；随后消耗。",
-        "combustion" => "持续期间火焰法术的暴击率提高30%。",
-        "cold_snap" => "有冰霜技能正在冷却时自动重置其冷却，不重置自身。",
-        "barkskin" | "evasion" => "低生命时自动开启防御；树皮减伤30%，闪避减伤50%。",
+        "combustion" => "火焰技能暴击率提高30个百分点，最高100%。",
+        "cold_snap" => "重置一个正在冷却的冰霜技能，不会重置自身。",
+        "barkskin" | "evasion" => "树皮术减伤30%，闪避减伤50%。",
         "ice_block" => "生命低于65%且近处有敌人时自动进入短暂无敌。",
-        "ice_barrier" | "mana_shield" => "生命低于85%且护盾耗尽时自动吸收伤害，不向敌人发送护盾。",
+        "ice_barrier" => "与其他吸收护盾共用护盾池。",
+        "mana_shield" => "与其他吸收护盾共用护盾池；本模式不消耗法力。",
         "flash_of_light"
         | "holy_light"
         | "flash_heal"
@@ -169,7 +170,7 @@ pub(super) fn description(key: &str) -> Option<&'static str> {
         | "healing_touch" => "生命低于85%时自动对自身施放即时治疗；没有队友时不会选择敌人为目标。",
         "regrowth" => "生命低于85%时先立即恢复部分生命，再持续恢复。",
         "healing_stream_totem" => "放置友方图腾，在范围内每秒治疗自己；不造成伤害或召唤爆炸。",
-        "earthbind_totem" => "放置友方图腾，周期性减速附近敌人；不造成召唤爆炸。",
+        "earthbind_totem" => "放置友方图腾，周期性减速附近敌人；不造成伤害或爆炸。",
         "stoneclaw_totem" => "放置友方图腾，周期性削弱附近敌人伤害；本模式以减伤模拟牵制。",
         "vampiric_embrace" => "标记敌人，之后对该敌人造成的法术伤害回复15%生命。",
         "curse_of_elements" => "标记敌人，使其受到的法术伤害提高20%。",
@@ -181,7 +182,7 @@ pub(super) fn description(key: &str) -> Option<&'static str> {
             "持续伤害的每次实际伤害均按技能比例恢复生命；不会从过量伤害或尸体吸血。"
         }
         "mind_flay" => "持续3秒鞭笞目标并减速，每秒造成伤害。",
-        "polymorph" => "控制非首领敌人；首领只受到缩短的控制，不造成直接伤害。",
+        "polymorph" => "使目标无法攻击；受击不会解除变羊。首领控制时间缩短，减速最多25%。",
         "claw" | "rake" | "rip" | "swipe" | "ferocious_bite" => {
             "人形英雄使用野性主题近战技巧（不会变身，也不需要连击点）；撕裂类造成持续伤害。"
         }
@@ -492,7 +493,11 @@ pub(super) fn utility(run: &mut Run, key: &'static str, cast: &Cast, nearby: boo
                 .iter()
                 .find(|o| o.def.key == key)
                 .map_or(1.0, |o| o.growth);
+            let existing_shield = run.shield;
             run.shield += (growth - 1.0).max(0.0);
+            if run.shield > existing_shield {
+                run.shield_source = Some(key);
+            }
             if run.shield > 0.0 {
                 run.shield_t = run.shield_t.max(3.0);
             }
