@@ -594,6 +594,41 @@ fn refresh_panel(
                 GOLD,
             ));
         }
+        if let Some(comp) = gear.compare(class, item.id) {
+            let current = comp
+                .current
+                .and_then(|id| gear.item(id))
+                .map(|current| current.name().to_owned())
+                .unwrap_or_else(|| localization::text("None equipped", "未穿戴").to_owned());
+            let delta = if comp.delta >= 0.0 {
+                format!("+{:.1}", comp.delta)
+            } else {
+                format!("{:.1}", comp.delta)
+            };
+            let mode = if comp.compatible {
+                localization::text("build compatible", "构筑兼容")
+            } else {
+                localization::text("build mismatch", "构筑不兼容")
+            };
+            lines.push((
+                format!(
+                    "{}: {} → {} (Δ {})",
+                    localization::text("Armory score", "军械库评分"),
+                    current,
+                    item.name(),
+                    delta
+                ),
+                Color::srgb(0.8, 0.9, 1.0),
+            ));
+            lines.push((
+                format!(
+                    "{} · {}",
+                    mode,
+                    localization::text("expected proc value", "预期触发价值")
+                ),
+                Color::srgb(0.68, 0.83, 0.72),
+            ));
+        }
 
         let note = match gear.wearer(item.id) {
             Some(c) if c == class => localization::text("Worn by this class", "当前职业已穿戴"),

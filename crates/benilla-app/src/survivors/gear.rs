@@ -12,9 +12,9 @@ pub(super) const BAG_CAP: usize = 200;
 const SCALE: f32 = 10_000.0;
 
 pub(super) const RARITY_COUNT: usize = 6;
-pub(super) const SLOT_COUNT: usize = 9;
-const MAIN_SLOT: usize = 7;
-const OFF_SLOT: usize = 8;
+pub(super) const SLOT_COUNT: usize = 16;
+const MAIN_SLOT: usize = 14;
+const OFF_SLOT: usize = 15;
 
 /// Ordinary and skill-affix counts per rarity.
 pub(super) const AFFIX_COUNTS: [usize; RARITY_COUNT] = [1, 2, 3, 4, 5, 5];
@@ -45,12 +45,19 @@ pub(super) const RARITY_COLORS: [Color; RARITY_COUNT] = [
 
 pub(super) const SLOT_NAMES: [(&str, &str); SLOT_COUNT] = [
     ("Head", "头部"),
+    ("Neck", "项链"),
     ("Shoulder", "肩部"),
+    ("Back", "背部"),
     ("Chest", "胸部"),
+    ("Wrist", "护腕"),
     ("Hands", "手部"),
     ("Waist", "腰部"),
     ("Legs", "腿部"),
     ("Feet", "脚部"),
+    ("Ring 1", "戒指 1"),
+    ("Ring 2", "戒指 2"),
+    ("Trinket 1", "饰品 1"),
+    ("Trinket 2", "饰品 2"),
     ("Main Hand", "主手"),
     ("Off Hand", "副手"),
 ];
@@ -58,12 +65,19 @@ pub(super) const SLOT_NAMES: [(&str, &str); SLOT_COUNT] = [
 /// `UI-PaperDoll-Slot-*` empty-slot art, in slot order.
 pub(super) const SLOT_ART: [&str; SLOT_COUNT] = [
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Head",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Neck",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Shoulder",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Back",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Chest",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Wrist",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Hands",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Waist",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Legs",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-Feet",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Finger",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Finger",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Trinket",
+    "Interface\\PaperDoll\\UI-PaperDoll-Slot-Trinket",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-MainHand",
     "Interface\\PaperDoll\\UI-PaperDoll-Slot-SecondaryHand",
 ];
@@ -98,6 +112,13 @@ const BASES: [&[Base]; SLOT_COUNT] = [
         ),
     ],
     &[
+        ("Moss Pendant", "苔藓吊坠", "Interface\\Icons\\INV_Misc_Necklace_01"),
+        ("Ward Charm", "守护护符", "Interface\\Icons\\INV_Misc_Necklace_02"),
+        ("Sunstone Amulet", "太阳石护符", "Interface\\Icons\\INV_Misc_Amulet_01"),
+        ("Dread Pendant", "恐惧吊坠", "Interface\\Icons\\INV_Misc_Necklace_03"),
+        ("Sage Locket", "贤者挂坠", "Interface\\Icons\\INV_Misc_Necklace_04"),
+    ],
+    &[
         (
             "Iron Spaulders",
             "铁肩甲",
@@ -130,6 +151,14 @@ const BASES: [&[Base]; SLOT_COUNT] = [
         ),
     ],
     &[
+        ("Travel Cloak", "旅行披风", "Interface\\Icons\\INV_Misc_Cape_01"),
+        ("Dusk Shawl", "暮色披纱", "Interface\\Icons\\INV_Misc_Cape_02"),
+        ("Warden Cloak", "守望者披风", "Interface\\Icons\\INV_Misc_Cape_07"),
+        ("Dread Mantle", "恐惧披风", "Interface\\Icons\\INV_Misc_Cape_04"),
+        ("Sage Veil", "贤者披纱", "Interface\\Icons\\INV_Misc_Cape_08"),
+        ("Ember Cape", "余烬披风", "Interface\\Icons\\INV_Misc_Cape_10"),
+    ],
+    &[
         (
             "Apprentice Robe",
             "学徒长袍",
@@ -160,6 +189,13 @@ const BASES: [&[Base]; SLOT_COUNT] = [
             "恐惧板甲",
             "Interface\\Icons\\INV_Chest_Plate03",
         ),
+    ],
+    &[
+        ("Fortified Bracer", "坚固护腕", "Interface\\Icons\\INV_Bracer_01"),
+        ("Runecarved Wrist", "符文护腕", "Interface\\Icons\\INV_Bracer_03"),
+        ("Sage Cuffs", "贤者护腕", "Interface\\Icons\\INV_Bracer_08"),
+        ("Dread Armband", "恐惧臂章", "Interface\\Icons\\INV_Bracer_10"),
+        ("Ember Wristlets", "火纹护腕", "Interface\\Icons\\INV_Bracer_12"),
     ],
     &[
         (
@@ -228,6 +264,34 @@ const BASES: [&[Base]; SLOT_COUNT] = [
             "贤者软鞋",
             "Interface\\Icons\\INV_Boots_Cloth_03",
         ),
+    ],
+    &[
+        ("Moonstone Ring", "月光戒指", "Interface\\Icons\\INV_Jewelry_Ring_01"),
+        ("Ward Ring", "守护戒指", "Interface\\Icons\\INV_Jewelry_Ring_02"),
+        ("Granite Band", "花岗岩戒指", "Interface\\Icons\\INV_Jewelry_Ring_03"),
+        ("Dread Signet", "恐惧指环", "Interface\\Icons\\INV_Jewelry_Ring_05"),
+        ("Sage Loop", "贤者指环", "Interface\\Icons\\INV_Jewelry_Ring_08"),
+    ],
+    &[
+        ("Moonstone Ring", "月光戒指", "Interface\\Icons\\INV_Jewelry_Ring_01"),
+        ("Ward Ring", "守护戒指", "Interface\\Icons\\INV_Jewelry_Ring_02"),
+        ("Granite Band", "花岗岩戒指", "Interface\\Icons\\INV_Jewelry_Ring_03"),
+        ("Dread Signet", "恐惧指环", "Interface\\Icons\\INV_Jewelry_Ring_05"),
+        ("Sage Loop", "贤者指环", "Interface\\Icons\\INV_Jewelry_Ring_08"),
+    ],
+    &[
+        ("Flicker Idol", "闪光神像", "Interface\\Icons\\INV_Misc_Idol_01"),
+        ("Raven Charm", "乌鸦护符", "Interface\\Icons\\INV_Misc_Amulet_02"),
+        ("Sunflare Idol", "日炎神像", "Interface\\Icons\\INV_Misc_Idol_02"),
+        ("Dread Relic", "恐惧遗物", "Interface\\Icons\\INV_Misc_Idol_05"),
+        ("Sage Talisman", "贤者护符", "Interface\\Icons\\INV_Misc_Amulet_03"),
+    ],
+    &[
+        ("Flicker Idol", "闪光神像", "Interface\\Icons\\INV_Misc_Idol_01"),
+        ("Raven Charm", "乌鸦护符", "Interface\\Icons\\INV_Misc_Amulet_02"),
+        ("Sunflare Idol", "日炎神像", "Interface\\Icons\\INV_Misc_Idol_02"),
+        ("Dread Relic", "恐惧遗物", "Interface\\Icons\\INV_Misc_Idol_05"),
+        ("Sage Talisman", "贤者护符", "Interface\\Icons\\INV_Misc_Amulet_03"),
     ],
     &[
         (
@@ -620,6 +684,24 @@ impl EnhKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ItemComparison {
+    pub slot: u8,
+    pub current: Option<u64>,
+    pub candidate: u64,
+    pub score: f32,
+    pub delta: f32,
+    pub compatible: bool,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
+pub(super) struct ItemIdentity {
+    pub slot: u8,
+    pub base: u8,
+    pub class: u8,
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(deny_unknown_fields)]
 pub(super) struct Roll {
@@ -653,6 +735,20 @@ pub(super) struct Item {
 }
 
 impl Item {
+    #[allow(dead_code)]
+    pub fn item_id(&self) -> u64 {
+        self.id
+    }
+
+    #[allow(dead_code)]
+    pub fn identity(&self) -> ItemIdentity {
+        ItemIdentity {
+            slot: self.slot,
+            base: self.base,
+            class: self.class,
+        }
+    }
+
     fn base(&self) -> &'static Base {
         let list = BASES[usize::from(self.slot).min(SLOT_COUNT - 1)];
         &list[usize::from(self.base).min(list.len() - 1)]
@@ -679,6 +775,37 @@ impl Item {
     pub fn slot_name(&self) -> &'static str {
         let s = SLOT_NAMES[usize::from(self.slot).min(SLOT_COUNT - 1)];
         localization::text(s.0, s.1)
+    }
+
+    pub fn score(&self) -> f32 {
+        let affix = self
+            .affixes
+            .iter()
+            .map(|roll| roll.value as f32 / SCALE)
+            .sum::<f32>();
+        let enhancement = self
+            .enhancements
+            .iter()
+            .chain(self.enhancement.iter())
+            .map(|enh| enh.value as f32 / SCALE)
+            .sum::<f32>();
+        affix + enhancement * 0.5
+    }
+
+    #[allow(dead_code)]
+    pub fn proc_value(&self) -> f32 {
+        self.enhancements
+            .iter()
+            .chain(self.enhancement.iter())
+            .map(|enh| {
+                let kind = ENH_KINDS[usize::from(enh.kind).min(ENH_KINDS.len() - 1)];
+                if kind.is_buff() || matches!(kind, EnhKind::Cooldown | EnhKind::Control) {
+                    enh.value as f32 / SCALE
+                } else {
+                    0.0
+                }
+            })
+            .sum::<f32>()
     }
 }
 
@@ -1318,10 +1445,60 @@ impl Gear {
         }
         out
     }
+
+    pub fn compare(&self, class: u8, id: u64) -> Option<ItemComparison> {
+        let item = self.item(id)?;
+        let slot = usize::from(item.slot);
+        let current = self.worn(class, slot);
+        let current_score = current.map(Item::score).unwrap_or(0.0);
+        let score = item.score();
+        let compatible = item.enhancements.iter().chain(item.enhancement.iter()).all(|enh| {
+            if enh.ability.is_empty() {
+                return true;
+            }
+            let allowed = data::CLASSES.iter().any(|c| {
+                c.id == class
+                    && (c.start == enh.ability || c.pool.iter().any(|key| *key == enh.ability))
+            });
+            allowed || !data::ABILITIES.iter().any(|ability| ability.key == enh.ability)
+        });
+        Some(ItemComparison {
+            slot: item.slot,
+            current: current.map(|item| item.id),
+            candidate: id,
+            score,
+            delta: score - current_score,
+            compatible,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn best_replacement(&self, class: u8, slot: usize, candidate_ids: &[u64]) -> Option<u64> {
+        candidate_ids
+            .iter()
+            .copied()
+            .filter_map(|id| self.compare(class, id).map(|comparison| (id, comparison)))
+            .filter(|(_, comparison)| comparison.slot as usize == slot)
+            .max_by(|(_, a), (_, b)| a.delta.partial_cmp(&b.delta).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(id, _)| id)
+    }
 }
 
 fn save_path() -> Option<std::path::PathBuf> {
     crate::local_state::home().map(|p| p.join("survivors-gear.toml"))
+}
+
+fn backup_before_overwrite(path: &std::path::Path) -> std::io::Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("survivors-gear.toml");
+    let backup = path.with_file_name(format!("{name}.bak"));
+    std::fs::copy(path, &backup)?;
+    Ok(())
 }
 
 fn load(mut gear: ResMut<Gear>) {
@@ -1396,10 +1573,15 @@ fn persist(
     let result = save_path()
         .ok_or_else(|| "local persistence unavailable".to_owned())
         .and_then(|path| {
-            toml::to_string(&gear.save)
-                .map_err(|e| e.to_string())
-                .and_then(|text| {
-                    crate::local_state::write_atomic(&path, &text).map_err(|e| e.to_string())
+            backup_before_overwrite(&path)
+                .map_err(|e| format!("gear backup failed: {e}"))
+                .and_then(|_| {
+                    toml::to_string(&gear.save)
+                        .map_err(|e| e.to_string())
+                        .and_then(|text| {
+                            crate::local_state::write_atomic(&path, &text)
+                                .map_err(|e| e.to_string())
+                        })
                 })
         });
     match result {
@@ -1534,6 +1716,43 @@ mod tests {
 
     fn class(i: usize) -> &'static data::ClassDef {
         &data::CLASSES[i]
+    }
+
+    #[test]
+    fn slot_schema_expands_to_the_full_default_roster_and_identity_stays_stable() {
+        assert_eq!(SLOT_COUNT, 16);
+        assert_eq!(SLOT_NAMES.len(), SLOT_COUNT);
+        assert_eq!(SLOT_ART.len(), SLOT_COUNT);
+        assert_eq!(MAIN_SLOT, 14);
+        assert_eq!(OFF_SLOT, 15);
+
+        let base = Item {
+            id: 7,
+            slot: 0,
+            rarity: 3,
+            base: 1,
+            class: 1,
+            affixes: Vec::new(),
+            enhancement: None,
+            enhancements: Vec::new(),
+        };
+        let rolled = Item {
+            id: 9,
+            slot: 0,
+            rarity: 5,
+            base: 1,
+            class: 1,
+            affixes: vec![Roll { kind: 0, value: 42 }],
+            enhancement: None,
+            enhancements: vec![EnhRoll {
+                ability: "fireball".to_owned(),
+                kind: 0,
+                value: 1234,
+            }],
+        };
+        assert_eq!(base.identity(), rolled.identity());
+        assert_eq!(base.item_id(), 7);
+        assert_eq!(rolled.item_id(), 9);
     }
 
     #[test]
@@ -1885,6 +2104,48 @@ mod tests {
     }
 
     #[test]
+    fn armory_comparison_reports_delta_and_prefers_lower_loss_choice() {
+        let mage = data::CLASSES.iter().find(|c| c.start == "frostbolt").unwrap();
+        let mut gear = Gear::default();
+        let current = Item {
+            id: 0,
+            slot: 0,
+            rarity: 3,
+            base: 0,
+            class: mage.id,
+            affixes: vec![Roll { kind: 0, value: 1000 }],
+            enhancement: None,
+            enhancements: vec![EnhRoll {
+                ability: "frostbolt".to_owned(),
+                kind: 0,
+                value: 500,
+            }],
+        };
+        let current_id = gear.add(current);
+        gear.equip(mage.id, current_id);
+
+        let upgrade = Item {
+            id: 0,
+            slot: 0,
+            rarity: 4,
+            base: 1,
+            class: mage.id,
+            affixes: vec![Roll { kind: 0, value: 3000 }],
+            enhancement: None,
+            enhancements: vec![EnhRoll {
+                ability: "frostbolt".to_owned(),
+                kind: 0,
+                value: 2000,
+            }],
+        };
+        let better_id = gear.add(upgrade);
+        let delta = gear.compare(mage.id, better_id).unwrap();
+        assert!(delta.delta > 0.0);
+        assert!(delta.compatible);
+        assert_eq!(gear.best_replacement(mage.id, 0, &[better_id]), Some(better_id));
+    }
+
+    #[test]
     fn every_base_has_an_icon_and_names() {
         for list in BASES {
             assert!(!list.is_empty());
@@ -1977,6 +2238,30 @@ mod tests {
         assert_eq!(gear.bag().len(), BAG_CAP);
         assert!(gear.item(kept).is_some(), "worn items survive");
         assert!(gear.item(fresh).is_some());
+    }
+
+    #[test]
+    fn backup_before_overwrite_keeps_the_last_known_gear_save() {
+        let dir = std::env::temp_dir().join(format!(
+            "survivors-gear-backup-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = dir.join("survivors-gear.toml");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "version = 2\n").unwrap();
+
+        backup_before_overwrite(&path).unwrap();
+
+        let backup = path.with_file_name(format!(
+            "{}.bak",
+            path.file_name().unwrap().to_string_lossy()
+        ));
+        assert!(backup.exists());
+        assert_eq!(std::fs::read_to_string(&backup).unwrap(), "version = 2\n");
     }
 
     #[test]
