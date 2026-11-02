@@ -1354,6 +1354,79 @@ mod tests {
     }
 
     #[test]
+    fn reference_builds_have_time_to_play_boss_mechanics() {
+        for class_id in [8, 9] {
+            for ordinal in [1, 5] {
+                let class = data::CLASSES.iter().find(|c| c.id == class_id).unwrap();
+                let mut app = caster_app(class.start);
+                let count = if ordinal == 1 { 5 } else { 8 };
+                let rank = if ordinal == 1 { 2 } else { 3 };
+                {
+                    let mut run = app.world_mut().resource_mut::<Run>();
+                    run.class = class;
+                    run.elapsed = ordinal as f32 * data::BOSS_EVERY_SECS;
+                    run.abilities = class
+                        .pool
+                        .iter()
+                        .take(count)
+                        .map(|key| Owned {
+                            def: data::ability(key),
+                            level: rank,
+                            growth: rank as f32 * 1.35,
+                            cd: 0.0,
+                        })
+                        .collect();
+                    for key in ["might", "intellect", "ruin", "persistence"] {
+                        let passive = data::PASSIVES.iter().find(|p| p.key == key).unwrap();
+                        run.passives.push((passive, 1));
+                        run.passive_growth.insert(key, 1.35);
+                    }
+                    for (i, (kind, value)) in [
+                        (EnhKind::Damage, 0.5),
+                        (EnhKind::Cooldown, 0.2),
+                        (EnhKind::Frequency, 0.5),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        run.gear.enh[i] = Some(SkillRoll {
+                            item: i as u64 + 1,
+                            index: 0,
+                            ability: None,
+                            kind,
+                            value,
+                        });
+                    }
+                }
+                let def = &data::BOSSES[ordinal - 1];
+                let hp = def.hp * data::boss_hp_scale(ordinal as f32 * 120.0);
+                let entity = foe(&mut app, 1.0, hp);
+                {
+                    let mut enemy = app.world_mut().get_mut::<Enemy>(entity).unwrap();
+                    enemy.boss = true;
+                    enemy.def = def;
+                }
+                let mut seconds = 0.0;
+                while !app.world().get::<Enemy>(entity).unwrap().dead && seconds < 600.0 {
+                    step(&mut app, 0.1);
+                    seconds += 0.1;
+                }
+                eprintln!("{} boss {ordinal}: {seconds:.1}s, {hp:.0} HP", class.name);
+                assert!(
+                    seconds >= 12.0,
+                    "{} boss {ordinal} dies before its kit",
+                    class.name
+                );
+                assert!(
+                    seconds < 180.0,
+                    "{} boss {ordinal} is a damage sponge",
+                    class.name
+                );
+            }
+        }
+    }
+
+    #[test]
     fn guardian_spells_never_target_hostile_units_or_create_damage_hits() {
         for key in [
             "ice_barrier",

@@ -61,6 +61,7 @@ to serve the page and game assets; the initial build downloads dependencies and 
   with five progressively stronger, regional bosses arriving at 2:00, 4:00, 6:00, 8:00 and 10:00.
   Defeat the fifth to win; its fight may extend beyond ten minutes. Boss skills adapt original-WoW
   themes with visible ground warnings and dodge windows.
+- **Late-run balance:** early choices stay fast; XP costs accelerate after level 10 and high-growth spells gain diminishing, uncapped potency. Bosses have four or five skills, unlock their full rotation at 60% health, and use dodgeable persistent pulses.
 - **Expanded class pools:** 146 classic-themed abilities, exactly twice each class's previous pool; eight active and twelve passive slots, plus F mobility.
 - **Quality-based growth:** active abilities and passives have no fixed level cap. Common through Legendary cards add different growth amounts, so identical levels can have different final values. Cards preview actual changes.
 - **Luck and builds:** eighteen passive types, including luck, additional targets, echoes, duration, range, critical damage, leech and shields. Luck affects equipment drop chance, equipment rarity, and both active and passive card quality.

@@ -2114,11 +2114,11 @@ const fn huge(def: EnemyDef) -> EnemyDef {
 pub(crate) static BOSSES: &[EnemyDef] = &[
     EnemyDef {
         scale: 1.6,
-        ..en("Echeyakee", 1934, 700.0, 5.2, 20.0, 60, 16)
+        ..en("Echeyakee", 1934, 1200.0, 5.2, 20.0, 60, 16)
     },
     EnemyDef {
         scale: 1.6,
-        ..en("Takk the Leaper", 1337, 1800.0, 5.4, 32.0, 120, 19)
+        ..en("Takk the Leaper", 1337, 2400.0, 5.4, 32.0, 120, 19)
     },
     EnemyDef {
         scale: 1.7,
@@ -2126,11 +2126,11 @@ pub(crate) static BOSSES: &[EnemyDef] = &[
     },
     EnemyDef {
         scale: 1.7,
-        ..en("Humar the Pridelord", 4424, 7000.0, 5.6, 55.0, 300, 26)
+        ..en("Humar the Pridelord", 4424, 6500.0, 5.6, 55.0, 300, 26)
     },
     EnemyDef {
         scale: 1.8,
-        ..en("Hezrul Bloodmark", 9448, 20000.0, 4.8, 90.0, 500, 33)
+        ..en("Hezrul Bloodmark", 9448, 9000.0, 4.8, 90.0, 500, 33)
     },
 ];
 
@@ -2167,7 +2167,13 @@ pub(crate) fn target_alive(elapsed: f32) -> usize {
 
 /// Enemy health grows on top of the tiers, so a late kill takes several spells.
 pub(crate) fn hp_scale(elapsed: f32) -> f32 {
-    1.0 + progress(elapsed) * 0.75
+    let p = progress(elapsed);
+    1.0 + p * 0.75 + p * p * 2.25
+}
+
+pub(crate) fn boss_hp_scale(elapsed: f32) -> f32 {
+    let p = progress(elapsed);
+    2.4 + p * 1.6 + p * p
 }
 
 /// Enemy damage grows the same way.
@@ -2175,16 +2181,17 @@ pub(crate) fn damage_scale(elapsed: f32) -> f32 {
     1.0 + progress(elapsed) * 0.9
 }
 
-/// The experience to go from `level` to the next: Vampire Survivors' curve, cheap early.
+/// Keep early build choices cheap; quadratic late costs counter the horde's rising XP output.
 pub(crate) fn xp_to_next(level: u32) -> f32 {
     let l = level as f32;
-    if level < 20 {
+    let base = if level < 20 {
         5.0 + (l - 1.0) * 10.0
     } else if level < 40 {
         195.0 + (l - 20.0) * 13.0
     } else {
         455.0 + (l - 40.0) * 16.0
-    }
+    };
+    base + 16.0 * (l - 10.0).max(0.0).powi(2)
 }
 
 /// A creature on a battleground's roster: who it is, its pace and its size. Its health, damage
@@ -2842,6 +2849,69 @@ mod boss_tests {
     use super::*;
 
     #[test]
+    fn early_choices_are_unchanged_and_late_xp_costs_do_not_flatten() {
+        for level in 1..=10 {
+            assert_eq!(xp_to_next(level), 5.0 + (level - 1) as f32 * 10.0);
+        }
+        assert_eq!(xp_to_next(20), 1795.0);
+        assert_eq!(xp_to_next(40), 14855.0);
+        for level in 2..1000 {
+            assert!(xp_to_next(level) > xp_to_next(level - 1));
+        }
+        assert!(xp_to_next(300) > xp_to_next(255));
+    }
+
+    #[test]
+    fn reference_kill_streams_reduce_late_choice_interruptions() {
+        // A reproducible pacing model, not an assertion that every player's kill rate is fixed.
+        // Early 1.5 kills/s ramps to 4-8 kills/s; all dropped XP is collected, without bonuses.
+        for final_rate in [4.0, 8.0] {
+            let mut level = 1;
+            let mut xp = 0.0;
+            let mut choices = Vec::new();
+            for second in 0..600 {
+                let at = second as f32;
+                let pool = wave_pool(at, ENEMIES.len());
+                let worth = pool.iter().map(|&i| ENEMIES[i].xp as f32).sum::<f32>() / 3.0;
+                let kills = 1.5 + (final_rate - 1.5) * progress(at);
+                xp += worth * kills * XP_RATE;
+                while xp >= xp_to_next(level) {
+                    xp -= xp_to_next(level);
+                    level += 1;
+                    choices.push(second);
+                }
+            }
+            let mut gaps: Vec<_> = choices
+                .windows(2)
+                .filter(|pair| pair[0] >= 420)
+                .map(|pair| pair[1] - pair[0])
+                .collect();
+            gaps.sort_unstable();
+            assert!((20..=30).contains(&gaps[gaps.len() / 2]), "{gaps:?}");
+            assert!((27..=32).contains(&level), "{level}");
+            assert!(gaps.iter().all(|gap| *gap >= 18));
+        }
+    }
+
+    #[test]
+    fn enemy_endurance_rises_without_inflating_contact_damage() {
+        assert_eq!(hp_scale(0.0), 1.0);
+        assert_eq!(hp_scale(600.0), 4.0);
+        assert_eq!(boss_hp_scale(600.0), 5.0);
+        assert_eq!(damage_scale(0.0), 1.0);
+        assert_eq!(damage_scale(600.0), 1.9);
+        let previous_hp = [805.0, 2340.0, 6090.0, 11_200.0, 35_000.0];
+        let expected_hp = [3312.0, 7680.0, 15_624.0, 28_080.0, 45_000.0];
+        for ordinal in 1..=5 {
+            let at = ordinal as f32 * 120.0;
+            let actual = BOSSES[ordinal - 1].hp * boss_hp_scale(at);
+            assert!((actual - expected_hp[ordinal - 1]).abs() < 0.01);
+            assert!(actual > previous_hp[ordinal - 1] * 1.25);
+            assert!(actual < previous_hp[ordinal - 1] * 5.0);
+        }
+    }
+
+    #[test]
     fn five_arrivals_have_exact_two_minute_boundaries_and_never_repeat() {
         assert_eq!(due_bosses(0.0), 0);
         for ordinal in 1..=BOSS_COUNT {
@@ -2854,6 +2924,7 @@ mod boss_tests {
         assert_eq!(BOSS_COUNT as f32 * BOSS_EVERY_SECS, VICTORY_SECS);
         assert_eq!(progress(900.0), 1.0);
         assert_eq!(hp_scale(900.0), hp_scale(600.0));
+        assert_eq!(boss_hp_scale(900.0), boss_hp_scale(600.0));
         assert_eq!(damage_scale(900.0), damage_scale(600.0));
     }
 
@@ -2889,7 +2960,8 @@ mod boss_tests {
                     let previous = &bosses[at - 1];
                     let time = (at + 1) as f32 * BOSS_EVERY_SECS;
                     assert!(
-                        boss.hp * hp_scale(time) > previous.hp * hp_scale(time - BOSS_EVERY_SECS)
+                        boss.hp * boss_hp_scale(time)
+                            > previous.hp * boss_hp_scale(time - BOSS_EVERY_SECS)
                     );
                     assert!(
                         boss.damage * damage_scale(time)

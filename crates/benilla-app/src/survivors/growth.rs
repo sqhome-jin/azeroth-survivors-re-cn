@@ -1,8 +1,14 @@
 //! Card growth is the sum of acquired qualities, never an exponential rank multiplier.
 //! Unbounded potency accompanies bounded utility, so late cards still improve a build.
 
+fn potency(growth: f32) -> f32 {
+    let added = (growth - 1.0).max(0.0);
+    let early = added.min(4.0);
+    early + 2.0 * ((1.0 + (added - early)).sqrt() - 1.0)
+}
+
 pub(super) fn damage(growth: f32) -> f32 {
-    1.0 + 0.3 * (growth - 1.0)
+    1.0 + 0.3 * potency(growth)
 }
 
 pub(super) fn bounded(raw: f32, limit: f32) -> f32 {
@@ -11,7 +17,7 @@ pub(super) fn bounded(raw: f32, limit: f32) -> f32 {
 }
 
 pub(super) fn cooldown_multiplier(growth: f32) -> f32 {
-    0.2 + 0.8 / (1.0 + 0.1 * (growth - 1.0).max(0.0))
+    0.2 + 0.8 / (1.0 + 0.1 * potency(growth))
 }
 
 pub(super) fn radius_multiplier(growth: f32) -> f32 {
@@ -19,7 +25,7 @@ pub(super) fn radius_multiplier(growth: f32) -> f32 {
 }
 
 pub(super) fn duration_multiplier(growth: f32) -> f32 {
-    1.0 + 0.1 * (growth - 1.0).max(0.0)
+    1.0 + bounded((growth - 1.0).max(0.0) * 0.1, 2.0)
 }
 
 pub(super) fn control_multiplier(growth: f32) -> f32 {
@@ -60,6 +66,20 @@ pub(super) fn cast_for_run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn early_power_is_preserved_but_late_multipliers_no_longer_compound_as_fast() {
+        for growth in [1.0, 1.35, 1.8, 2.4, 3.2, 5.0] {
+            assert!((damage(growth) - (1.0 + 0.3 * (growth - 1.0))).abs() < 0.0001);
+        }
+        let growth = 20.0;
+        let old_damage = 1.0 + 0.3 * (growth - 1.0);
+        let old_cooldown = 0.2 + 0.8 / (1.0 + 0.1 * (growth - 1.0));
+        assert!(damage(growth) / cooldown_multiplier(growth) < old_damage / old_cooldown * 0.6);
+        assert!(damage(20.0 + 3.2) - damage(20.0) > damage(21.0) - damage(20.0));
+        assert!(duration_multiplier(10_000.0) < 3.0);
+        assert!(damage(10_000.0) > damage(1000.0));
+    }
 
     #[test]
     fn additive_growth_has_no_old_rank_ceiling() {

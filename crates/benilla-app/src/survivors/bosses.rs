@@ -5,7 +5,8 @@
 //! https://www.icy-veins.com/wow-classic/lord-kazzak-guide-strategy-abilities-loot
 //! (mark/volley). AQ/ZG/Naxx spell names are encounter references; generic beasts, bandits and
 //! quest NPCs use species/region-inspired equivalents, not claims about their original kits.
-//! All warnings (1.6–2.6 s), radii, 1.1–1.9 × scaled enemy damage, and avoidance shapes are ours.
+//! All warnings, radii, damage and avoidance shapes are ours. Repeating hazards hold the
+//! captured ground position and resolve at most one pulse per frame, even after a stall.
 
 use benilla_world::world_point::WorldPoint;
 use bevy::prelude::*;
@@ -22,14 +23,18 @@ pub(super) struct Boss {
     pub ordinal: u8,
     cooldown: f32,
     casts: u32,
+    last_skill: Option<usize>,
+    phase_two: bool,
     pending: Option<Cast>,
 }
 
 pub(super) fn spawn(ordinal: u8) -> Boss {
     Boss {
         ordinal: ordinal.clamp(1, 5),
-        cooldown: 3.0,
+        cooldown: 2.0,
         casts: 0,
+        last_skill: None,
+        phase_two: false,
         pending: None,
     }
 }
@@ -44,6 +49,9 @@ enum Pattern {
     Fork,
     Cross,
     Breath,
+    Wall,
+    Orbit,
+    Spokes,
 }
 
 #[derive(Clone, Copy)]
@@ -56,6 +64,8 @@ struct Skill {
     cooldown: f32,
     damage: f32,
     spell: u32,
+    pulses: u8,
+    interval: f32,
 }
 
 macro_rules! skill {
@@ -70,6 +80,8 @@ macro_rules! skill {
             cooldown: $cooldown,
             damage: $damage,
             spell: $spell,
+            pulses: 1,
+            interval: 0.0,
         }
     };
 }
@@ -229,107 +241,506 @@ const INFECTION: Skill = skill!(
 const LIGHTNING: Skill = skill!("Lightning Wave", "闪电波", Fork, 2.7, 2.1, 8.5, 1.5, 24819);
 const ARCANE: Skill = skill!("Arcane Blast", "奥术冲击", Nova, 8.5, 2.1, 8.5, 1.55, 24857);
 
+const fn pulsing(mut skill: Skill, pulses: u8, interval: f32) -> Skill {
+    skill.pulses = pulses;
+    skill.interval = interval;
+    skill
+}
+
+const BITE: Skill = skill!("Savage Bite", "凶猛撕咬", Breath, 2.4, 1.7, 6.5, 1.3, 17253);
+const RUSH: Skill = skill!(
+    "Stampeding Charge",
+    "奔袭冲锋",
+    Line,
+    2.6,
+    1.9,
+    7.5,
+    1.4,
+    100
+);
+const QUAKE: Skill = pulsing(
+    skill!("Earthquake", "大地震颤", Nova, 8.5, 2.2, 9.0, 0.65, 8042),
+    3,
+    1.4,
+);
+const VENOM_POOL: Skill = pulsing(
+    skill!("Venom Pool", "毒液池", Target, 4.2, 2.0, 8.5, 0.55, 2818),
+    4,
+    1.2,
+);
+const WEB: Skill = skill!("Web Spray", "蛛网喷射", Fork, 2.7, 2.0, 7.8, 1.25, 29484);
+const FIRE_WALL: Skill = skill!("Wall of Flame", "烈焰之墙", Wall, 2.6, 2.2, 8.5, 1.4, 133);
+const METEOR: Skill = skill!("Meteor", "陨石", Target, 6.0, 2.6, 10.0, 1.75, 26558);
+const FIRE_PATCH: Skill = pulsing(
+    skill!(
+        "Burning Ground",
+        "灼烧大地",
+        Triple,
+        3.2,
+        2.1,
+        9.0,
+        0.65,
+        5740
+    ),
+    3,
+    1.4,
+);
+const ICE_SPEARS: Skill = skill!("Ice Spears", "寒冰之矛", Fork, 2.3, 2.0, 7.8, 1.4, 116);
+const BLIZZARD: Skill = pulsing(
+    skill!("Blizzard", "暴风雪", Orbit, 2.8, 2.4, 9.5, 0.65, 10),
+    3,
+    1.4,
+);
+const STATIC: Skill = pulsing(
+    skill!("Static Field", "静电力场", Ring, 10.0, 2.3, 9.0, 0.7, 24819),
+    3,
+    1.5,
+);
+const DECAY: Skill = pulsing(
+    skill!(
+        "Death and Decay",
+        "死亡凋零",
+        Triple,
+        3.8,
+        2.4,
+        9.5,
+        0.7,
+        27810
+    ),
+    3,
+    1.5,
+);
+const SPIKES: Skill = skill!("Bone Spikes", "骸骨尖刺", Spokes, 2.0, 2.4, 9.0, 1.5, 28783);
+const SHADOW_WALL: Skill = skill!("Shadow Wave", "暗影之潮", Wall, 2.6, 2.2, 8.5, 1.4, 686);
+const PLAGUE_CLOUD: Skill = pulsing(
+    skill!("Plague Cloud", "瘟疫之云", Nova, 8.0, 2.3, 9.5, 0.65, 28169),
+    3,
+    1.5,
+);
+const MORTAL: Skill = skill!(
+    "Mortal Strike",
+    "致死打击",
+    Breath,
+    3.0,
+    2.0,
+    7.5,
+    1.5,
+    12294
+);
+const BLADES: Skill = skill!(
+    "Whirling Blades",
+    "飞旋利刃",
+    Orbit,
+    2.4,
+    2.0,
+    8.0,
+    1.3,
+    1680
+);
+const SANDSTORM: Skill = pulsing(
+    skill!("Sandstorm", "沙尘风暴", Orbit, 2.8, 2.3, 9.0, 0.65, 26102),
+    3,
+    1.4,
+);
+const ARCANE_MISSILES: Skill = skill!(
+    "Arcane Missiles",
+    "奥术飞弹",
+    Spokes,
+    2.0,
+    2.2,
+    8.5,
+    1.4,
+    5143
+);
+const SCREECH: Skill = skill!(
+    "Piercing Screech",
+    "刺耳尖啸",
+    Ring,
+    8.0,
+    2.0,
+    7.5,
+    1.25,
+    5484
+);
+
 struct Profile {
     english: &'static str,
     chinese: &'static str,
-    primary: Skill,
-    secondary: Option<Skill>,
+    skills: &'static [Skill],
 }
 
 macro_rules! profiles {
-    ($(($en:literal, $zh:literal, $primary:ident $(, $secondary:ident)?)),* $(,)?) => {
+    ($(($en:literal, $zh:literal, $($skill:ident),+)),* $(,)?) => {
         static PROFILES: &[Profile] = &[$(Profile {
             english: $en,
             chinese: $zh,
-            primary: $primary,
-            secondary: profiles!(@optional $($secondary)?),
+            skills: &[$($skill),+],
         }),*];
     };
-    (@optional $secondary:ident) => { Some($secondary) };
-    (@optional) => { None };
 }
 
 profiles![
-    ("Echeyakee", "埃其亚基", POUNCE),
-    ("Takk the Leaper", "跳跃者塔克", LEAP),
-    ("Lakota'mani", "拉克塔曼尼", STOMP),
-    ("Humar the Pridelord", "狮王休玛", RAKE, POUNCE),
-    ("Hezrul Bloodmark", "赫兹鲁尔·血印", CLEAVE, STOMP),
-    ("Akubar the Seer", "预言者阿库巴尔", SHADOW),
-    ("Lord Azrethoc", "阿兹雷索克领主", HELLFIRE),
-    ("Lord Hel'nurath", "赫尔努拉斯领主", CLEAVE, SHADOW),
-    ("Teremus the Devourer", "吞噬者特雷姆斯", BREATH, BLAST),
-    ("Lord Kazzak", "卡扎克", MARK, VOLLEY),
-    ("Kurinnaxx", "库林纳克斯", SAND),
-    ("General Rajaxx", "拉贾克斯将军", THUNDER, CLEAVE),
-    ("Moam", "莫阿姆", ERUPTION),
-    ("Buru the Gorger", "吞咽者布鲁", PLAGUE, POUNCE),
-    ("Ossirian the Unscarred", "无疤者奥斯里安", CYCLONE, THUNDER),
-    ("Ravasaur Matriarch", "暴掠龙女王", POISON, LEAP),
-    ("Blazerunner", "火焰使者", BLAST),
-    ("Baron Charr", "火焰男爵查尔", FIRE, HELLFIRE),
-    ("Tyrant Devilsaur", "暴龙之王", CLEAVE, STOMP),
-    ("King Mosh", "莫什大王", ROAR, STOMP),
-    ("King Bangalash", "虎王邦加拉什", POUNCE, RAKE),
-    ("Bloodlord Mandokir", "血领主曼多基尔", WHIRL, SHOT),
-    ("High Priest Thekal", "高阶祭司塞卡尔", PUNCH, POUNCE),
-    ("Jin'do the Hexxer", "妖术师金度", HEX, SHADOW),
-    ("Hakkar", "哈卡", BLOOD, SIPHON),
-    ("Mother Fang", "母蜘蛛", POISON),
-    ("Narg the Taskmaster", "工头纳尔格", PUNCH),
-    ("Fedfennel", "费德菲尼尔", SHADOW),
-    ("Gruff Swiftbite", "格拉夫·疾齿", RAKE),
-    ("Hogger", "霍格", STRIKE, CLEAVE),
-    ("Geolord Mottle", "地卜师玛尔特", ERUPTION),
-    ("Razormane Battleguard", "钢鬃战士", CLEAVE),
-    ("Burning Blade Neophyte", "火刃新兵", FIRE),
-    ("Death Flayer", "死亡毒蝎", POISON),
-    ("Burning Blade Cultist", "火刃祭司", HELLFIRE, SHADOW),
-    ("Threggil", "瑟雷基尔", SHADOW),
-    ("Uruson", "乌鲁森", CLEAVE),
-    ("Duskstalker", "暮色巡游者", POUNCE),
-    ("Gnarlpine Augur", "瘤背秘法师", HEX),
-    ("Oakenscowl", "奥肯斯古尔", STOMP, ROAR),
-    ("Edan the Howler", "嚎叫者埃丹", HOWL),
-    ("Timber", "雪爪灰狼", RAKE),
-    ("Great Father Arctikus", "霜鬃长老阿克提卡斯", FROST),
-    ("Vagash", "瓦加什", STOMP),
-    ("Bjarn", "冰爪熊比亚恩", RAKE, FROST),
-    ("Prairie Stalker", "草原捕食者", POUNCE),
-    ("Mazzranache", "马兹拉纳其", LEAP),
-    ("Snagglespear", "断矛", SHOT),
-    ("Swoop", "猛鹫", LEAP),
-    ("Ghost Howl", "幽灵狼", HOWL, FROST),
-    ("Tormented Spirit", "痛苦的灵魂", SHADOW),
-    ("Bayne", "贝恩", RAKE),
-    ("Ressan the Needler", "针刺者雷桑", FORK_BITE),
-    ("Fellicent's Shade", "菲利森特的阴影", HEX),
-    ("Gorefang", "血牙狼", RAKE, HOWL),
-    ("Brainwashed Noble", "被洗脑的贵族", PUNCH),
-    ("Marisa du'Paige", "玛里莎·杜派格", FIRE, FROST),
-    ("Sergeant Brashclaw", "布拉克利中士", SHOT),
-    ("Vultros", "秃鹫", LEAP),
-    ("Klaven Mortwake", "克拉文·摩特维克", SHADOW, POISON),
-    ("Lupos", "鲁伯斯", SHADOW),
-    ("Naraxis", "纳拉克西斯", POISON),
-    ("Nightbane Tainted One", "夜行邪齿狼人", HEX),
-    ("Fenros", "芬罗斯", RAKE),
-    ("Nefaru", "尼法鲁", HOWL, SHADOW),
-    ("Blackrock Hunter", "黑石猎人", SHOT),
-    ("Singe", "辛格", BREATH),
-    ("Tharil'zun", "萨瑞祖恩", CLEAVE),
-    ("Rohh the Silent", "沉默的罗恩", POISON, SHOT),
-    ("Kazon", "卡松", WHIRL, CLEAVE),
-    ("Prince Xavalis", "萨瓦里克王子", SHADOW, HELLFIRE),
-    ("Taerar", "泰拉尔", ARCANE, BREATH),
-    ("Lethon", "莱索恩", VOLLEY, BREATH),
-    ("Emeriss", "艾莫莉丝", INFECTION, BREATH),
-    ("Ysondre", "伊森德雷", LIGHTNING, BREATH),
-    ("Anub'Rekhan", "阿努布雷坎", IMPALE, PLAGUE),
-    ("Grand Widow Faerlina", "黑女巫法琳娜", RAIN, POISON),
-    ("Patchwerk", "帕奇维克", HATEFUL, STOMP),
-    ("Thaddius", "塔迪乌斯", POLARITY, LIGHTNING),
-    ("Kel'Thuzad", "克尔苏加德", FISSURE, FROST_BLAST),
+    ("Echeyakee", "埃其亚基", POUNCE, RAKE, ROAR, BITE),
+    ("Takk the Leaper", "跳跃者塔克", LEAP, BITE, RUSH, SCREECH),
+    ("Lakota'mani", "拉克塔曼尼", STOMP, RUSH, THUNDER, QUAKE),
+    ("Humar the Pridelord", "狮王休玛", RAKE, POUNCE, ROAR, BITE),
+    (
+        "Hezrul Bloodmark",
+        "赫兹鲁尔·血印",
+        CLEAVE,
+        STOMP,
+        SHOT,
+        MORTAL,
+        QUAKE
+    ),
+    (
+        "Akubar the Seer",
+        "预言者阿库巴尔",
+        SHADOW,
+        HEX,
+        FIRE,
+        SHADOW_WALL
+    ),
+    (
+        "Lord Azrethoc",
+        "阿兹雷索克领主",
+        HELLFIRE,
+        SHADOW,
+        CLEAVE,
+        FIRE_PATCH
+    ),
+    (
+        "Lord Hel'nurath",
+        "赫尔努拉斯领主",
+        CLEAVE,
+        SHADOW,
+        RUSH,
+        FIRE_WALL
+    ),
+    (
+        "Teremus the Devourer",
+        "吞噬者特雷姆斯",
+        BREATH,
+        BLAST,
+        RUSH,
+        FIRE_PATCH
+    ),
+    (
+        "Lord Kazzak",
+        "卡扎克",
+        MARK,
+        VOLLEY,
+        CLEAVE,
+        SHADOW_WALL,
+        METEOR
+    ),
+    ("Kurinnaxx", "库林纳克斯", SAND, CLEAVE, IMPALE, SANDSTORM),
+    (
+        "General Rajaxx",
+        "拉贾克斯将军",
+        THUNDER,
+        CLEAVE,
+        RUSH,
+        MORTAL
+    ),
+    ("Moam", "莫阿姆", ERUPTION, SHADOW, ARCANE_MISSILES, STATIC),
+    (
+        "Buru the Gorger",
+        "吞咽者布鲁",
+        PLAGUE,
+        POUNCE,
+        BITE,
+        VENOM_POOL
+    ),
+    (
+        "Ossirian the Unscarred",
+        "无疤者奥斯里安",
+        CYCLONE,
+        THUNDER,
+        STOMP,
+        SANDSTORM,
+        QUAKE
+    ),
+    (
+        "Ravasaur Matriarch",
+        "暴掠龙女王",
+        POISON,
+        LEAP,
+        BITE,
+        VENOM_POOL
+    ),
+    (
+        "Blazerunner",
+        "火焰使者",
+        BLAST,
+        FIRE,
+        FIRE_WALL,
+        FIRE_PATCH
+    ),
+    (
+        "Baron Charr",
+        "火焰男爵查尔",
+        FIRE,
+        HELLFIRE,
+        BREATH,
+        METEOR
+    ),
+    ("Tyrant Devilsaur", "暴龙之王", CLEAVE, STOMP, BITE, RUSH),
+    ("King Mosh", "莫什大王", ROAR, STOMP, BITE, RUSH, QUAKE),
+    ("King Bangalash", "虎王邦加拉什", POUNCE, RAKE, BITE, ROAR),
+    (
+        "Bloodlord Mandokir",
+        "血领主曼多基尔",
+        WHIRL,
+        SHOT,
+        RUSH,
+        MORTAL
+    ),
+    (
+        "High Priest Thekal",
+        "高阶祭司塞卡尔",
+        PUNCH,
+        POUNCE,
+        RAKE,
+        ROAR
+    ),
+    (
+        "Jin'do the Hexxer",
+        "妖术师金度",
+        HEX,
+        SHADOW,
+        SHADOW_WALL,
+        VENOM_POOL
+    ),
+    (
+        "Hakkar",
+        "哈卡",
+        BLOOD,
+        SIPHON,
+        POISON,
+        VENOM_POOL,
+        PLAGUE_CLOUD
+    ),
+    ("Mother Fang", "母蜘蛛", POISON, BITE, WEB, VENOM_POOL),
+    (
+        "Narg the Taskmaster",
+        "工头纳尔格",
+        PUNCH,
+        CLEAVE,
+        RUSH,
+        BLADES
+    ),
+    ("Fedfennel", "费德菲尼尔", SHADOW, HEX, VOLLEY, SHADOW_WALL),
+    ("Gruff Swiftbite", "格拉夫·疾齿", RAKE, BITE, RUSH, ROAR),
+    ("Hogger", "霍格", STRIKE, CLEAVE, RUSH, WHIRL, MORTAL),
+    (
+        "Geolord Mottle",
+        "地卜师玛尔特",
+        ERUPTION,
+        SHADOW,
+        SAND,
+        QUAKE
+    ),
+    (
+        "Razormane Battleguard",
+        "钢鬃战士",
+        CLEAVE,
+        PUNCH,
+        RUSH,
+        MORTAL
+    ),
+    (
+        "Burning Blade Neophyte",
+        "火刃新兵",
+        FIRE,
+        SHADOW,
+        BLAST,
+        FIRE_PATCH
+    ),
+    ("Death Flayer", "死亡毒蝎", POISON, BITE, IMPALE, VENOM_POOL),
+    (
+        "Burning Blade Cultist",
+        "火刃祭司",
+        HELLFIRE,
+        SHADOW,
+        FIRE,
+        FIRE_WALL,
+        METEOR
+    ),
+    ("Threggil", "瑟雷基尔", SHADOW, HEX, POISON, SHADOW_WALL),
+    ("Uruson", "乌鲁森", CLEAVE, PUNCH, RUSH, MORTAL),
+    ("Duskstalker", "暮色巡游者", POUNCE, BITE, RAKE, ROAR),
+    (
+        "Gnarlpine Augur",
+        "瘤背秘法师",
+        HEX,
+        SHADOW,
+        LIGHTNING,
+        STATIC
+    ),
+    ("Oakenscowl", "奥肯斯古尔", STOMP, ROAR, PUNCH, RUSH, QUAKE),
+    ("Edan the Howler", "嚎叫者埃丹", HOWL, BITE, POUNCE, ROAR),
+    ("Timber", "雪爪灰狼", RAKE, BITE, RUSH, HOWL),
+    (
+        "Great Father Arctikus",
+        "霜鬃长老阿克提卡斯",
+        FROST,
+        PUNCH,
+        ICE_SPEARS,
+        BLIZZARD
+    ),
+    ("Vagash", "瓦加什", STOMP, BITE, RUSH, QUAKE),
+    ("Bjarn", "冰爪熊比亚恩", RAKE, FROST, BITE, ROAR, QUAKE),
+    ("Prairie Stalker", "草原捕食者", POUNCE, BITE, RAKE, ROAR),
+    ("Mazzranache", "马兹拉纳其", LEAP, BITE, RUSH, SCREECH),
+    ("Snagglespear", "断矛", SHOT, PUNCH, RUSH, BLADES),
+    ("Swoop", "猛鹫", LEAP, RAKE, FORK_BITE, SCREECH),
+    ("Ghost Howl", "幽灵狼", HOWL, FROST, BITE, RUSH, ICE_SPEARS),
+    (
+        "Tormented Spirit",
+        "痛苦的灵魂",
+        SHADOW,
+        HOWL,
+        HEX,
+        SHADOW_WALL
+    ),
+    ("Bayne", "贝恩", RAKE, BITE, RUSH, HOWL),
+    (
+        "Ressan the Needler",
+        "针刺者雷桑",
+        FORK_BITE,
+        LEAP,
+        POISON,
+        SCREECH
+    ),
+    (
+        "Fellicent's Shade",
+        "菲利森特的阴影",
+        HEX,
+        SHADOW,
+        FROST,
+        SHADOW_WALL
+    ),
+    ("Gorefang", "血牙狼", RAKE, HOWL, BITE, RUSH, POUNCE),
+    (
+        "Brainwashed Noble",
+        "被洗脑的贵族",
+        PUNCH,
+        SHOT,
+        CLEAVE,
+        BLADES
+    ),
+    (
+        "Marisa du'Paige",
+        "玛里莎·杜派格",
+        FIRE,
+        FROST,
+        ARCANE_MISSILES,
+        BLIZZARD
+    ),
+    (
+        "Sergeant Brashclaw",
+        "布拉克利中士",
+        SHOT,
+        CLEAVE,
+        RUSH,
+        BLADES
+    ),
+    ("Vultros", "秃鹫", LEAP, RAKE, FORK_BITE, SCREECH),
+    (
+        "Klaven Mortwake",
+        "克拉文·摩特维克",
+        SHADOW,
+        POISON,
+        CLEAVE,
+        BLADES,
+        VENOM_POOL
+    ),
+    ("Lupos", "鲁伯斯", SHADOW, BITE, RUSH, HOWL),
+    ("Naraxis", "纳拉克西斯", POISON, BITE, WEB, VENOM_POOL),
+    (
+        "Nightbane Tainted One",
+        "夜行邪齿狼人",
+        HEX,
+        SHADOW,
+        RAKE,
+        SHADOW_WALL
+    ),
+    ("Fenros", "芬罗斯", RAKE, BITE, POUNCE, ROAR),
+    ("Nefaru", "尼法鲁", HOWL, SHADOW, BITE, RUSH, SHADOW_WALL),
+    ("Blackrock Hunter", "黑石猎人", SHOT, POISON, CLEAVE, BLADES),
+    ("Singe", "辛格", BREATH, BLAST, RUSH, FIRE_PATCH),
+    ("Tharil'zun", "萨瑞祖恩", CLEAVE, PUNCH, RUSH, MORTAL),
+    (
+        "Rohh the Silent",
+        "沉默的罗恩",
+        POISON,
+        SHOT,
+        BLADES,
+        VENOM_POOL
+    ),
+    ("Kazon", "卡松", WHIRL, CLEAVE, RUSH, BLADES, MORTAL),
+    (
+        "Prince Xavalis",
+        "萨瓦里克王子",
+        SHADOW,
+        HELLFIRE,
+        FIRE_WALL,
+        METEOR
+    ),
+    (
+        "Taerar",
+        "泰拉尔",
+        ARCANE,
+        BREATH,
+        ARCANE_MISSILES,
+        SHADOW_WALL
+    ),
+    ("Lethon", "莱索恩", VOLLEY, BREATH, SHADOW_WALL, DECAY),
+    (
+        "Emeriss",
+        "艾莫莉丝",
+        INFECTION,
+        BREATH,
+        POISON,
+        PLAGUE_CLOUD
+    ),
+    (
+        "Ysondre",
+        "伊森德雷",
+        LIGHTNING,
+        BREATH,
+        CYCLONE,
+        STATIC,
+        ARCANE_MISSILES
+    ),
+    ("Anub'Rekhan", "阿努布雷坎", IMPALE, PLAGUE, WEB, SPIKES),
+    (
+        "Grand Widow Faerlina",
+        "黑女巫法琳娜",
+        RAIN,
+        POISON,
+        WEB,
+        FIRE_PATCH
+    ),
+    (
+        "Patchwerk",
+        "帕奇维克",
+        HATEFUL,
+        STOMP,
+        MORTAL,
+        PLAGUE_CLOUD
+    ),
+    ("Thaddius", "塔迪乌斯", POLARITY, LIGHTNING, PUNCH, STATIC),
+    (
+        "Kel'Thuzad",
+        "克尔苏加德",
+        FISSURE,
+        FROST_BLAST,
+        VOLLEY,
+        BLIZZARD,
+        DECAY
+    ),
 ];
 
 const FORK_BITE: Skill = skill!("Needle Dive", "针刺俯冲", Fork, 2.0, 1.7, 7.2, 1.2, 17253);
@@ -360,6 +771,7 @@ impl Zone {
 struct Cast {
     skill: Skill,
     remaining: f32,
+    pulses_left: u8,
     zones: Vec<Zone>,
     warnings: Vec<Entity>,
 }
@@ -369,7 +781,11 @@ pub(super) fn cast_status(boss: &Boss) -> Option<(&'static str, f32, f32)> {
         (
             text(cast.skill.english, cast.skill.chinese),
             cast.remaining,
-            cast.skill.warning,
+            if cast.pulses_left == cast.skill.pulses {
+                cast.skill.warning
+            } else {
+                cast.skill.interval
+            },
         )
     })
 }
@@ -428,13 +844,52 @@ fn zones(skill: Skill, caster: Vec3, target: Vec3) -> Vec<Zone> {
                 )
             })
             .collect(),
+        Pattern::Wall => (-3..=3)
+            .map(|i| zone(target + side * i as f32 * 3.5, skill.radius))
+            .collect(),
+        Pattern::Orbit => std::iter::once(zone(target, skill.radius))
+            .chain((0..6).map(|i| {
+                let angle = i as f32 * std::f32::consts::TAU / 6.0;
+                zone(
+                    target + Vec3::new(angle.cos(), 0.0, angle.sin()) * 8.0,
+                    skill.radius,
+                )
+            }))
+            .collect(),
+        Pattern::Spokes => (0..8)
+            .flat_map(|i| {
+                let angle = i as f32 * std::f32::consts::TAU / 8.0;
+                let dir = Vec3::new(angle.cos(), 0.0, angle.sin());
+                [4.5, 9.0]
+                    .into_iter()
+                    .map(move |distance| zone(target + dir * distance, skill.radius))
+            })
+            .collect(),
     }
 }
 
 fn cadence(skill: Skill, ordinal: u8, enraged: bool) -> f32 {
-    (skill.cooldown * (1.0 - 0.045 * ordinal.saturating_sub(1) as f32)
+    (skill.cooldown * 0.85 * (1.0 - 0.045 * ordinal.saturating_sub(1) as f32)
         / if enraged { 1.15 } else { 1.0 })
-    .max(4.5)
+    .max(3.8)
+}
+
+fn next_skill(boss: &mut Boss, profile: &Profile, hp_fraction: f32) -> Skill {
+    let entering_phase = hp_fraction <= 0.6 && !boss.phase_two;
+    boss.phase_two |= entering_phase;
+    let available = if boss.phase_two {
+        profile.skills.len()
+    } else {
+        3
+    };
+    let index = if entering_phase {
+        3
+    } else {
+        boss.last_skill.map_or(0, |i| (i + 1) % available)
+    };
+    boss.last_skill = Some(index);
+    boss.casts = boss.casts.wrapping_add(1);
+    profile.skills[index]
 }
 
 fn clear(commands: &mut Commands, boss: &mut Boss) {
@@ -483,7 +938,8 @@ pub(super) fn cast_skills(
             clear(&mut commands, &mut boss);
             continue;
         }
-        if enemy.stun_t > 0.0 || enemy.root_t > 0.0 || enemy.fear_t > 0.0 {
+        // Roots stop movement, not spellcasting; stuns can still cancel a telegraphed attack.
+        if enemy.stun_t > 0.0 || enemy.fear_t > 0.0 {
             clear(&mut commands, &mut boss);
             boss.cooldown = boss.cooldown.max(1.0);
             continue;
@@ -516,7 +972,12 @@ pub(super) fn cast_skills(
                     fx.number(hero_e, damage, false, COLOR_HURT);
                 }
             }
-            clear(&mut commands, &mut boss);
+            cast.pulses_left -= 1;
+            if cast.pulses_left > 0 {
+                cast.remaining = cast.skill.interval;
+            } else {
+                clear(&mut commands, &mut boss);
+            }
             continue;
         }
         boss.cooldown = (boss.cooldown - dt).max(0.0);
@@ -526,12 +987,7 @@ pub(super) fn cast_skills(
         let Some(profile) = profile(enemy.def.name) else {
             continue;
         };
-        let skill = if boss.casts % 2 == 1 {
-            profile.secondary.unwrap_or(profile.primary)
-        } else {
-            profile.primary
-        };
-        boss.casts = boss.casts.wrapping_add(1);
+        let skill = next_skill(&mut boss, profile, enemy.hp / enemy.max_hp);
         boss.cooldown = cadence(skill, boss.ordinal, enraged);
         let mut zones = zones(skill, transform.translation, hero_tf.translation);
         let ring = art
@@ -594,27 +1050,36 @@ pub(super) fn cast_skills(
             }
         }
         let attack = text(skill.english, skill.chinese);
-        run.banner = Some((
-            if super::localization::is_zh_cn() {
-                format!(
-                    "{} · {}：{:.1}秒后命中红圈！",
-                    name(enemy.def),
-                    attack,
-                    skill.warning
-                )
+        let mut warning = if super::localization::is_zh_cn() {
+            format!(
+                "{} · {}：{:.1}秒后命中红圈！",
+                name(enemy.def),
+                attack,
+                skill.warning
+            )
+        } else {
+            format!(
+                "{} · {}: leave red marks ({:.1}s)!",
+                name(enemy.def),
+                attack,
+                skill.warning
+            )
+        };
+        if skill.pulses > 1 {
+            warning.push_str(&if super::localization::is_zh_cn() {
+                format!(" 共{}次，每{:.1}秒一次。", skill.pulses, skill.interval)
             } else {
-                format!(
-                    "{} · {}: leave red marks ({:.1}s)!",
-                    name(enemy.def),
-                    attack,
-                    skill.warning
-                )
-            },
-            skill.warning,
+                format!(" {} pulses, {:.1}s apart.", skill.pulses, skill.interval)
+            });
+        }
+        run.banner = Some((
+            warning,
+            skill.warning + skill.interval * f32::from(skill.pulses - 1),
         ));
         boss.pending = Some(Cast {
             skill,
             remaining: skill.warning,
+            pulses_left: skill.pulses,
             zones,
             warnings: entities,
         });
@@ -737,7 +1202,7 @@ mod tests {
 
     #[test]
     fn ecs_interrupts_terminal_states_and_removed_casters_cancel_hazards() {
-        for scenario in 0..9 {
+        for scenario in 0..8 {
             let (mut app, _, boss) = encounter();
             step(&mut app, 0.1);
             assert_eq!(warning_count(&mut app), 2);
@@ -750,8 +1215,7 @@ mod tests {
                 5 => {
                     app.world_mut().despawn(boss);
                 }
-                6 => app.world_mut().get_mut::<Enemy>(boss).unwrap().root_t = 3.0,
-                7 => app.world_mut().get_mut::<Enemy>(boss).unwrap().fear_t = 3.0,
+                6 => app.world_mut().get_mut::<Enemy>(boss).unwrap().fear_t = 3.0,
                 _ => app.world_mut().get_mut::<Enemy>(boss).unwrap().hp = 0.0,
             }
             let before = app.world().resource::<Run>().hp;
@@ -819,21 +1283,134 @@ mod tests {
     }
 
     #[test]
+    fn roots_do_not_silence_bosses_and_pulses_remain_dodgeable() {
+        let (mut app, hero, entity) = encounter();
+        {
+            let mut boss = app.world_mut().get_mut::<Boss>(entity).unwrap();
+            boss.phase_two = true;
+            boss.last_skill = Some(3);
+        }
+        app.world_mut().get_mut::<Enemy>(entity).unwrap().root_t = 10.0;
+        step(&mut app, 0.1);
+        let count = warning_count(&mut app);
+        assert_eq!(count, 6);
+        assert_eq!(
+            cast_status(app.world().get::<Boss>(entity).unwrap())
+                .unwrap()
+                .2,
+            DECAY.warning
+        );
+        let before = app.world().resource::<Run>().hp;
+        let mut expected = Run::default();
+        let hit = hero::hurt_by_spell(&mut expected, 40.0 * DECAY.damage * 0.5);
+        step(&mut app, 0.0);
+        assert_eq!(app.world().resource::<Run>().hp, before);
+        // A stall cannot deliver several pulses together, including overlapping zones.
+        {
+            let mut boss = app.world_mut().get_mut::<Boss>(entity).unwrap();
+            let cast = boss.pending.as_mut().unwrap();
+            cast.zones.push(cast.zones[1]);
+        }
+        step(&mut app, 10.0);
+        assert!((app.world().resource::<Run>().hp - (before - hit)).abs() < 0.001);
+        assert_eq!(warning_count(&mut app), count);
+        assert_eq!(
+            cast_status(app.world().get::<Boss>(entity).unwrap())
+                .unwrap()
+                .2,
+            DECAY.interval
+        );
+        app.world_mut()
+            .get_mut::<Transform>(hero)
+            .unwrap()
+            .translation
+            .z = 40.0;
+        for _ in 1..DECAY.pulses {
+            step(&mut app, DECAY.interval);
+            assert!((app.world().resource::<Run>().hp - (before - hit)).abs() < 0.001);
+        }
+        assert_eq!(warning_count(&mut app), 0);
+        assert!(app.world().get::<Boss>(entity).unwrap().pending.is_none());
+    }
+
+    #[test]
+    fn active_pulses_are_cancelled_on_stun_death_or_despawn() {
+        for scenario in 0..3 {
+            let (mut app, _, entity) = encounter();
+            {
+                let mut boss = app.world_mut().get_mut::<Boss>(entity).unwrap();
+                boss.phase_two = true;
+                boss.last_skill = Some(3);
+            }
+            step(&mut app, 0.1);
+            step(&mut app, DECAY.warning);
+            assert!(warning_count(&mut app) > 0);
+            let hp = app.world().resource::<Run>().hp;
+            match scenario {
+                0 => app.world_mut().get_mut::<Enemy>(entity).unwrap().stun_t = 2.0,
+                1 => app.world_mut().get_mut::<Enemy>(entity).unwrap().dead = true,
+                _ => {
+                    app.world_mut().despawn(entity);
+                }
+            }
+            step(&mut app, 10.0);
+            assert_eq!(app.world().resource::<Run>().hp, hp);
+            assert_eq!(warning_count(&mut app), 0);
+        }
+    }
+
+    #[test]
+    fn each_boss_cycles_three_skills_then_unlocks_its_full_kit() {
+        for profile in PROFILES {
+            let mut boss = spawn(5);
+            for i in 0..6 {
+                assert_eq!(
+                    next_skill(&mut boss, profile, 1.0).english,
+                    profile.skills[i % 3].english
+                );
+            }
+            assert_eq!(
+                next_skill(&mut boss, profile, 0.6).english,
+                profile.skills[3].english
+            );
+            let mut seen = vec![profile.skills[3].english];
+            for _ in 1..profile.skills.len() {
+                let skill = next_skill(&mut boss, profile, 0.3);
+                assert!(!seen.contains(&skill.english), "{}", profile.english);
+                seen.push(skill.english);
+            }
+            assert_eq!(seen.len(), profile.skills.len());
+        }
+    }
+
+    #[test]
     fn every_regional_boss_has_an_explicit_profile() {
         assert_eq!(PROFILES.len(), 80);
         for (i, profile) in PROFILES.iter().enumerate() {
             assert!(!profile.chinese.is_empty());
             assert!(!PROFILES[..i].iter().any(|p| p.english == profile.english));
-            assert!(profile.primary.warning >= 1.6);
+            assert!((4..=5).contains(&profile.skills.len()));
+            for (i, skill) in profile.skills.iter().enumerate() {
+                assert!(!profile.skills[..i]
+                    .iter()
+                    .any(|s| s.english == skill.english));
+                assert!(skill.warning >= 1.6);
+                assert!((1..=4).contains(&skill.pulses));
+                assert!(skill.pulses == 1 || skill.interval >= 1.2);
+            }
         }
         for map in 0..super::super::data::MAPS.len() {
             let roster = super::super::data::roster(map);
             assert_eq!(roster.bosses.len(), 5);
-            for boss in &roster.bosses {
+            for (i, boss) in roster.bosses.iter().enumerate() {
                 assert!(
                     profile(boss.name).is_some(),
                     "unprofiled boss: {}",
                     boss.name
+                );
+                assert_eq!(
+                    profile(boss.name).unwrap().skills.len(),
+                    if i == 4 { 5 } else { 4 }
                 );
             }
         }
@@ -855,18 +1432,22 @@ mod tests {
     #[test]
     fn all_patterns_are_bounded_and_have_dodge_space() {
         let mut patterns = Vec::new();
+        let mut skills = std::collections::BTreeSet::new();
         for p in PROFILES {
-            for skill in std::iter::once(p.primary).chain(p.secondary) {
+            for &skill in p.skills {
+                skills.insert(skill.english);
                 if !patterns.contains(&skill.pattern) {
                     patterns.push(skill.pattern);
                 }
                 let zones = zones(skill, Vec3::ZERO, Vec3::X * 10.0);
                 assert!(!zones.is_empty() && zones.len() <= 16);
                 assert!(zones.iter().all(|z| !z.contains(Vec3::Z * 40.0)));
-                assert!(cadence(skill, 5, true) >= 4.5);
+                assert!(cadence(skill, 5, true) >= 3.8);
+                assert!(cadence(skill, 5, true) <= cadence(skill, 1, false));
             }
         }
-        assert_eq!(patterns.len(), 8);
+        assert_eq!(patterns.len(), 11);
+        assert_eq!(skills.len(), 58);
         assert_eq!(spawn(0).ordinal, 1);
         assert_eq!(spawn(9).ordinal, 5);
     }
