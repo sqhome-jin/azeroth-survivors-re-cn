@@ -472,7 +472,8 @@ pub(super) fn move_enemies(
             if taken > 0.0 {
                 fx.number(hero_e, taken, false, COLOR_HURT);
             }
-            if run.thorns_t > 0.0 {
+            if run.thorns_t > 0.0 && run.elapsed >= run.thorns_ready {
+                run.thorns_ready = run.elapsed + run.thorns_every;
                 let mut hit = Hit::direct(ent, super::class_mechanics::thorns_damage(&run), false);
                 hit.source = run.thorns_source;
                 hit.source.batch = run.guid();

@@ -256,7 +256,10 @@ pub(super) fn cast_abilities(
         return;
     }
     spell_expansion::observe(&mut run);
-    if run.immune_t > 0.0 {
+    for owned in &mut run.abilities {
+        owned.cd = (owned.cd - dt).max(0.0);
+    }
+    if run.ice_blocked() {
         return;
     }
     let Ok((me, htf)) = hero.single() else { return };
@@ -313,7 +316,6 @@ pub(super) fn cast_abilities(
     };
 
     for i in 0..run.abilities.len() {
-        run.abilities[i].cd -= dt;
         if run.abilities[i].cd > 0.0 {
             continue;
         }
@@ -333,6 +335,7 @@ pub(super) fn cast_abilities(
             .copied()
             .filter(|f| match def.key {
                 "execute" | "drain_soul" => f.hp_fraction <= 0.3,
+                "hammer_of_wrath" => f.hp_fraction <= 0.2,
                 "shield_bash" | "curse_of_tongues" => f.caster,
                 "ambush" => f.hp_fraction >= 0.9,
                 _ => true,
@@ -580,24 +583,14 @@ pub(super) fn cast_abilities(
                         true
                     }
                 }
-                Kind::Orbit => {
-                    let targets = nearest(foes, p.radius, p.count);
-                    if targets.is_empty() {
-                        false
-                    } else {
-                        for f in &targets {
-                            fx.impact(f.e, 403);
-                            let (dmg, crit) = roll_for_target(&mut rng, &stats, p.dmg, f);
-                            hits.write(hit_for(def, &p, f.e, dmg, crit));
-                        }
-                        true
-                    }
-                }
+                Kind::Buff => false,
                 Kind::Shield => {
-                    let threshold = if def.key == "last_stand" { 0.65 } else { 0.85 };
-                    if run.hp < stats.max_hp * threshold
-                        && (run.shield_t <= 0.0 || run.shield <= 0.0)
-                    {
+                    let ready = if def.key == "last_stand" {
+                        run.hp < stats.max_hp * 0.65
+                    } else {
+                        foes.first().is_some_and(|f| f.dist <= 30.0)
+                    };
+                    if ready && (run.shield_t <= 0.0 || run.shield <= 0.0) {
                         run.shield = p.dmg;
                         run.shield_t = p.duration;
                         run.shield_source = Some(def.key);
@@ -612,6 +605,7 @@ pub(super) fn cast_abilities(
                         && (def.key != "ice_block" || run.hp < stats.max_hp * 0.65)
                     {
                         run.immune_t = p.duration;
+                        run.immune_spell = def.spell;
                         let existing_shield = run.shield;
                         run.shield += owned_growth;
                         if run.shield > existing_shield {
@@ -629,6 +623,12 @@ pub(super) fn cast_abilities(
                         run.thorns = p.dmg;
                         run.thorns_t = p.duration;
                         run.thorns_spell = def.spell;
+                        run.thorns_every = if def.key == "lightning_shield" {
+                            p.source.modifiers.interval(0.9)
+                        } else {
+                            0.0
+                        };
+                        run.thorns_ready = run.elapsed;
                         run.thorns_source = source;
                         fx.cast(me, def.spell, &[me], None);
                         true
@@ -649,6 +649,7 @@ pub(super) fn cast_abilities(
                             run.hp = (run.hp + immediate).min(stats.max_hp);
                             run.heal_rate = (p.dmg - immediate) / p.duration.max(1.0);
                             run.heal_t = p.duration;
+                            run.heal_spell = def.spell;
                         }
                         fx.cast(me, def.spell, &[me], None);
                         fx.number(me, p.dmg, false, COLOR_HEAL);
@@ -713,15 +714,7 @@ pub(super) fn cast_abilities(
         };
         if fired {
             class_mechanics::on_cast(&mut run, def.key, source.batch);
-            spell_expansion::on_cast(
-                &mut run,
-                def.key,
-                p.dmg > 0.0
-                    && matches!(
-                        def.kind,
-                        Kind::Bolt | Kind::Strike | Kind::Nova | Kind::Cone | Kind::Chain
-                    ),
-            );
+            spell_expansion::on_cast(&mut run, def.key, spell_expansion::direct_spell(def));
         }
         run.abilities[i].cd = if fired { p.cooldown } else { 0.2 };
     }
@@ -931,6 +924,39 @@ pub(super) fn apply_hits(
     // Splash never hits its original target a second time.
     let mut all = Vec::with_capacity(due.len());
     for h in due {
+        if h.damage > 0.0
+            && enemies
+                .get(h.target)
+                .is_ok_and(|(_, _, _, en, ..)| !en.dead)
+        {
+            if let Some((key, radius)) = spell_expansion::cleave(&mut run, h.source) {
+                let center = enemies.get(h.target).unwrap().2.translation;
+                let neighbor = enemies
+                    .iter()
+                    .filter(|(e, _, tf, en, ..)| {
+                        *e != h.target
+                            && !en.dead
+                            && flat(tf.translation - center).length() <= radius
+                    })
+                    .min_by(|a, b| {
+                        flat(a.2.translation - center)
+                            .length_squared()
+                            .total_cmp(&flat(b.2.translation - center).length_squared())
+                    })
+                    .map(|(e, ..)| e);
+                if let Some(target) = neighbor {
+                    all.push(Hit {
+                        source: Source {
+                            ability: Some(key),
+                            secondary: true,
+                            ..h.source
+                        },
+                        color: h.color,
+                        ..Hit::direct(target, h.damage, h.crit)
+                    });
+                }
+            }
+        }
         if h.splash > 0.0 {
             if let Ok((_, _, center, ..)) = enemies.get(h.target) {
                 let c = center.translation;
@@ -1022,6 +1048,7 @@ pub(super) fn apply_hits(
                 }
             }
             skill_effects::damage_effects(&mut run, h.source, effective, &mut rng);
+            spell_expansion::on_damage(&mut run, h.source, critical);
             if let Some(extra) =
                 spell_expansion::on_hit(&mut run, h.source, e, &mut en, effective, 0.0, &mut rng)
             {
@@ -1051,17 +1078,28 @@ pub(super) fn apply_hits(
             }
         }
         if h.dot > 0.0 && h.dot_dur > 0.0 {
-            if en.dots.len() >= 6 {
-                en.dots.remove(0);
-            }
-            en.dots.push(enemies::Dot {
+            let dot = enemies::Dot {
                 dps: h.dot,
                 left: f64::from(h.dot_dur),
                 tick: f64::from(h.interval),
                 every: f64::from(h.interval),
                 extension_left: f64::from(h.dot_dur) * 0.5,
                 source: h.source,
-            });
+            };
+            if let Some(existing) = en.dots.iter_mut().find(|dot| {
+                h.source.ability.is_some()
+                    && dot.source.ability == h.source.ability
+                    && dot.source.secondary == h.source.secondary
+            }) {
+                let tick = existing.tick;
+                *existing = dot;
+                existing.tick = tick;
+            } else {
+                if en.dots.len() >= 6 {
+                    en.dots.remove(0);
+                }
+                en.dots.push(dot);
+            }
         }
         let boss = en.boss;
         match h.effect {
@@ -1509,10 +1547,171 @@ mod tests {
     }
 
     #[test]
+    fn derived_talent_damage_does_not_require_a_learnable_spell_definition() {
+        let mut app = app();
+        app.add_systems(Update, apply_hits);
+        let enemy = foe(&mut app, 1.0, 1000.0);
+        for key in ["ignite", "warrior_bleed"] {
+            app.world_mut().write_message(Hit {
+                source: Source {
+                    ability: Some(key),
+                    secondary: true,
+                    periodic: true,
+                    ..default()
+                },
+                ..Hit::direct(enemy, 10.0, false)
+            });
+        }
+        step(&mut app, 0.1);
+        assert_eq!(app.world().get::<Enemy>(enemy).unwrap().hp, 980.0);
+    }
+
+    #[test]
+    fn weapon_cleave_buffs_require_weapon_hits_and_do_not_recurse() {
+        for key in ["sweeping_strikes", "blade_flurry"] {
+            let mut app = caster_app(key);
+            let first = foe(&mut app, 1.0, 1000.0);
+            let second = foe(&mut app, 2.0, 1000.0);
+            step(&mut app, 0.1);
+            assert_eq!(app.world().get::<Enemy>(first).unwrap().hp, 1000.0, "{key}");
+            assert_eq!(
+                app.world().get::<Enemy>(second).unwrap().hp,
+                1000.0,
+                "{key}"
+            );
+            step(&mut app, 0.1);
+            assert_eq!(app.world().get::<Enemy>(first).unwrap().hp, 992.0, "{key}");
+            assert_eq!(app.world().get::<Enemy>(second).unwrap().hp, 992.0, "{key}");
+            damage(&mut app, first, "frostbolt", 10.0, false);
+            assert_eq!(app.world().get::<Enemy>(second).unwrap().hp, 992.0, "{key}");
+            assert!(app.world().resource::<PendingHits>().0.is_empty(), "{key}");
+        }
+    }
+
+    #[test]
+    fn refreshing_the_same_dot_keeps_one_effect_and_its_next_tick() {
+        let mut app = app();
+        app.add_systems(Update, apply_hits);
+        let enemy = foe(&mut app, 1.0, 1000.0);
+        for batch in 1..=3 {
+            app.world_mut().write_message(Hit {
+                dot: batch as f32 * 4.0,
+                dot_dur: 6.0,
+                interval: 1.0,
+                source: Source {
+                    ability: Some("corruption"),
+                    batch,
+                    ..default()
+                },
+                ..Hit::direct(enemy, 0.0, false)
+            });
+            step(&mut app, 0.0);
+            let mut en = app.world_mut().get_mut::<Enemy>(enemy).unwrap();
+            assert_eq!(en.dots.len(), 1);
+            assert_eq!(en.dots[0].dps, batch as f32 * 4.0);
+            if batch == 1 {
+                en.dots[0].tick = 0.25;
+            } else {
+                assert_eq!(en.dots[0].tick, 0.25);
+            }
+        }
+    }
+
+    #[test]
+    fn every_learnable_skill_can_reach_its_real_cast_and_cooldown() {
+        for def in data::ABILITIES {
+            let mut app = caster_app(def.key);
+            let entity = foe(&mut app, 1.0, 100000.0);
+            {
+                let mut enemy = app.world_mut().get_mut::<Enemy>(entity).unwrap();
+                enemy.def = data::ENEMIES
+                    .iter()
+                    .find(|def| def.name.contains("Mystic"))
+                    .unwrap();
+                if matches!(def.key, "execute" | "drain_soul" | "hammer_of_wrath") {
+                    enemy.hp *= 0.2;
+                }
+            }
+            {
+                let mut run = app.world_mut().resource_mut::<Run>();
+                spell_expansion::observe(&mut run);
+                run.hp = 20.0;
+                if def.key == "cold_snap" {
+                    run.abilities.push(Owned {
+                        def: data::ability("frostbolt"),
+                        level: 1,
+                        growth: 1.0,
+                        cd: 10.0,
+                    });
+                }
+            }
+            step(&mut app, 0.1);
+            let run = app.world().resource::<Run>();
+            assert!(
+                run.abilities[0].cd > 0.2,
+                "{} never starts its cooldown",
+                def.key
+            );
+            let casts: Vec<_> = app
+                .world_mut()
+                .resource_mut::<Messages<SpellGoTargets>>()
+                .drain()
+                .collect();
+            let swung = !app.world().resource::<Messages<SwingMessage>>().is_empty();
+            let pulsed =
+                def.kind == Kind::Aura && app.world().get::<Enemy>(entity).unwrap().hp < 100000.0;
+            assert!(
+                casts.iter().any(|go| go.spell_id == def.spell)
+                    || (def.kind == Kind::Melee && swung)
+                    || pulsed,
+                "{} never casts",
+                def.key
+            );
+        }
+    }
+
+    #[test]
+    fn immunity_only_stops_casting_for_ice_block_and_does_not_freeze_cooldowns() {
+        for (spell, blocked) in [(11958, true), (642, false)] {
+            let mut app = caster_app("frostbolt");
+            let enemy = foe(&mut app, 1.0, 1000.0);
+            {
+                let mut run = app.world_mut().resource_mut::<Run>();
+                run.immune_t = 3.0;
+                run.immune_spell = spell;
+                run.abilities[0].cd = 0.05;
+            }
+            step(&mut app, 0.1);
+            assert_eq!(
+                app.world().get::<Enemy>(enemy).unwrap().hp == 1000.0,
+                blocked
+            );
+            if blocked {
+                assert_eq!(app.world().resource::<Run>().abilities[0].cd, 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn protective_shields_cast_before_health_is_lost() {
+        for key in ["ice_barrier", "mana_shield", "power_word_shield"] {
+            let mut app = caster_app(key);
+            foe(&mut app, 4.0, 1000.0);
+            {
+                let mut run = app.world_mut().resource_mut::<Run>();
+                run.hp = run.stats().max_hp;
+            }
+            step(&mut app, 0.1);
+            let run = app.world().resource::<Run>();
+            assert!(run.shield > 0.0 && run.shield_t > 0.0, "{key}");
+            assert_eq!(run.shield_source, Some(key));
+            assert!(run.abilities[0].cd > 0.2, "{key}");
+        }
+    }
+
+    #[test]
     fn defensive_health_thresholds_gate_real_cast_events_and_effects() {
         for key in [
-            "ice_barrier",
-            "mana_shield",
             "last_stand",
             "flash_heal",
             "healing_touch",
@@ -1563,6 +1762,7 @@ mod tests {
     #[test]
     fn expired_absorb_does_not_block_an_automatic_shield() {
         let mut app = caster_app("ice_barrier");
+        foe(&mut app, 4.0, 1000.0);
         {
             let mut run = app.world_mut().resource_mut::<Run>();
             run.hp = 20.0;
@@ -1814,6 +2014,12 @@ mod tests {
         assert!((curse_app.world().get::<Enemy>(enemy).unwrap().hp - 880.0).abs() < 0.01);
         damage(&mut curse_app, enemy, "cleave", 100.0, false);
         assert!((curse_app.world().get::<Enemy>(enemy).unwrap().hp - 780.0).abs() < 0.01);
+        damage(&mut curse_app, enemy, "arcane_missiles", 100.0, false);
+        assert!((curse_app.world().get::<Enemy>(enemy).unwrap().hp - 680.0).abs() < 0.01);
+        damage(&mut curse_app, enemy, "shadow_bolt", 100.0, false);
+        assert!((curse_app.world().get::<Enemy>(enemy).unwrap().hp - 580.0).abs() < 0.01);
+        damage(&mut curse_app, enemy, "fireball", 100.0, false);
+        assert!((curse_app.world().get::<Enemy>(enemy).unwrap().hp - 460.0).abs() < 0.01);
     }
 
     #[test]

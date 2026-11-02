@@ -1306,6 +1306,7 @@ pub(super) fn describe_card(
             if b.dmg > a.dmg && num(a.dmg) != num(b.dmg) {
                 let label = match o.def.kind {
                     Kind::Shield | Kind::Immune => localization::text("Absorb", "吸收"),
+                    Kind::Buff => localization::text("On-hit effect", "命中触发数值"),
                     Kind::Heal => localization::text("Healing", "治疗"),
                     _ => localization::text("Damage", "伤害"),
                 };
@@ -2154,22 +2155,7 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
             num(c.cooldown),
             num(c.radius)
         ),
-        Kind::Orbit => format!(
-            "Every {} sec, zaps {} within {} yd of you for {d} damage",
-            num(c.cooldown),
-            if c.count == 1 {
-                "an enemy".to_string()
-            } else {
-                format!("{} enemies", c.count)
-            },
-            num(c.radius)
-        ),
-        Kind::Shield
-            if !matches!(
-                def.key,
-                "power_word_shield" | "ice_barrier" | "mana_shield" | "last_stand"
-            ) =>
-        {
+        Kind::Buff => {
             let mut description = super::skill_tooltip_text::activation_condition(def.key, false)
                 .unwrap_or_default()
                 .to_owned();
@@ -2180,12 +2166,19 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
             if def.duration > 0.0 {
                 description.push_str(&format!(" Duration: {} sec.", num(c.duration)));
             }
+            if c.dmg > 0.0 {
+                description.push_str(&format!(" On-hit effect: {d}."));
+            }
             description
         }
         Kind::Shield => {
-            let threshold = if def.key == "last_stand" { 65 } else { 85 };
+            let trigger = if def.key == "last_stand" {
+                "Below 65% health"
+            } else {
+                "With an enemy within 30 yd"
+            };
             let mut description = format!(
-                "Automatically triggers below {threshold}% health when the shared shield pool is empty, absorbing {d} damage for {} sec",
+                "{trigger}, automatically activates when the shared shield pool is empty, absorbing {d} damage for {} sec",
                 num(c.duration)
             );
             if let Some(extra) = super::skill_tooltip_text::special_description(def.key, false) {
@@ -2195,9 +2188,16 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
             description
         }
         Kind::Immune => format!(
-            "When an enemy closes in, grants immunity for {} sec and a {d} absorb shield for {} sec",
+            "{} grants immunity for {} sec and a {d} absorb shield for {} sec. {}",
+            if def.key == "ice_block" { "Below 65% health with an enemy within 5 yd," } else { "With an enemy within 5 yd," },
             num(c.duration),
             num(c.duration + 3.0),
+            if def.key == "ice_block" { "Cannot move or cast while frozen; cooldowns continue recovering." } else { "You can still move and cast." },
+        ),
+        Kind::Thorns if def.key == "lightning_shield" => format!(
+            "When enemies close in, retaliates for {d} damage against melee contact attackers for {} sec, at most once every {} sec",
+            num(c.duration),
+            num(c.modifiers.interval(0.9))
         ),
         Kind::Thorns => format!(
             "When enemies close in, deals {d} damage to every attacker for {} sec",
@@ -2354,19 +2354,7 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
             num(c.radius),
             damage
         ),
-        Kind::Orbit => format!(
-            "每{}秒电击你周围{}码内的{}名敌人，造成{}点伤害",
-            num(c.cooldown),
-            num(c.radius),
-            c.count,
-            damage
-        ),
-        Kind::Shield
-            if !matches!(
-                def.key,
-                "power_word_shield" | "ice_barrier" | "mana_shield" | "last_stand"
-            ) =>
-        {
+        Kind::Buff => {
             let mut description = super::skill_tooltip_text::activation_condition(def.key, true)
                 .unwrap_or_default()
                 .to_owned();
@@ -2376,13 +2364,20 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
             if def.duration > 0.0 {
                 description.push_str(&format!("持续{}秒。", num(c.duration)));
             }
+            if c.dmg > 0.0 {
+                description.push_str(&format!("命中触发数值：{damage}。"));
+            }
             description
         }
         Kind::Shield => {
-            let threshold = if def.key == "last_stand" { 65 } else { 85 };
+            let trigger = if def.key == "last_stand" {
+                "生命低于65%"
+            } else {
+                "30码内有敌人"
+            };
             let mut description = format!(
-                "生命低于{}%且共用护盾池为空时自动触发，吸收{}点伤害，持续{}秒",
-                threshold,
+                "{}且共用护盾池为空时自动触发，吸收{}点伤害，持续{}秒",
+                trigger,
                 damage,
                 num(c.duration)
             );
@@ -2393,10 +2388,26 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
             description
         }
         Kind::Immune => format!(
-            "敌人靠近时，免疫所有伤害{}秒，并获得{}点吸收护盾，持续{}秒",
+            "{}，免疫所有伤害{}秒，并获得{}点吸收护盾，持续{}秒。{}",
+            if def.key == "ice_block" {
+                "生命低于65%且5码内有敌人时"
+            } else {
+                "5码内有敌人时"
+            },
             num(c.duration),
             damage,
             num(c.duration + 3.0),
+            if def.key == "ice_block" {
+                "冰封期间不能移动或施法，但冷却正常恢复"
+            } else {
+                "期间可继续移动和施法"
+            },
+        ),
+        Kind::Thorns if def.key == "lightning_shield" => format!(
+            "敌人靠近时，反击近战接触攻击者，造成{}点伤害，持续{}秒；每{}秒至多触发一次",
+            damage,
+            num(c.duration),
+            num(c.modifiers.interval(0.9))
         ),
         Kind::Thorns => format!(
             "敌人靠近时，对所有攻击者造成{}点伤害，持续{}秒",
@@ -2479,6 +2490,7 @@ fn next_rank(def: &AbilityDef, now: &Cast, next: &Cast) -> String {
                 num(next.dmg),
                 match def.kind {
                     Kind::Shield | Kind::Immune => "点吸收量",
+                    Kind::Buff => "点命中触发数值",
                     Kind::Heal => "点治疗量",
                     _ => "点伤害",
                 }
@@ -2490,7 +2502,7 @@ fn next_rank(def: &AbilityDef, now: &Cast, next: &Cast) -> String {
         if next.count != now.count
             && matches!(
                 def.kind,
-                Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Dot | Kind::Chain | Kind::Orbit
+                Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Dot | Kind::Chain
             )
         {
             gains.push(match def.kind {
@@ -2509,6 +2521,7 @@ fn next_rank(def: &AbilityDef, now: &Cast, next: &Cast) -> String {
     }
     let what = match def.kind {
         Kind::Shield | Kind::Immune => "absorbed",
+        Kind::Buff => "on-hit effect",
         Kind::Heal => "healing",
         _ => "damage",
     };
@@ -2522,7 +2535,7 @@ fn next_rank(def: &AbilityDef, now: &Cast, next: &Cast) -> String {
     if next.count != now.count
         && matches!(
             def.kind,
-            Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Dot | Kind::Chain | Kind::Orbit
+            Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Dot | Kind::Chain
         )
     {
         gains.push(match def.kind {
@@ -2598,13 +2611,6 @@ fn ability_tip(
     if !body.is_empty() {
         lines.push(TipLine::new(body, GOLD));
     }
-    lines.push(TipLine::new(
-        localization::text(
-            "Keep the pointer on this icon and scroll to read all enhancements.",
-            "指针停留在图标上，滚动鼠标查看全部强化。",
-        ),
-        DIM,
-    ));
     let periodic_crit = super::talents::periodic_crits(
         stats,
         super::skill_effects::Source {
@@ -2615,7 +2621,7 @@ fn ability_tip(
     let direct_crit = def.damage > 0.0
         && !matches!(
             def.kind,
-            Kind::Shield | Kind::Immune | Kind::Heal | Kind::Dot | Kind::Thorns
+            Kind::Shield | Kind::Buff | Kind::Immune | Kind::Heal | Kind::Dot | Kind::Thorns
         )
         && (def.kind != Kind::Totem || def.key == "magma_totem");
     if periodic_crit || direct_crit {
@@ -3635,6 +3641,29 @@ mod tests {
             ..Default::default()
         };
         assert!(passive_has_combat_benefit(&run, warding));
+    }
+
+    #[test]
+    fn utility_cards_never_use_the_absorption_template() {
+        let run = Run::default();
+        for def in data::ABILITIES.iter().filter(|def| def.kind == Kind::Buff) {
+            let cast = super::super::growth::cast_for_run(def, 1, 1.0, &run);
+            let chinese = ability_body_zh(def, &cast);
+            assert!(
+                !chinese.contains("吸收0") && !chinese.contains("0秒内"),
+                "{}: {chinese}",
+                def.key
+            );
+            let body = ability_body(def, &cast);
+            if def.key != "cold_snap" {
+                assert!(
+                    !body.contains("absorbing") && !body.contains("吸收"),
+                    "{}: {body}",
+                    def.key
+                );
+            }
+            assert!(cast.dmg == 0.0 || def.damage > 0.0, "{}", def.key);
+        }
     }
 
     #[test]

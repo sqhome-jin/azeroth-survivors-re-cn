@@ -1,10 +1,11 @@
 //! Survivors names and source-level explanations, independent of the installed DBC locale.
 
+#[cfg(test)]
+use super::{class_mechanics, warlock};
 use super::{
-    class_mechanics,
-    data::{AbilityDef, Kind, Stat},
+    data::{AbilityDef, Kind},
     gear::{self, EnhKind, Gear},
-    growth, localization, skill_effects, talents, warlock, Run,
+    growth, localization, skill_effects, talents, Run,
 };
 
 pub(super) fn ability_name(key: &str) -> Option<&'static str> {
@@ -178,16 +179,16 @@ pub(super) fn mobility_description(class: u8) -> &'static str {
     )
 }
 
-fn name(key: &str) -> String {
-    ability_name_for(&crate::char_select::ui_locale(), key, None)
-}
-
 fn potency(def: &AbilityDef) -> bool {
     def.damage > 0.0 || def.dot > 0.0
 }
 
 fn damaging(def: &AbilityDef) -> bool {
-    potency(def) && !matches!(def.kind, Kind::Shield | Kind::Heal | Kind::Immune)
+    potency(def)
+        && !matches!(
+            def.kind,
+            Kind::Shield | Kind::Buff | Kind::Heal | Kind::Immune
+        )
 }
 
 fn can_crit(run: &Run, def: &AbilityDef) -> bool {
@@ -202,21 +203,7 @@ fn can_crit(run: &Run, def: &AbilityDef) -> bool {
             ))
 }
 
-fn relevant_stat(run: &Run, def: &AbilityDef, stat: Stat) -> bool {
-    match stat {
-        Stat::Might => potency(def),
-        Stat::Haste => true,
-        Stat::Area => def.radius > 0.0,
-        Stat::Crit => can_crit(run, def),
-        Stat::Luck | Stat::Range | Stat::Targets => potency(def),
-        Stat::Echo | Stat::Leech => damaging(def),
-        Stat::Duration => def.duration > 0.0,
-        Stat::CritDamage => can_crit(run, def),
-        Stat::Shield => def.kind == Kind::Shield,
-        _ => false,
-    }
-}
-
+#[cfg(test)]
 fn relevant_affix(run: &Run, def: &AbilityDef, kind: u8) -> bool {
     match kind {
         0 => potency(def),
@@ -230,6 +217,7 @@ fn relevant_affix(run: &Run, def: &AbilityDef, kind: u8) -> bool {
 
 /// Dynamic relationships include both the proc's source and its beneficiaries.
 /// Static changes are detected from the actual cast pipeline below, not a second value table.
+#[cfg(test)]
 fn dynamic_talent(run: &Run, def: &AbilityDef, slot: usize) -> bool {
     let key = def.key;
     let melee = matches!(
@@ -351,6 +339,7 @@ fn dynamic_talent(run: &Run, def: &AbilityDef, slot: usize) -> bool {
     }
 }
 
+#[cfg(test)]
 fn cast_signature(c: &talents::Cast) -> [f32; 10] {
     [
         c.dmg,
@@ -366,6 +355,7 @@ fn cast_signature(c: &talents::Cast) -> [f32; 10] {
     ]
 }
 
+#[cfg(test)]
 fn static_talent(run: &Run, def: &'static AbilityDef, slot: usize) -> bool {
     let mut probe = Run {
         class: run.class,
@@ -380,6 +370,7 @@ fn static_talent(run: &Run, def: &'static AbilityDef, slot: usize) -> bool {
             && (probe.stats().crit != 0.05 || probe.stats().crit_multiplier() != before_crit))
 }
 
+#[cfg(test)]
 fn active_talent_affects(run: &Run, def: &AbilityDef, slot: usize, label: &str) -> bool {
     match (run.class.id, slot) {
         (2, 6) => def.key == "hammer_of_wrath",
@@ -448,52 +439,52 @@ pub(super) fn mobility_details(run: &Run) -> Vec<String> {
     lines
 }
 
-/// Every source comes from the run's locked snapshot. `gear` only resolves item names and
-/// ordinary affixes, which are live-equipped (including equipment changed while paused).
-pub(super) fn details(run: &Run, def: &'static AbilityDef, gear: Option<&Gear>) -> Vec<String> {
+/// Only effective totals are shown; the cast body already includes passive and talent scaling.
+pub(super) fn details(run: &Run, def: &'static AbilityDef, _gear: Option<&Gear>) -> Vec<String> {
     let tr = localization::text;
     let stats = run.stats();
     let mut lines = vec![tr("Skill bonuses (aggregated):", "技能加成（聚合效果）：").into()];
     let owned = run.abilities.iter().find(|o| o.def.key == def.key);
     let level = owned.map_or(1, |o| o.level);
     let acquired = owned.map_or(1.0, |o| o.growth);
+    let cast = growth::cast_for_run(def, level, acquired, run);
     let mut rank_effects = vec![format!(
         "{} ×{:.3}",
-        tr("base cooldown", "基础冷却"),
-        growth::cooldown_multiplier(acquired)
+        tr("cooldown", "冷却"),
+        cast.cooldown / def.cooldown
     )];
     if potency(def) {
         rank_effects.push(format!(
             "{} ×{:.2}",
             tr("potency", "威力"),
-            growth::damage(acquired)
+            if def.damage > 0.0 {
+                cast.dmg / def.damage
+            } else {
+                cast.dot / def.dot
+            }
         ));
     }
     if def.radius > 0.0 {
         rank_effects.push(format!(
             "{} ×{:.2}",
             tr("radius", "半径"),
-            growth::radius_multiplier(acquired)
+            cast.radius / def.radius
         ));
     }
     if def.duration > 0.0 {
         rank_effects.push(format!(
             "{} ×{:.2}",
             tr("duration", "持续时间"),
-            growth::duration_multiplier(acquired)
+            cast.duration / def.duration
         ));
     }
     if matches!(
         def.kind,
-        Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Chain | Kind::Dot | Kind::Orbit
+        Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Chain | Kind::Dot
     ) {
-        let bonus = growth::bonus_targets(acquired);
+        let bonus = cast.count.saturating_sub(def.count);
         if bonus > 0 {
-            rank_effects.push(format!(
-                "{} +{}",
-                tr("growth targets (diminishing)", "成长目标数（收益渐减）"),
-                bonus,
-            ));
+            rank_effects.push(format!("{} +{}", tr("extra targets", "额外目标数"), bonus,));
         }
     }
     lines.push(format!(
@@ -502,44 +493,14 @@ pub(super) fn details(run: &Run, def: &'static AbilityDef, gear: Option<&Gear>) 
         tr("growth", "累计成长"),
         rank_effects.join("; ")
     ));
-    lines.push(tr(
-        "Each card adds one rank; quality contributes 1 / 1.35 / 1.8 / 2.4 / 3.2 additive growth. No maximum rank.",
-        "每张卡增加1级；普通/优秀/精良/史诗/传说分别累计1 / 1.35 / 1.8 / 2.4 / 3.2成长，无等级上限。",
-    ).into());
-    if !matches!(def.kind, Kind::Shield | Kind::Heal | Kind::Totem) {
+    if !matches!(
+        def.kind,
+        Kind::Shield | Kind::Buff | Kind::Heal | Kind::Totem
+    ) {
         if let Some(description) =
             super::skill_tooltip_text::special_description(def.key, localization::is_zh_cn())
         {
             lines.push(description.into());
-        }
-    }
-    for &(p, rank) in &run.passives {
-        if relevant_stat(run, def, p.stat) {
-            lines.push(format!(
-                "{}: {} {rank} — {} {:.2}; {} +{:.2}",
-                tr("Passive", "局内被动"),
-                name(p.key),
-                tr("growth", "成长"),
-                run.passive_growth(p),
-                tr("raw contribution", "原始贡献"),
-                p.per_level * run.passive_growth(p),
-            ));
-        }
-    }
-    if let Some(gear) = gear {
-        for slot in 0..gear::SLOT_COUNT {
-            if let Some(item) = gear.worn(run.class.id, slot) {
-                for roll in &item.affixes {
-                    if relevant_affix(run, def, roll.kind) {
-                        lines.push(format!(
-                            "{}: {} — {}",
-                            tr("Equipment", "装备"),
-                            item.name(),
-                            gear::describe(roll)
-                        ));
-                    }
-                }
-            }
         }
     }
     let rolls: Vec<_> = run
@@ -550,26 +511,8 @@ pub(super) fn details(run: &Run, def: &'static AbilityDef, gear: Option<&Gear>) 
         .copied()
         .filter(|r| r.matches(def))
         .collect();
-    for roll in &rolls {
-        let item = gear.and_then(|g| g.item(roll.item)).map_or_else(
-            || format!("{} #{}", tr("Equipment", "装备"), roll.item),
-            |item| format!("{} #{}", item.name(), item.id),
-        );
-        let enh = gear::EnhRoll {
-            ability: roll.ability.unwrap_or_default().into(),
-            kind: gear::ENH_KINDS
-                .iter()
-                .position(|k| *k == roll.kind)
-                .unwrap() as u8,
-            value: (roll.value * 10_000.0).round() as u32,
-        };
-        lines.push(format!(
-            "{item}: {} [{}]",
-            gear::describe_enhancement(&enh, &name(def.key)),
-            exact(roll.kind, roll.value)
-        ));
-    }
     let modifiers = skill_effects::Modifiers::from_stats(&stats, def);
+    let mut enhancements = Vec::new();
     for kind in gear::ENH_KINDS {
         if !rolls.iter().any(|r| r.kind == kind) {
             continue;
@@ -582,13 +525,15 @@ pub(super) fn details(run: &Run, def: &'static AbilityDef, gear: Option<&Gear>) 
                 || tr("uncapped", "无叠加上限").to_owned(),
                 |v| format!("{} {}", tr("cap", "上限"), kind.show(v)),
             );
-            lines.push(format!(
-                "{}: {} {} ({cap})",
-                tr("Effective equipment total", "装备实际合计"),
-                kind.label(),
-                exact(kind, value)
-            ));
+            enhancements.push(format!("{} {} ({cap})", kind.label(), exact(kind, value)));
         }
+    }
+    if !enhancements.is_empty() {
+        lines.push(format!(
+            "{}: {}",
+            tr("Effective equipment total", "装备实际合计"),
+            enhancements.join("; ")
+        ));
     }
     if rolls.iter().any(|r| r.kind == EnhKind::Echo) {
         lines.push(
@@ -613,71 +558,6 @@ pub(super) fn details(run: &Run, def: &'static AbilityDef, gear: Option<&Gear>) 
             "{}: {:.2}%",
             tr("Equipment life leech", "装备生命偷取"),
             run.gear.leech() * 100.0
-        ));
-    }
-    if let Some(nodes) = talents::nodes(run.class.id) {
-        for (slot, node) in nodes.iter().enumerate() {
-            let rank = run.talents.0[slot];
-            if rank == 0 || (!static_talent(run, def, slot) && !dynamic_talent(run, def, slot)) {
-                continue;
-            }
-            lines.push(format!(
-                "{}: {} {rank}/{} — {}",
-                tr("Talent (conditions apply)", "天赋（依所述条件生效）"),
-                tr(node.name, node.zh),
-                if slot % 8 == 7 { 1 } else { 5 },
-                tr(node.desc, node.desc_zh),
-            ));
-        }
-    }
-    for (slot, en, zh, left) in class_mechanics::buffs(run) {
-        if active_talent_affects(run, def, slot, en) {
-            lines.push(format!(
-                "{}: {} ({left:.1}{})",
-                tr("Active class buff", "当前职业增益"),
-                tr(en, zh),
-                tr("s remaining", "秒剩余")
-            ));
-        }
-    }
-    if run.class.id == 5 && run.talents.0[5] > 0 && run.shield > 0.0 && run.shield_t > 0.0 {
-        lines.push(format!(
-            "{}: {} +{:.1}%",
-            tr("Active", "当前生效"),
-            tr("Borrowed Time / haste", "争分夺秒／急速"),
-            f32::from(run.talents.0[5]) * 2.0
-        ));
-    }
-    if warlock::haste(run) > 0.0 {
-        lines.push(format!(
-            "{}: {} +{:.1}% ({:.1}{})",
-            tr("Active", "当前生效"),
-            tr(talents::NODES[22].name, talents::NODES[22].zh),
-            warlock::haste(run) * 100.0,
-            warlock::haste_remaining(run),
-            tr("s remaining", "秒剩余")
-        ));
-    }
-    for (item_id, kind, value, remaining) in run.effects.active_buffs(run.elapsed) {
-        let relevant = match kind {
-            EnhKind::BuffDamage => potency(def),
-            EnhKind::BuffHaste => true,
-            EnhKind::BuffCrit => can_crit(run, def),
-            _ => false,
-        };
-        if !relevant {
-            continue;
-        }
-        let item = gear.and_then(|g| g.item(item_id)).map_or_else(
-            || format!("{} #{item_id}", tr("Equipment", "装备")),
-            |item| format!("{} #{item_id}", item.name()),
-        );
-        lines.push(format!(
-            "{}: {item} — {} {} ({remaining:.1}{})",
-            tr("Active equipment source", "当前装备增益来源"),
-            kind.label(),
-            exact(kind, value),
-            tr("s remaining", "秒剩余"),
         ));
     }
     for (kind, relevant, cap) in [
@@ -730,21 +610,6 @@ pub(super) fn details(run: &Run, def: &'static AbilityDef, gear: Option<&Gear>) 
             .into(),
         );
     }
-    let equipment_roll_ids: Vec<String> = run
-        .gear
-        .enh
-        .iter()
-        .flatten()
-        .map(|roll| format!(" #{}:", roll.item))
-        .collect();
-    lines.retain(|line| {
-        !line.starts_with(tr("Passive", "局内被动"))
-            && !line.starts_with(tr("Equipment:", "装备:"))
-            && !line.starts_with(tr("Talent (conditions apply)", "天赋（依所述条件生效）"))
-            && !line.starts_with(tr("Active class buff", "当前职业增益"))
-            && !line.starts_with(tr("Active equipment source", "当前装备增益来源"))
-            && !equipment_roll_ids.iter().any(|id| line.contains(id))
-    });
     lines
 }
 
@@ -769,7 +634,7 @@ mod tests {
             .find(|def| {
                 matches!(
                     def.kind,
-                    Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Chain | Kind::Dot | Kind::Orbit
+                    Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Chain | Kind::Dot
                 )
             })
             .unwrap();

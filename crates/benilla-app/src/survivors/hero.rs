@@ -227,6 +227,9 @@ pub(super) fn drive_hero(
                     dir = Vec3::new(dir.x * cy + dir.z * sy, 0.0, dir.z * cy - dir.x * sy);
                 }
             }
+            if run.ice_blocked() {
+                dir = Vec3::ZERO;
+            }
             let mut pos = tf.translation;
             // Locked, the hero faces the cursor and WASD moves him under it, so he backpedals and
             // strafes as a player does; unlocked (or driven), he faces where he runs.
@@ -273,7 +276,12 @@ pub(super) fn drive_hero(
             let ground = world.terrain_height_under(pos).unwrap_or(pos.y);
             let playing = *phase.get() == Phase::Playing && run.dead_t.is_none();
             // Space hops: lift off the terrain, then gravity brings the hero back down.
-            if playing && keys.just_pressed(KeyCode::Space) && hm.vy == 0.0 && hm.air == 0.0 {
+            if playing
+                && !run.ice_blocked()
+                && keys.just_pressed(KeyCode::Space)
+                && hm.vy == 0.0
+                && hm.air == 0.0
+            {
                 hm.vy = JUMP_SPEED;
             }
             if playing && (hm.vy != 0.0 || hm.air > 0.0) {
@@ -481,16 +489,16 @@ pub(super) fn hero_vitals(
     // The buffs show as their own state kits: the shield bubble, the immunity glow, the orbs.
     let mut shown: Vec<u32> = Vec::new();
     if run.shield_t > 0.0 && run.shield > 0.0 {
-        shown.push(17);
+        shown.push(super::buffs::shield_spell(run.shield_source));
     }
     if run.immune_t > 0.0 {
-        shown.push(642);
+        shown.push(run.immune_spell);
     }
     if run.thorns_t > 0.0 {
         shown.push(run.thorns_spell);
     }
     if run.heal_t > 0.0 {
-        shown.push(774);
+        shown.push(run.heal_spell);
     }
     for owned in &run.abilities {
         if owned.def.key == "lightning_shield" {

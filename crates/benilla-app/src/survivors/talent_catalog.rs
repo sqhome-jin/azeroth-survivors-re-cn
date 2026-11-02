@@ -1973,7 +1973,7 @@ pub(super) fn modify_cast(class: u8, key: &str, stats: &Stats, cast: &mut Cast) 
     if frequency > 0.0 {
         let previous = cast.modifiers.frequency;
         cast.modifiers.frequency = (previous + frequency).min(2.0);
-        // Orbit pulses use the cast clock, unlike ground and totem tick intervals.
+        // Frequency also accelerates automatic recasts; retaliation reads the same modifier.
         cast.cooldown =
             (cast.cooldown * (1.0 + previous) / (1.0 + cast.modifiers.frequency)).max(0.2);
     }
