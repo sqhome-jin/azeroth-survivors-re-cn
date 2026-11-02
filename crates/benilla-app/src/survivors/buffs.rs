@@ -2,7 +2,19 @@
 
 use bevy::prelude::*;
 
-use super::{gear, hud, localization as l, Phase, Run};
+use super::{data, gear, hud, localization as l, Phase, Run};
+
+pub(super) fn shield_spell(source: Option<&str>) -> u32 {
+    let key = match source {
+        Some("ice_barrier_talent") => "ice_barrier",
+        Some(key) => key,
+        None => return 17,
+    };
+    data::ABILITIES
+        .iter()
+        .find(|def| def.key == key)
+        .map_or(17, |def| def.spell)
+}
 
 struct Entry {
     name: String,
@@ -44,7 +56,7 @@ pub(super) fn plugin(app: &mut App) {
     );
 }
 
-fn entries(run: &Run, gear: &gear::Gear) -> Vec<Entry> {
+fn entries(run: &Run, _gear: &gear::Gear) -> Vec<Entry> {
     let mut entries = Vec::new();
     let mut add = |name: String, desc: String, remaining: f32, spell| {
         if remaining > 0.0 {
@@ -70,6 +82,7 @@ fn entries(run: &Run, gear: &gear::Gear) -> Vec<Entry> {
             Some("sacred_shield") => l::text("Sacred Shield", "神圣护盾"),
             Some("ancestral_guardian") => l::text("Ancestral Guardian", "先祖守护"),
             Some("living_seed") => l::text("Living Seed", "生命之种"),
+            Some("cold_snap") => l::text("Cold Snap absorption", "急速冷却护盾"),
             _ => l::text("Absorption shield", "吸收护盾"),
         };
         add(
@@ -80,34 +93,65 @@ fn entries(run: &Run, gear: &gear::Gear) -> Vec<Entry> {
                 run.shield
             ),
             run.shield_t,
-            17,
+            shield_spell(run.shield_source),
         );
     }
     add(
-        l::text("Immunity", "免疫").into(),
+        hud::spell_name(
+            None,
+            run.immune_spell,
+            if run.immune_spell == 11958 {
+                "ice_block"
+            } else {
+                "divine_shield"
+            },
+        ),
         l::text("Immune to incoming damage.", "持续期间免疫受到的伤害。").into(),
         run.immune_t,
-        642,
+        run.immune_spell,
     );
     add(
-        l::text("Thorns", "反伤").into(),
+        hud::spell_name(
+            None,
+            run.thorns_spell,
+            data::ABILITIES
+                .iter()
+                .find(|def| def.spell == run.thorns_spell)
+                .map_or("thorns", |def| def.key),
+        ),
         format!(
-            "{}: {:.0}",
+            "{}: {:.0}{}",
             l::text("Contact retaliation damage", "接触攻击反伤"),
-            run.thorns
+            run.thorns,
+            if run.thorns_every > 0.0 {
+                format!(
+                    " · {}: {:.2}s",
+                    l::text("Interval", "触发间隔"),
+                    run.thorns_every
+                )
+            } else {
+                String::new()
+            }
         ),
         run.thorns_t,
         run.thorns_spell,
     );
     add(
-        l::text("Healing over time", "持续治疗").into(),
+        hud::spell_name(
+            None,
+            run.heal_spell,
+            data::ABILITIES
+                .iter()
+                .find(|def| def.spell == run.heal_spell)
+                .map_or("rejuvenation", |def| def.key),
+        ),
         format!(
             "{}: {:.1}",
             l::text("Healing per second", "每秒治疗量"),
             run.heal_rate
         ),
         run.heal_t,
-        774,
+        run.heal_spell,
     );
     if let Some(mobility) = run.mobility() {
         add(
@@ -176,17 +220,6 @@ fn entries(run: &Run, gear: &gear::Gear) -> Vec<Entry> {
             l::text("Effective total", "当前实际合计"),
             kind.show(total)
         );
-        for (id, _, amount, left) in &sources {
-            let item = gear
-                .item(*id)
-                .map(|item| item.name().to_owned())
-                .unwrap_or_else(|| format!("{} #{id}", l::text("Equipment", "装备")));
-            description.push_str(&format!(
-                "{item}: {} · {:.0}s\n",
-                kind.show(*amount),
-                left.ceil()
-            ));
-        }
         description.push_str(l::text(
             "Totals respect the shared damage/haste/crit/speed/defense caps: 100/40/30/50/40%.",
             "合计遵循伤害/急速/暴击/移速/减伤上限：100/40/30/50/40%。",
@@ -219,6 +252,19 @@ fn entries(run: &Run, gear: &gear::Gear) -> Vec<Entry> {
             spell: buff.spell,
             art: None,
         });
+    }
+    if run.shield > 0.0 && run.shield_t > 0.0 {
+        let talent = match run.shield_source {
+            Some("sacred_shield") => Some((2, 14)),
+            Some("ancestral_guardian") => Some((7, 23)),
+            Some("living_seed") => Some((11, 22)),
+            _ => None,
+        };
+        if let Some((class, node)) = talent {
+            if let Some(entry) = entries.first_mut() {
+                entry.art = super::talents::nodes(class).map(|nodes| nodes[node].icon);
+            }
+        }
     }
     entries
 }
@@ -373,12 +419,12 @@ fn refresh(
         if let Some(path) = entry.art {
             commands
                 .entity(entity)
-                .remove::<(hud::SpellIcon, hud::ArtDone)>()
+                .remove::<(hud::SpellIcon, hud::IconDone, hud::ArtDone)>()
                 .insert(hud::UiArt::crop(path, [0.0, 1.0, 0.0, 1.0]));
         } else {
             commands
                 .entity(entity)
-                .remove::<(hud::UiArt, hud::ArtDone)>()
+                .remove::<(hud::UiArt, hud::IconDone, hud::ArtDone)>()
                 .insert(hud::SpellIcon(entry.spell));
         }
         icon.shown = Some(identity);
@@ -472,6 +518,74 @@ mod tests {
         assert!(entries(&run, &gear).is_empty());
         assert_eq!(time_label(60.1), "1:01");
         assert_eq!(time_label(4.1), "5s");
+    }
+
+    #[test]
+    fn absorb_buffs_use_the_source_spell_icon() {
+        for key in [
+            "ice_barrier",
+            "mana_shield",
+            "power_word_shield",
+            "last_stand",
+        ] {
+            let run = Run {
+                shield: 40.0,
+                shield_t: 5.0,
+                shield_source: Some(key),
+                ..default()
+            };
+            let buffs = entries(&run, &gear::Gear::default());
+            assert_eq!(buffs.len(), 1);
+            assert_eq!(
+                buffs[0].spell,
+                super::super::data::ability(key).spell,
+                "{key}"
+            );
+        }
+    }
+
+    #[test]
+    fn recycled_buff_slots_invalidate_previously_loaded_icons() {
+        let mut app = App::new();
+        app.init_resource::<Run>()
+            .init_resource::<gear::Gear>()
+            .init_resource::<Tray>()
+            .insert_resource(State::new(Phase::Playing))
+            .insert_resource(hud::HudFont(Handle::default()))
+            .add_systems(Update, (build, refresh).chain());
+        app.world_mut().spawn(hud::HudRoot);
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            let cast = super::super::growth::cast_for_run(
+                super::super::data::ability("combustion"),
+                1,
+                1.0,
+                &run,
+            );
+            super::super::spell_expansion::utility(&mut run, "combustion", &cast, true);
+        }
+        app.update();
+        app.update();
+        let world = app.world_mut();
+        let icon = world
+            .query_filtered::<Entity, With<Icon>>()
+            .single(world)
+            .unwrap();
+        world.entity_mut(icon).insert(hud::IconDone);
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            run.elapsed = 100.0;
+            let cast = super::super::growth::cast_for_run(
+                super::super::data::ability("frost_armor"),
+                1,
+                1.0,
+                &run,
+            );
+            super::super::spell_expansion::utility(&mut run, "frost_armor", &cast, true);
+        }
+        app.update();
+        assert_eq!(app.world().get::<hud::SpellIcon>(icon).unwrap().0, 168);
+        assert!(app.world().get::<hud::IconDone>(icon).is_none());
     }
 
     #[test]

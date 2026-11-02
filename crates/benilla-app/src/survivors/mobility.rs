@@ -188,7 +188,11 @@ pub(super) fn cast_mobility(
     m.cd = (m.cd - dt).max(0.0);
     m.haste_t = (m.haste_t - dt).max(0.0);
     m.vanish_t = (m.vanish_t - dt).max(0.0);
-    if *phase.get() != Phase::Playing || run.dead_t.is_some() || !keys.just_pressed(KEY) {
+    if *phase.get() != Phase::Playing
+        || run.dead_t.is_some()
+        || run.ice_blocked()
+        || !keys.just_pressed(KEY)
+    {
         return;
     }
     let Some(def) = run.mobility() else { return };

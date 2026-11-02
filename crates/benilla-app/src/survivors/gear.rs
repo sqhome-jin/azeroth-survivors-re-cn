@@ -659,7 +659,7 @@ impl EnhKind {
             Self::Cooldown => true,
             Self::Count => matches!(
                 def.kind,
-                Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Chain | Kind::Dot | Kind::Orbit
+                Kind::Bolt | Kind::Strike | Kind::Melee | Kind::Chain | Kind::Dot
             ),
             Self::Radius => {
                 def.radius > 0.0
@@ -673,7 +673,6 @@ impl EnhKind {
                             | Kind::GroundSelf
                             | Kind::Chain
                             | Kind::Aura
-                            | Kind::Orbit
                     ) || (def.kind == Kind::Totem && def.key == "magma_totem"))
             }
             Self::Duration => {
@@ -690,7 +689,8 @@ impl EnhKind {
                         ))
             }
             Self::Frequency => {
-                def.dot > 0.0
+                def.key == "lightning_shield"
+                    || def.dot > 0.0
                     || matches!(def.kind, Kind::Ground | Kind::GroundSelf | Kind::Totem)
                         && def.duration > 0.0
             }
@@ -734,7 +734,7 @@ impl EnhKind {
             | Self::BuffSpeed
             | Self::BuffDefense => {
                 (def.damage > 0.0 || def.dot > 0.0)
-                    && !matches!(def.kind, Kind::Shield | Kind::Heal)
+                    && !matches!(def.kind, Kind::Shield | Kind::Buff | Kind::Heal)
             }
         }
     }

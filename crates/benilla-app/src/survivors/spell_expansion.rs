@@ -19,6 +19,8 @@ pub(super) struct Runtime {
     proc_ready: f32,
     frost_ready: f32,
     swing_ready: f32,
+    combustion_bonus: f32,
+    combustion_crits: u8,
 }
 
 struct Active {
@@ -26,6 +28,8 @@ struct Active {
     until: f32,
     power: f32,
     growth: f32,
+    radius: f32,
+    charges: u32,
 }
 
 struct Debuff {
@@ -133,11 +137,15 @@ pub(super) fn name(key: &str) -> Option<&'static str> {
 
 pub(super) fn description(key: &str) -> Option<&'static str> {
     Some(match key {
+        "sweeping_strikes" => "接下来5次有效武器命中同时攻击目标附近另一个敌人；不独立造成范围伤害，派生伤害不会再次触发。",
+        "blade_flurry" => "武器近战技能频率提高20%，有效武器命中同时攻击目标附近另一个敌人；派生伤害不会再次触发。",
+        "lightning_shield" => "本模式改为在持续期间反击近战接触攻击，不消耗闪电球层数；不会主动电击附近敌人。",
         "overpower" | "mongoose_bite" => "受到伤害后3秒内自动近战反击；未触发时保留冷却。",
         "shield_bash" => "只攻击施法型敌人，造成近战伤害并打断（短暂昏迷）。",
         "execute" | "drain_soul" => {
             "只选择生命不高于30%的敌人；吸取灵魂持续伤害，在低生命时处决非首领。"
         }
+        "hammer_of_wrath" => "只攻击生命不高于20%的敌人。",
         "shield_wall" => "短时间内受到的伤害降低60%。",
         "last_stand" => "获得临时吸收护盾；不永久增加生命上限。",
         "seal_of_righteousness" => "持续期间，武器命中额外造成神圣伤害；每次攻击最多触发一次。",
@@ -150,13 +158,13 @@ pub(super) fn description(key: &str) -> Option<&'static str> {
         "frostbrand_weapon" => "持续期间武器命中追加冰霜伤害并减速。",
         "rapid_fire" => "短时间提高远程技能施放频率。",
         "devotion_aura" | "inner_fire" => "持续期间提高护甲；只对自身施放，不向敌人发送增益法术。",
-        "frost_armor" => "持续期间提高护甲，并自动减速身边的近战敌人。",
-        "mage_armor" => "持续期间恢复生命并降低受到的伤害；本模式无独立法力系统。",
+        "frost_armor" => "持续期间提高护甲，并自动减速身边的近战敌人；不与法师护甲叠加。",
+        "mage_armor" => "持续期间恢复生命并降低受到的伤害；本模式无独立法力系统；不与霜甲术叠加。",
         "dampen_magic" => "持续期间受到的伤害降低20%，不提供直接伤害。",
-        "arcane_power" => "非近战技能的直接伤害和持续伤害提高30%。",
-        "presence_of_mind" => "下一次实际命中的直接法术获得50%伤害加成并回响一次；随后消耗。",
-        "combustion" => "火焰技能暴击率提高30个百分点，最高100%。",
-        "cold_snap" => "重置一个正在冷却的冰霜技能，不会重置自身。",
+        "arcane_power" => "法术的直接伤害和持续伤害提高30%；不增强治疗、护盾或武器攻击。本模式不消耗法力。",
+        "presence_of_mind" => "本模式法术已自动瞬发，改为下一次实际施放的直接法术伤害提高50%并回响一次；随后消耗。",
+        "combustion" => "每次直接火焰法术命中后，后续火焰法术暴击率提高10个百分点，最高100%；累计3次直接火焰暴击或持续时间结束时消失。",
+        "cold_snap" => "重置所有正在冷却的冰霜技能，不会重置自身；累计成长超过1的部分转为持续3秒的吸收护盾。",
         "barkskin" | "evasion" => "树皮术减伤30%，闪避减伤50%。",
         "ice_block" => "生命低于65%且近处有敌人时自动进入短暂无敌。",
         "ice_barrier" => "与其他吸收护盾共用护盾池。",
@@ -172,8 +180,8 @@ pub(super) fn description(key: &str) -> Option<&'static str> {
         "healing_stream_totem" => "放置友方图腾，在范围内每秒治疗自己；不造成伤害或召唤爆炸。",
         "earthbind_totem" => "放置友方图腾，周期性减速附近敌人；不造成伤害或爆炸。",
         "stoneclaw_totem" => "放置友方图腾，周期性削弱附近敌人伤害；本模式以减伤模拟牵制。",
-        "vampiric_embrace" => "标记敌人，之后对该敌人造成的法术伤害回复15%生命。",
-        "curse_of_elements" => "标记敌人，使其受到的法术伤害提高20%。",
+        "vampiric_embrace" => "标记敌人，之后对该敌人造成的暗影伤害回复15%生命。",
+        "curse_of_elements" => "标记敌人，使其受到的火焰和冰霜伤害提高20%。",
         "curse_of_weakness" => "削弱目标10秒，使其造成的伤害降低35%。",
         "curse_of_tongues" => "仅诅咒施法型敌人，延缓其下一次攻击并降低伤害。",
         "curse_of_doom" => "诅咒8秒后造成一次强力伤害；施放时不立即造成伤害。",
@@ -210,7 +218,11 @@ pub(super) fn buffs(run: &Run) -> Vec<BuffEntry> {
             name: name(b.key).unwrap_or(b.key),
             description: buff_description(run, b),
             remaining: b.until - run.elapsed,
-            stacks: 1,
+            stacks: if b.key == "combustion" {
+                (run.expansion.combustion_bonus * 10.0).round().max(1.0) as u32
+            } else {
+                b.charges.max(1)
+            },
         })
         .collect()
 }
@@ -226,9 +238,8 @@ fn buff_description(run: &Run, buff: &Active) -> String {
         "barkskin" => "受到的伤害降低30%。生命低于65%、未处于无敌且30码内有敌人时自动开启。".into(),
         "evasion" => "受到的伤害降低50%（以减伤模拟闪避）。生命低于65%、未处于无敌且30码内有敌人时自动开启。".into(),
         "dampen_magic" => "受到的伤害降低20%，不造成直接伤害。".into(),
-        "arcane_power" => "非近战技能的直接伤害和持续伤害提高30%，不增强普通武器挥击。".into(),
-        "presence_of_mind" => "下一次成功施放的直接法术伤害提高50%，并追加一次50%伤害的回响（回响伤害加成另计）；随后消耗，不触发递归回响。".into(),
-        "combustion" => "火球术、火焰冲击、炎爆术、烈焰风暴和冲击波暴击率 +30个百分点，总暴击率最多100%。".into(),
+        "arcane_power" | "presence_of_mind" => description(buff.key).unwrap().into(),
+        "combustion" => format!("每次直接火焰命中后累加10个百分点暴击率；当前 +{:.0}个百分点，暴击进度 {}/3。总暴击率最多100%；3次直接火焰暴击或时间结束时消失。", run.expansion.combustion_bonus * 100.0, run.expansion.combustion_crits),
         "rapid_fire" => "奥术射击、多重射击、瞄准射击、毒蛇钉刺和乱射的施放频率提高40%（冷却除以1.4，最低0.2秒）。".into(),
         "rockbiter_weapon" => "武器近战技能伤害提高25%；普通附魔挥击伤害提高25%。".into(),
         "seal_of_wisdom" => "急速 +15个百分点；技能冷却的急速缩减最多65%。本模式不使用法力。".into(),
@@ -303,19 +314,38 @@ pub(super) fn weapon_swing(run: &mut Run) -> bool {
             b.until > run.elapsed
                 && (b.key.starts_with("seal_of_")
                     || b.key.ends_with("_weapon")
-                    || b.key == "deadly_poison")
+                    || matches!(b.key, "deadly_poison" | "sweeping_strikes" | "blade_flurry"))
         })
     {
         return false;
     }
-    run.expansion.swing_ready = run.elapsed + 1.5;
+    run.expansion.swing_ready = run.elapsed
+        + 1.5
+            / if active(run, "blade_flurry") {
+                1.2
+            } else {
+                1.0
+            };
     true
 }
 
 fn weapon(source: Source) -> bool {
-    source
-        .ability
-        .is_none_or(|k| k == "judgement" || data::ability(k).kind == Kind::Melee)
+    source.ability.is_none_or(|k| {
+        matches!(
+            k,
+            "judgement" | "whirlwind" | "execute" | "sweeping_strikes" | "blade_flurry"
+        ) || data::ABILITIES
+            .iter()
+            .any(|def| def.key == k && def.kind == Kind::Melee)
+    })
+}
+
+fn source_school(source: Source) -> data::School {
+    match source.ability {
+        Some("ignite") => data::School::Fire,
+        Some("warrior_bleed") | None => data::School::Physical,
+        Some(key) => data::ability(key).school(),
+    }
 }
 
 pub(super) fn supports(def: &data::AbilityDef, kind: super::gear::EnhKind) -> Option<bool> {
@@ -323,31 +353,11 @@ pub(super) fn supports(def: &data::AbilityDef, kind: super::gear::EnhKind) -> Op
     if matches!(def.key, "cold_snap") {
         return Some(kind == E::Cooldown);
     }
-    if matches!(
-        def.key,
-        "shield_wall"
-            | "barkskin"
-            | "evasion"
-            | "devotion_aura"
-            | "inner_fire"
-            | "frost_armor"
-            | "mage_armor"
-            | "dampen_magic"
-            | "arcane_power"
-            | "presence_of_mind"
-            | "combustion"
-            | "rapid_fire"
-            | "seal_of_righteousness"
-            | "seal_of_command"
-            | "seal_of_light"
-            | "seal_of_wisdom"
-            | "windfury_weapon"
-            | "rockbiter_weapon"
-            | "frostbrand_weapon"
-            | "deadly_poison"
-    ) {
+    if def.kind == Kind::Buff {
         return Some(
-            matches!(kind, E::Cooldown | E::Duration) || (kind == E::Damage && def.damage > 0.0),
+            matches!(kind, E::Cooldown | E::Duration)
+                || (kind == E::Damage && def.damage > 0.0)
+                || (kind == E::Radius && def.radius > 0.0),
         );
     }
     if def.key == "healing_stream_totem" {
@@ -428,10 +438,7 @@ pub(super) fn modify_stats(run: &Run, stats: &mut Stats) {
 }
 
 fn fire(key: &str) -> bool {
-    matches!(
-        key,
-        "fireball" | "fire_blast" | "pyroblast" | "flamestrike" | "blast_wave"
-    )
+    data::ability(key).school() == data::School::Fire
 }
 
 pub(super) fn frost(key: &str) -> bool {
@@ -443,23 +450,24 @@ pub(super) fn frost(key: &str) -> bool {
 
 pub(super) fn modify_cast(run: &Run, key: &str, cast: &mut Cast, stats: &mut Stats) {
     let def = data::ability(key);
-    if def.kind == Kind::Shield
-        && !matches!(
-            key,
-            "power_word_shield" | "ice_barrier" | "mana_shield" | "last_stand"
-        )
-    {
-        // Shield is the self-targeted carrier kind; weapon imbues do not absorb damage.
-        cast.dmg /= stats.shield_power.max(0.001);
-    }
     let melee = def.kind == Kind::Melee;
-    if active(run, "arcane_power") && !melee {
+    let spell = spell_damage(def);
+    if active(run, "arcane_power") && spell {
         cast.dmg *= 1.3;
         cast.dot *= 1.3;
     }
     if active(run, "rockbiter_weapon") && melee {
         cast.dmg *= 1.25;
         cast.dot *= 1.25;
+    }
+    if active(run, "blade_flurry")
+        && weapon(Source {
+            ability: Some(def.key),
+            ..default()
+        })
+        && !matches!(def.kind, Kind::Buff | Kind::Thorns)
+    {
+        cast.cooldown = (cast.cooldown / 1.2).max(0.2);
     }
     if active(run, "rapid_fire")
         && matches!(
@@ -469,13 +477,46 @@ pub(super) fn modify_cast(run: &Run, key: &str, cast: &mut Cast, stats: &mut Sta
     {
         cast.cooldown = (cast.cooldown / 1.4).max(0.2);
     }
-    if active(run, "combustion") && fire(key) {
-        stats.crit = (stats.crit + 0.3).min(1.0);
+    if active(run, "combustion") && fire(key) && direct_spell(def) {
+        stats.crit = (stats.crit + run.expansion.combustion_bonus).min(1.0);
     }
-    if active(run, "presence_of_mind") && !melee && cast.dmg > 0.0 && def.kind != Kind::Shield {
+    if active(run, "presence_of_mind") && direct_spell(def) && cast.dmg > 0.0 {
         cast.dmg *= 1.5;
         cast.modifiers.echo = 1.0;
     }
+}
+
+fn spell_damage(def: &data::AbilityDef) -> bool {
+    !matches!(
+        def.kind,
+        Kind::Shield | Kind::Buff | Kind::Heal | Kind::Immune | Kind::Thorns
+    ) && def.school() != data::School::Physical
+        && !weapon(Source {
+            ability: Some(def.key),
+            ..default()
+        })
+        && !matches!(
+            def.key,
+            "arcane_shot"
+                | "multi_shot"
+                | "aimed_shot"
+                | "concussive_shot"
+                | "serpent_sting"
+                | "volley"
+                | "rupture"
+                | "garrote"
+                | "rend"
+        )
+        && (def.damage > 0.0 || def.dot > 0.0)
+}
+
+pub(super) fn direct_spell(def: &data::AbilityDef) -> bool {
+    spell_damage(def)
+        && def.damage > 0.0
+        && matches!(
+            def.kind,
+            Kind::Bolt | Kind::Strike | Kind::Nova | Kind::Cone | Kind::Chain
+        )
 }
 
 /// Returns None for the ordinary damage pipeline, Some(false) when a utility must wait.
@@ -504,29 +545,7 @@ pub(super) fn utility(run: &mut Run, key: &'static str, cast: &Cast, nearby: boo
         }
         return Some(ready);
     }
-    if !matches!(
-        key,
-        "shield_wall"
-            | "barkskin"
-            | "evasion"
-            | "devotion_aura"
-            | "inner_fire"
-            | "frost_armor"
-            | "mage_armor"
-            | "dampen_magic"
-            | "arcane_power"
-            | "presence_of_mind"
-            | "combustion"
-            | "rapid_fire"
-            | "seal_of_righteousness"
-            | "seal_of_command"
-            | "seal_of_light"
-            | "seal_of_wisdom"
-            | "windfury_weapon"
-            | "rockbiter_weapon"
-            | "frostbrand_weapon"
-            | "deadly_poison"
-    ) {
+    if data::ability(key).kind != Kind::Buff {
         return None;
     }
     if active(run, key)
@@ -542,6 +561,8 @@ pub(super) fn utility(run: &mut Run, key: &'static str, cast: &Cast, nearby: boo
             1
         } else if k.ends_with("_weapon") {
             2
+        } else if matches!(k, "frost_armor" | "mage_armor") {
+            3
         } else {
             0
         }
@@ -557,6 +578,10 @@ pub(super) fn utility(run: &mut Run, key: &'static str, cast: &Cast, nearby: boo
         return Some(false);
     }
     run.expansion.active.retain(|b| b.key != key);
+    if key == "combustion" {
+        run.expansion.combustion_bonus = 0.0;
+        run.expansion.combustion_crits = 0;
+    }
     let growth = run
         .abilities
         .iter()
@@ -567,8 +592,27 @@ pub(super) fn utility(run: &mut Run, key: &'static str, cast: &Cast, nearby: boo
         until: run.elapsed + cast.duration.max(0.2),
         power: cast.dmg,
         growth,
+        radius: cast.radius,
+        charges: if key == "sweeping_strikes" { 5 } else { 0 },
     });
     Some(true)
+}
+
+pub(super) fn cleave(run: &mut Run, source: Source) -> Option<(&'static str, f32)> {
+    if source.secondary || source.periodic || !weapon(source) {
+        return None;
+    }
+    let buff = run.expansion.active.iter_mut().find(|buff| {
+        buff.until > run.elapsed && matches!(buff.key, "sweeping_strikes" | "blade_flurry")
+    })?;
+    let result = (buff.key, buff.radius);
+    if buff.key == "sweeping_strikes" {
+        buff.charges = buff.charges.saturating_sub(1);
+        if buff.charges == 0 {
+            buff.until = run.elapsed;
+        }
+    }
+    Some(result)
 }
 
 pub(super) fn on_cast(run: &mut Run, key: &str, direct_spell: bool) {
@@ -580,8 +624,27 @@ pub(super) fn on_cast(run: &mut Run, key: &str, direct_spell: bool) {
     }
 }
 
+pub(super) fn on_damage(run: &mut Run, source: Source, critical: bool) {
+    if source.secondary
+        || source.periodic
+        || !source
+            .ability
+            .is_some_and(|key| fire(key) && direct_spell(data::ability(key)))
+        || !active(run, "combustion")
+    {
+        return;
+    }
+    run.expansion.combustion_bonus = (run.expansion.combustion_bonus + 0.1).min(1.0);
+    if critical {
+        run.expansion.combustion_crits += 1;
+        if run.expansion.combustion_crits >= 3 {
+            run.expansion.active.retain(|buff| buff.key != "combustion");
+        }
+    }
+}
+
 pub(super) fn damage_multiplier(run: &Run, source: Source, target: Entity) -> f32 {
-    let melee = weapon(source);
+    let school = source_school(source);
     let mut m = if source.ability.is_none() && active(run, "rockbiter_weapon") {
         1.25
     } else {
@@ -590,7 +653,9 @@ pub(super) fn damage_multiplier(run: &Run, source: Source, target: Entity) -> f3
     for d in &run.expansion.debuffs {
         if d.target == target
             && d.until > run.elapsed
-            && ((d.key == "curse_of_elements" && !melee) || (d.key == "expose_armor" && melee))
+            && ((d.key == "curse_of_elements"
+                && matches!(school, data::School::Fire | data::School::Frost))
+                || (d.key == "expose_armor" && school == data::School::Physical))
         {
             m *= 1.2;
         }
@@ -646,7 +711,7 @@ pub(super) fn on_hit(
         };
         heal(run, effective * frac);
     }
-    if !weapon(source)
+    if source_school(source) == data::School::Shadow
         && run
             .expansion
             .debuffs
@@ -734,6 +799,130 @@ mod tests {
             .find(|o| o.def.key == key)
             .map_or(1.0, |o| o.growth);
         super::super::talents::cast_with_growth(data::ability(key), 1, growth, &run.stats())
+    }
+
+    #[test]
+    fn combustion_builds_from_real_fire_hits_and_ends_after_three_crits() {
+        let mut run = Run::default();
+        let c = cast(&run, "combustion");
+        utility(&mut run, "combustion", &c, true);
+        let source = Source {
+            ability: Some("fireball"),
+            ..default()
+        };
+        for i in 0..3 {
+            let mut stats = run.stats();
+            let base = stats.crit;
+            let mut bolt = cast(&run, "fireball");
+            modify_cast(&run, "fireball", &mut bolt, &mut stats);
+            assert!((stats.crit - base - i as f32 * 0.1).abs() < 0.001);
+            on_damage(
+                &mut run,
+                Source {
+                    secondary: true,
+                    ..source
+                },
+                true,
+            );
+            on_damage(
+                &mut run,
+                Source {
+                    periodic: true,
+                    ..source
+                },
+                true,
+            );
+            on_damage(
+                &mut run,
+                Source {
+                    ability: Some("flamestrike"),
+                    ..source
+                },
+                true,
+            );
+            assert_eq!(run.expansion.combustion_crits, i);
+            on_damage(&mut run, source, true);
+        }
+        assert!(!active(&run, "combustion"));
+        assert!(buffs(&run).is_empty());
+        utility(&mut run, "combustion", &c, true);
+        assert_eq!(run.expansion.combustion_bonus, 0.0);
+    }
+
+    #[test]
+    fn mage_armors_are_mutually_exclusive_but_other_buffs_can_coexist() {
+        let mut run = Run::default();
+        let frost = cast(&run, "frost_armor");
+        let mage = cast(&run, "mage_armor");
+        let power = cast(&run, "arcane_power");
+        assert_eq!(utility(&mut run, "frost_armor", &frost, true), Some(true));
+        assert_eq!(utility(&mut run, "mage_armor", &mage, true), Some(false));
+        assert_eq!(utility(&mut run, "arcane_power", &power, true), Some(true));
+        run.elapsed += frost.duration + 1.0;
+        assert_eq!(utility(&mut run, "mage_armor", &mage, true), Some(true));
+    }
+
+    #[test]
+    fn offensive_buffs_do_not_amplify_healing_or_absorption() {
+        let mut run = Run::default();
+        for key in ["arcane_power", "presence_of_mind"] {
+            let c = cast(&run, key);
+            assert_eq!(utility(&mut run, key, &c, true), Some(true));
+        }
+        for key in [
+            "ice_barrier",
+            "mana_shield",
+            "flash_heal",
+            "rejuvenation",
+            "thorns",
+        ] {
+            let mut c = cast(&run, key);
+            let before = (c.dmg, c.dot);
+            modify_cast(&run, key, &mut c, &mut run.stats());
+            assert_eq!((c.dmg, c.dot), before, "{key}");
+            assert_eq!(c.modifiers.echo, 0.0, "{key}");
+        }
+        for key in ["frostbolt", "arcane_shot"] {
+            let mut c = cast(&run, key);
+            let before = c.dmg;
+            modify_cast(&run, key, &mut c, &mut run.stats());
+            if key == "frostbolt" {
+                assert!(c.dmg > before);
+            } else {
+                assert_eq!(c.dmg, before, "{key}");
+            }
+        }
+    }
+
+    #[test]
+    fn all_skill_identities_resolve_against_the_installed_vanilla_catalog() {
+        let data = benilla_formats::wow_data_or_skip!();
+        let mut chain = benilla_formats::open_chain(&data).unwrap();
+        let catalog = benilla_formats::load_spell_catalog(&mut chain).unwrap();
+        let mut mismatches = Vec::new();
+        for def in data::ABILITIES {
+            let spell = catalog
+                .get(def.spell)
+                .unwrap_or_else(|| panic!("{}", def.key));
+            assert!(spell.icon.is_some(), "{} has no original icon", def.key);
+            assert!(!spell.name.is_empty(), "{} has no original name", def.key);
+            if def.damage > 0.0 || def.dot > 0.0 {
+                let effect = if def.key == "deadly_poison" {
+                    catalog.get(2818).unwrap()
+                } else {
+                    spell
+                };
+                if def.school() as u32 != effect.school {
+                    mismatches.push(format!(
+                        "{}: {:?}, DBC {}",
+                        def.key,
+                        def.school(),
+                        effect.school
+                    ));
+                }
+            }
+        }
+        assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
     }
 
     #[test]

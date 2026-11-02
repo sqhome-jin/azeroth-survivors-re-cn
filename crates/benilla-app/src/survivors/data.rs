@@ -43,10 +43,10 @@ pub(crate) enum Kind {
     Dot,
     /// Always on: pulses every `cooldown` around the hero, with the spell's state visual on him.
     Aura,
-    /// Always on: zaps one enemy close to the hero every `cooldown`.
-    Orbit,
     /// Absorbs `damage` for `duration`.
     Shield,
+    /// A self-targeted utility handled by `spell_expansion`, never an absorption shield.
+    Buff,
     /// Immune for `duration`.
     Immune,
     /// Returns `damage` to every attacker for `duration`.
@@ -96,6 +96,96 @@ pub(crate) struct AbilityDef {
     /// The area's own visual hangs overhead and would hide the field from the camera, so the
     /// area plays the spell's impact on whatever it hits instead.
     pub overhead: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub(crate) enum School {
+    Physical = 0,
+    Holy = 1,
+    Fire = 2,
+    Nature = 3,
+    Frost = 4,
+    Shadow = 5,
+    Arcane = 6,
+}
+
+impl AbilityDef {
+    /// The 1.12 effect school, using the triggered poison rather than its weapon coating.
+    pub fn school(&self) -> School {
+        match self.key {
+            "smite"
+            | "holy_fire"
+            | "holy_nova"
+            | "power_word_shield"
+            | "hammer_of_wrath"
+            | "consecration"
+            | "holy_shock"
+            | "exorcism"
+            | "holy_wrath"
+            | "hammer_of_justice"
+            | "divine_shield"
+            | "judgement"
+            | "seal_of_righteousness"
+            | "seal_of_command"
+            | "seal_of_wisdom"
+            | "seal_of_light"
+            | "flash_of_light"
+            | "holy_light"
+            | "devotion_aura"
+            | "retribution_aura"
+            | "flash_heal"
+            | "prayer_of_healing"
+            | "inner_fire" => School::Holy,
+            "fireball" | "flamestrike" | "fire_blast" | "blast_wave" | "pyroblast" | "immolate"
+            | "rain_of_fire" | "hellfire" | "searing_pain" | "soul_fire" | "explosive_trap"
+            | "immolation_trap" | "flame_shock" | "searing_totem" | "magma_totem"
+            | "combustion" => School::Fire,
+            "frostbolt"
+            | "frost_nova"
+            | "blizzard"
+            | "cone_of_cold"
+            | "frost_shock"
+            | "frost_trap"
+            | "frostbrand_weapon"
+            | "ice_barrier"
+            | "ice_block"
+            | "frost_armor"
+            | "cold_snap"
+            | "healing_stream_totem" => School::Frost,
+            "shadow_word_pain" | "mind_blast" | "psychic_scream" | "shadow_bolt" | "corruption"
+            | "curse_of_agony" | "death_coil" | "shadowburn" | "mind_flay" | "vampiric_embrace"
+            | "devouring_plague" | "shadowguard" | "siphon_life" | "drain_life" | "drain_soul"
+            | "curse_of_elements" | "curse_of_weakness" | "curse_of_tongues" | "curse_of_doom"
+            | "fear" => School::Shadow,
+            "lightning_bolt"
+            | "chain_lightning"
+            | "earth_shock"
+            | "lightning_shield"
+            | "serpent_sting"
+            | "wyvern_sting"
+            | "deadly_poison"
+            | "wrath"
+            | "hurricane"
+            | "insect_swarm"
+            | "entangling_roots"
+            | "thorns"
+            | "rejuvenation"
+            | "windfury_weapon"
+            | "rockbiter_weapon"
+            | "healing_wave"
+            | "lesser_healing_wave"
+            | "earthbind_totem"
+            | "stoneclaw_totem"
+            | "regrowth"
+            | "healing_touch"
+            | "barkskin" => School::Nature,
+            "arcane_missiles" | "arcane_explosion" | "arcane_shot" | "concussive_shot"
+            | "volley" | "moonfire" | "starfire" | "polymorph" | "mage_armor" | "mana_shield"
+            | "dampen_magic" | "arcane_power" | "presence_of_mind" => School::Arcane,
+            _ => School::Physical,
+        }
+    }
 }
 
 const fn ab(key: &'static str, spell: u32, kind: Kind) -> AbilityDef {
@@ -283,9 +373,9 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "sweeping_strikes",
         12292,
-        Aura {
-            damage: 6.0,
-            cooldown: 0.6,
+        Buff {
+            cooldown: 18.0,
+            duration: 8.0,
             radius: 5.5
         }
     ),
@@ -350,9 +440,9 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "blade_flurry",
         13877,
-        Nova {
-            damage: 11.0,
-            cooldown: 3.0,
+        Buff {
+            cooldown: 18.0,
+            duration: 8.0,
             radius: 6.0
         }
     ),
@@ -707,10 +797,10 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "lightning_shield",
         324,
-        Orbit {
+        Thorns {
             damage: 12.0,
-            cooldown: 0.9,
-            radius: 4.0
+            cooldown: 16.0,
+            duration: 12.0
         }
     ),
     // --- Paladin ---
@@ -951,7 +1041,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "shield_wall",
         871,
-        Shield {
+        Buff {
             duration: 5.0,
             cooldown: 30.0
         }
@@ -968,7 +1058,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "seal_of_righteousness",
         21084,
-        Shield {
+        Buff {
             damage: 8.0,
             duration: 15.0,
             cooldown: 18.0
@@ -977,7 +1067,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "seal_of_command",
         20375,
-        Shield {
+        Buff {
             damage: 22.0,
             duration: 15.0,
             cooldown: 18.0
@@ -986,7 +1076,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "seal_of_wisdom",
         20166,
-        Shield {
+        Buff {
             duration: 15.0,
             cooldown: 18.0
         }
@@ -994,7 +1084,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "seal_of_light",
         20165,
-        Shield {
+        Buff {
             damage: 5.0,
             duration: 15.0,
             cooldown: 18.0
@@ -1021,7 +1111,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "devotion_aura",
         465,
-        Shield {
+        Buff {
             duration: 18.0,
             cooldown: 20.0
         }
@@ -1102,7 +1192,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "rapid_fire",
         3045,
-        Shield {
+        Buff {
             duration: 8.0,
             cooldown: 24.0
         }
@@ -1140,7 +1230,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "deadly_poison",
         2823,
-        Shield {
+        Buff {
             damage: 4.0,
             duration: 15.0,
             cooldown: 18.0
@@ -1160,7 +1250,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "evasion",
         5277,
-        Shield {
+        Buff {
             duration: 6.0,
             cooldown: 25.0
         }
@@ -1220,7 +1310,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "inner_fire",
         588,
-        Shield {
+        Buff {
             duration: 18.0,
             cooldown: 20.0
         }
@@ -1237,7 +1327,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "windfury_weapon",
         8232,
-        Shield {
+        Buff {
             damage: 15.0,
             duration: 15.0,
             cooldown: 18.0
@@ -1246,7 +1336,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "rockbiter_weapon",
         8017,
-        Shield {
+        Buff {
             duration: 15.0,
             cooldown: 18.0
         }
@@ -1254,7 +1344,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "frostbrand_weapon",
         8033,
-        Shield {
+        Buff {
             damage: 8.0,
             duration: 15.0,
             cooldown: 18.0
@@ -1345,7 +1435,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "frost_armor",
         168,
-        Shield {
+        Buff {
             duration: 18.0,
             cooldown: 20.0
         }
@@ -1353,7 +1443,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "mage_armor",
         6117,
-        Shield {
+        Buff {
             duration: 18.0,
             cooldown: 20.0
         }
@@ -1370,7 +1460,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "dampen_magic",
         604,
-        Shield {
+        Buff {
             duration: 10.0,
             cooldown: 16.0
         }
@@ -1378,7 +1468,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "arcane_power",
         12042,
-        Shield {
+        Buff {
             duration: 6.0,
             cooldown: 22.0
         }
@@ -1386,7 +1476,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "presence_of_mind",
         12043,
-        Shield {
+        Buff {
             duration: 10.0,
             cooldown: 25.0
         }
@@ -1394,12 +1484,12 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "combustion",
         11129,
-        Shield {
+        Buff {
             duration: 8.0,
             cooldown: 24.0
         }
     ),
-    ability!("cold_snap", 12472, Shield { cooldown: 32.0 }),
+    ability!("cold_snap", 12472, Buff { cooldown: 32.0 }),
     ability!(
         "siphon_life",
         18265,
@@ -1571,7 +1661,7 @@ pub(crate) static ABILITIES: &[AbilityDef] = &[
     ability!(
         "barkskin",
         22812,
-        Shield {
+        Buff {
             duration: 7.0,
             cooldown: 22.0
         }

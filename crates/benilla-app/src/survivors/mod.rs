@@ -314,12 +314,16 @@ pub(super) struct Run {
     pub shield_t: f32,
     pub shield_source: Option<&'static str>,
     pub immune_t: f32,
+    pub immune_spell: u32,
     pub thorns: f32,
     pub thorns_t: f32,
     pub thorns_spell: u32,
+    thorns_ready: f32,
+    thorns_every: f32,
     thorns_source: skill_effects::Source,
     pub heal_rate: f32,
     pub heal_t: f32,
+    pub heal_spell: u32,
     /// The class mobility's cooldown and running effect.
     mobile: mobility::MobilityState,
     pub pending_levels: u32,
@@ -368,12 +372,16 @@ impl Default for Run {
             shield_t: 0.0,
             shield_source: None,
             immune_t: 0.0,
+            immune_spell: 642,
             thorns: 0.0,
             thorns_t: 0.0,
             thorns_spell: 0,
+            thorns_ready: 0.0,
+            thorns_every: 0.0,
             thorns_source: skill_effects::Source::default(),
             heal_rate: 0.0,
             heal_t: 0.0,
+            heal_spell: 774,
             mobile: mobility::MobilityState::default(),
             pending_levels: 0,
             bosses: 0,
@@ -403,6 +411,10 @@ impl Stats {
 }
 
 impl Run {
+    pub fn ice_blocked(&self) -> bool {
+        self.immune_t > 0.0 && self.immune_spell == 11958
+    }
+
     pub fn passive_growth(&self, passive: &PassiveDef) -> f32 {
         self.passive_growth
             .get(passive.key)

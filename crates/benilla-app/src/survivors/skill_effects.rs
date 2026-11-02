@@ -216,7 +216,6 @@ pub(super) fn damage_effects(run: &mut Run, source: Source, effective: f32, rng:
         return;
     }
     let Some(key) = source.ability else { return };
-    let def = data::ability(key);
     let leech = source.modifiers.leech;
     let base_leech = if source.periodic {
         run.leech()
@@ -229,6 +228,7 @@ pub(super) fn damage_effects(run: &mut Run, source: Source, effective: f32, rng:
     if source.secondary {
         return;
     }
+    let def = data::ability(key);
     for roll in run
         .gear
         .enh
