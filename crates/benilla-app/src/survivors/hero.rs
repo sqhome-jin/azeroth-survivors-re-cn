@@ -421,17 +421,25 @@ fn hurt(run: &mut Run, raw: f32, contact: bool) -> (f32, f32) {
         return (0.0, 0.0);
     }
     let armored = (raw - run.stats().armor).max(1.0);
+    let barrier = if run.ice_barrier.present() {
+        run.ice_barrier.capacity
+    } else {
+        0.0
+    };
     let projected = run.hp
-        - (armored * run.incoming() - if run.shield_t > 0.0 { run.shield } else { 0.0 }).max(0.0);
+        - (armored * run.incoming() - barrier - if run.shield_t > 0.0 { run.shield } else { 0.0 })
+            .max(0.0);
     if contact {
         super::class_mechanics::before_contact(run, projected);
     }
     let mut dmg = armored * run.incoming();
-    let mut absorbed = 0.0;
+    let mut absorbed = run.ice_barrier.absorb(dmg);
+    dmg -= absorbed;
     if run.shield_t > 0.0 && run.shield > 0.0 {
-        absorbed = dmg.min(run.shield);
-        run.shield -= absorbed;
-        dmg -= absorbed;
+        let other_absorbed = dmg.min(run.shield);
+        run.shield -= other_absorbed;
+        dmg -= other_absorbed;
+        absorbed += other_absorbed;
     }
     run.hp -= dmg;
     let reflect = if contact {
@@ -465,6 +473,7 @@ pub(super) fn hero_vitals(
     }
     run.elapsed += dt;
     let r = &mut *run;
+    r.ice_barrier.tick(dt);
     for t in [&mut r.shield_t, &mut r.immune_t, &mut r.thorns_t] {
         *t = (*t - dt).max(0.0);
     }
@@ -488,6 +497,12 @@ pub(super) fn hero_vitals(
 
     // The buffs show as their own state kits: the shield bubble, the immunity glow, the orbs.
     let mut shown: Vec<u32> = Vec::new();
+    if run.ice_barrier.present() {
+        shown.push(super::data::ability("ice_barrier").spell);
+    }
+    for (absorbed, partial) in run.ice_barrier.feedback.drain(..) {
+        fx.absorption(entity, absorbed, partial);
+    }
     if run.shield_t > 0.0 && run.shield > 0.0 {
         shown.push(super::buffs::shield_spell(run.shield_source));
     }
@@ -513,6 +528,8 @@ pub(super) fn hero_vitals(
 
     if run.hp <= 0.0 {
         run.hp = 0.0;
+        run.ice_barrier.clear();
+        run.ice_barrier.feedback.clear();
         run.dead_t = Some(0.0);
         units::kill_unit(&mut store);
         marks.clear();
@@ -553,6 +570,47 @@ mod tests {
     use super::*;
     use bevy::ecs::system::RunSystemOnce;
     use bevy::window::{CursorLeft, WindowFocused};
+
+    #[test]
+    fn mage_barrier_absorbs_before_other_shields_and_overflows_once() {
+        let mut run = Run {
+            class: data::CLASSES.iter().find(|c| c.id == 8).unwrap(),
+            ..default()
+        };
+        for key in ["frost_armor", "dampen_magic"] {
+            let cast = super::super::growth::cast_for_run(data::ability(key), 1, 1.0, &run);
+            assert_eq!(
+                super::super::spell_expansion::utility(&mut run, key, &cast, true),
+                Some(true)
+            );
+        }
+        assert!(run.stats().armor > 0.0 && run.incoming() < 1.0);
+        run.ice_barrier.cast(55.0, 12.0);
+        run.shield = 20.0;
+        run.shield_t = 8.0;
+        let hp = run.hp;
+        run.immune_t = 1.0;
+        assert_eq!(hurt_by_spell(&mut run, 100.0), 0.0);
+        assert_eq!(run.ice_barrier.capacity, 55.0);
+        run.immune_t = 0.0;
+        let raw = 30.0;
+        let first = (raw - run.stats().armor).max(1.0) * run.incoming();
+        assert_eq!(hurt_by_spell(&mut run, raw), 0.0);
+        assert!((run.ice_barrier.capacity - (55.0 - first)).abs() < 0.001);
+        assert_eq!(run.shield, 20.0);
+        let second = (100.0 - run.stats().armor).max(1.0) * run.incoming();
+        let expected = second - (55.0 - first) - 20.0;
+        assert!((hurt_hero(&mut run, 100.0).0 - expected).abs() < 0.001);
+        assert!((run.hp - (hp - expected)).abs() < 0.001);
+        assert_eq!(
+            (run.ice_barrier.capacity, run.ice_barrier.left, run.shield),
+            (0.0, 0.0, 0.0)
+        );
+        assert_eq!(
+            run.ice_barrier.feedback,
+            vec![(first, false), (55.0 - first, true)]
+        );
+    }
 
     #[test]
     fn boss_spells_respect_immunity_armor_shields_and_do_not_resurrect() {

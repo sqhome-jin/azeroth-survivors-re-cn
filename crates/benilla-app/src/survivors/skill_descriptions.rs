@@ -503,6 +503,22 @@ pub(super) fn details(run: &Run, def: &'static AbilityDef, _gear: Option<&Gear>)
             lines.push(description.into());
         }
     }
+    if def.key == "ice_barrier" {
+        lines.push(tr(
+                "Independent cumulative shield, after damage reduction and before other shields. Casts at full health without enemies; never overwrites itself. Cold Snap resets its cooldown only.",
+                "独立累计吸收盾，减伤后先于其他盾；满血、无敌人也自动释放，不覆盖自身冰盾；急速冷却只重置其冷却。",
+            ).into());
+    }
+    if matches!(
+        def.key,
+        "presence_of_mind" | "cold_snap" | "frost_armor" | "mage_armor"
+    ) {
+        if let Some(text) =
+            super::skill_tooltip_text::special_description(def.key, localization::is_zh_cn())
+        {
+            lines.push(text.into());
+        }
+    }
     let rolls: Vec<_> = run
         .gear
         .enh

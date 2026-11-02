@@ -255,10 +255,8 @@ pub(super) fn cast_abilities(
     if run.dead_t.is_some() || run.hp <= 0.0 || dt <= 0.0 {
         return;
     }
+    spell_expansion::tick_cooldowns(&mut run, dt);
     spell_expansion::observe(&mut run);
-    for owned in &mut run.abilities {
-        owned.cd = (owned.cd - dt).max(0.0);
-    }
     if run.ice_blocked() {
         return;
     }
@@ -316,6 +314,9 @@ pub(super) fn cast_abilities(
     };
 
     for i in 0..run.abilities.len() {
+        if run.ice_blocked() {
+            break;
+        }
         if run.abilities[i].cd > 0.0 {
             continue;
         }
@@ -584,6 +585,13 @@ pub(super) fn cast_abilities(
                     }
                 }
                 Kind::Buff => false,
+                Kind::Shield if def.key == "ice_barrier" => {
+                    let fired = run.ice_barrier.cast(p.dmg, p.duration);
+                    if fired {
+                        fx.cast(me, def.spell, &[me], None);
+                    }
+                    fired
+                }
                 Kind::Shield => {
                     let ready = if def.key == "last_stand" {
                         run.hp < stats.max_hp * 0.65
@@ -1439,6 +1447,269 @@ mod tests {
     }
 
     #[test]
+    fn mage_barrier_casts_at_full_health_without_enemies_or_overwriting_other_shields() {
+        let mut app = caster_app("ice_barrier");
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            run.shield = 20.0;
+            run.shield_t = 8.0;
+            run.shield_source = Some("ice_barrier_talent");
+        }
+        step(&mut app, 0.1);
+        let run = app.world().resource::<Run>();
+        assert!(run.abilities[0].cd > 10.0, "barrier must actually cast");
+        assert_eq!(run.shield, 20.0, "the talent pool must remain independent");
+        assert_eq!(run.shield_source, Some("ice_barrier_talent"));
+    }
+
+    #[test]
+    fn mage_barrier_reset_waits_for_existing_shield_and_retains_growth() {
+        let mut app = caster_app("ice_barrier");
+        app.world_mut().resource_mut::<Run>().abilities[0].growth = 3.2;
+        step(&mut app, 0.1);
+        let expected = {
+            let run = app.world().resource::<Run>();
+            super::super::growth::cast_for_run(data::ability("ice_barrier"), 1, 3.2, run)
+        };
+        assert!(expected.dmg > 55.0 && expected.duration > 12.0 && expected.cooldown < 20.0);
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            assert_eq!(run.ice_barrier.capacity, expected.dmg);
+            hero::hurt_by_spell(&mut run, 20.0);
+            let c = super::super::growth::cast_for_run(data::ability("cold_snap"), 1, 20.0, &run);
+            let before = (
+                run.ice_barrier.capacity,
+                run.ice_barrier.left,
+                run.shield,
+                run.shield_t,
+            );
+            assert_eq!(
+                spell_expansion::utility(&mut run, "cold_snap", &c, false),
+                Some(true)
+            );
+            assert_eq!(run.abilities[0].cd, 0.0);
+            assert_eq!(
+                (
+                    run.ice_barrier.capacity,
+                    run.ice_barrier.left,
+                    run.shield,
+                    run.shield_t
+                ),
+                before
+            );
+        }
+        step(&mut app, 0.1);
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            assert!(
+                run.ice_barrier.capacity < expected.dmg,
+                "reset must not refill the barrier"
+            );
+            run.ice_barrier.tick(expected.duration);
+            assert!(!run.ice_barrier.present());
+        }
+        step(&mut app, 0.2);
+        assert_eq!(
+            app.world().resource::<Run>().ice_barrier.capacity,
+            expected.dmg
+        );
+    }
+
+    #[test]
+    fn mage_barrier_vitals_expiry_death_and_absorption_feedback_follow_state() {
+        let mut app = finale_app();
+        let me = app
+            .world_mut()
+            .query_filtered::<Entity, With<Hero>>()
+            .single(app.world())
+            .unwrap();
+        app.world_mut().entity_mut(me).insert(Marks::buffs());
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            run.ice_barrier.cast(55.0, 1.0);
+            run.shield = 20.0;
+            run.shield_t = 8.0;
+            run.shield_source = Some("mana_shield");
+            hero::hurt_by_spell(&mut run, 10.0);
+            run.immune_t = 3.0;
+        }
+        step(&mut app, 0.25);
+        let auras = |app: &App| {
+            app.world()
+                .get::<ObjectStore>(me)
+                .unwrap()
+                .0
+                .raw_fields()
+                .filter(|(index, _)| (47..55).contains(index))
+                .map(|(_, spell)| spell)
+                .collect::<Vec<_>>()
+        };
+        assert!(auras(&app).contains(&11426));
+        assert!(auras(&app).contains(&1463));
+        let text: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<crate::combat_text::CombatTextSpawn>>()
+            .drain()
+            .collect();
+        assert!(text
+            .iter()
+            .any(|t| t.text.contains("完全吸收") || t.text.contains("Absorbed")));
+        step(&mut app, 1.0);
+        let run = app.world().resource::<Run>();
+        assert_eq!((run.ice_barrier.capacity, run.ice_barrier.left), (0.0, 0.0));
+        assert_eq!(run.shield, 20.0, "expiry must not erase the other shield");
+        assert!(!auras(&app).contains(&11426));
+        assert!(auras(&app).contains(&1463));
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            run.ice_barrier.cast(55.0, 12.0);
+            run.hp = 0.0;
+        }
+        step(&mut app, 0.1);
+        assert_eq!(app.world().resource::<Run>().ice_barrier.capacity, 0.0);
+        assert!(!auras(&app).contains(&11426));
+    }
+
+    #[test]
+    fn mage_ice_block_blocks_walking_jumping_and_f_but_not_other_immunity() {
+        for spell in [11958, 642] {
+            let mut app = app();
+            benilla_world::world_point::init_world_point_resources(app.world_mut());
+            app.init_resource::<super::super::Selection>()
+                .init_resource::<hero::AimPoint>()
+                .init_resource::<hero::CamRig>()
+                .init_resource::<crate::player::Player>()
+                .insert_resource(State::new(super::super::Phase::Playing))
+                .add_systems(
+                    Update,
+                    (super::super::mobility::cast_mobility, hero::drive_hero).chain(),
+                );
+            let mut keys = ButtonInput::<KeyCode>::default();
+            for key in [KeyCode::KeyW, KeyCode::Space, KeyCode::KeyF] {
+                keys.press(key);
+            }
+            app.insert_resource(keys);
+            let pos = hero::arena(
+                app.world()
+                    .resource::<super::super::Selection>()
+                    .stage_def(),
+            );
+            let me = app
+                .world_mut()
+                .spawn((
+                    Hero { vy: 0.0, air: 0.0 },
+                    Transform::from_translation(pos),
+                    crate::creature_anim::MovementState::default(),
+                ))
+                .id();
+            {
+                let mut run = app.world_mut().resource_mut::<Run>();
+                run.class = data::CLASSES.iter().find(|c| c.id == 8).unwrap();
+                run.level = 5;
+                run.immune_spell = spell;
+                run.immune_t = 3.0;
+                run.mobile.cd = 0.05;
+            }
+            step(&mut app, 0.1);
+            let blocked = spell == 11958;
+            assert_eq!(
+                app.world().get::<Transform>(me).unwrap().translation == pos,
+                blocked
+            );
+            assert_eq!(app.world().get::<Hero>(me).unwrap().air == 0.0, blocked);
+            assert_eq!(app.world().resource::<Run>().mobile.cd == 0.0, blocked);
+        }
+    }
+
+    #[test]
+    fn mage_ice_block_prevents_later_casts_in_the_same_frame_but_not_existing_damage() {
+        let mut app = caster_app("ice_block");
+        let enemy = foe(&mut app, 1.0, 1000.0);
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            run.hp = 20.0;
+            run.abilities.push(Owned {
+                def: data::ability("frostbolt"),
+                level: 1,
+                growth: 1.0,
+                cd: 0.0,
+            });
+        }
+        app.world_mut()
+            .resource_mut::<PendingHits>()
+            .0
+            .push((0.0, Hit::direct(enemy, 10.0, false)));
+        step(&mut app, 0.1);
+        assert!(app.world().resource::<Run>().ice_blocked());
+        let casts: Vec<_> = app
+            .world_mut()
+            .resource_mut::<Messages<SpellGoTargets>>()
+            .drain()
+            .collect();
+        assert!(casts.iter().any(|c| c.spell_id == 11958));
+        assert!(!casts.iter().any(|c| c.spell_id == 116));
+        assert_eq!(app.world().get::<Enemy>(enemy).unwrap().hp, 990.0);
+    }
+
+    #[test]
+    fn mage_presence_recovers_existing_damage_cooldowns_across_expiry_without_resetting() {
+        let mut app = caster_app("frostbolt");
+        {
+            let mut run = app.world_mut().resource_mut::<Run>();
+            run.abilities.clear();
+            for key in [
+                "frostbolt",
+                "frost_nova",
+                "blizzard",
+                "flamestrike",
+                "cone_of_cold",
+                "polymorph",
+                "ice_barrier",
+                "ice_block",
+                "arcane_power",
+                "presence_of_mind",
+            ] {
+                run.abilities.push(Owned {
+                    def: data::ability(key),
+                    level: 1,
+                    growth: 1.0,
+                    cd: 20.0,
+                });
+            }
+            let c =
+                super::super::growth::cast_for_run(data::ability("presence_of_mind"), 1, 1.0, &run);
+            assert_eq!(
+                spell_expansion::utility(&mut run, "presence_of_mind", &c, false),
+                Some(false)
+            );
+            assert_eq!(
+                spell_expansion::utility(&mut run, "presence_of_mind", &c, true),
+                Some(true)
+            );
+            run.elapsed = 9.5;
+        }
+        step(&mut app, 1.0);
+        let cds: Vec<_> = app
+            .world()
+            .resource::<Run>()
+            .abilities
+            .iter()
+            .map(|o| o.cd)
+            .collect();
+        assert_eq!(
+            &cds[..5],
+            &[18.5; 5],
+            "only half the frame has doubled recovery"
+        );
+        assert_eq!(&cds[5..], &[19.0; 5]);
+        step(&mut app, 1.0);
+        assert_eq!(
+            app.world().resource::<Run>().abilities[0].cd,
+            17.5,
+            "restored progress never rolls back"
+        );
+    }
+    #[test]
     fn reference_builds_have_time_to_play_boss_mechanics() {
         for class_id in [8, 9] {
             for ordinal in [1, 5] {
@@ -1703,8 +1974,13 @@ mod tests {
             }
             step(&mut app, 0.1);
             let run = app.world().resource::<Run>();
-            assert!(run.shield > 0.0 && run.shield_t > 0.0, "{key}");
-            assert_eq!(run.shield_source, Some(key));
+            if key == "ice_barrier" {
+                assert!(run.ice_barrier.present());
+                assert_eq!(run.shield_source, None);
+            } else {
+                assert!(run.shield > 0.0 && run.shield_t > 0.0, "{key}");
+                assert_eq!(run.shield_source, Some(key));
+            }
             assert!(run.abilities[0].cd > 0.2, "{key}");
         }
     }
@@ -1773,8 +2049,10 @@ mod tests {
         step(&mut app, 0.1);
 
         let run = app.world().resource::<Run>();
-        assert_eq!(run.shield_source, Some("ice_barrier"));
-        assert!(run.shield > 40.0);
+        assert_eq!(run.shield_source, None);
+        assert_eq!(run.shield, 40.0);
+        assert!(run.ice_barrier.present());
+        assert!(run.ice_barrier.capacity > 40.0);
     }
 
     #[test]
