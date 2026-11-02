@@ -77,7 +77,7 @@ fn entries(run: &Run, _gear: &gear::Gear) -> Vec<Entry> {
             Some("mana_shield") => l::text("Mana Shield", "法力护盾"),
             Some("power_word_shield") => l::text("Power Word: Shield", "真言术：盾"),
             Some("last_stand") => l::text("Last Stand", "破釜沉舟"),
-            Some("ice_block") => l::text("Ice Block", "寒冰屏障"),
+            Some("ice_block") => l::text("Ice Block · Absorption", "寒冰屏障·附加护盾"),
             Some("divine_shield") => l::text("Divine Shield", "圣盾术"),
             Some("sacred_shield") => l::text("Sacred Shield", "神圣护盾"),
             Some("ancestral_guardian") => l::text("Ancestral Guardian", "先祖守护"),
@@ -96,6 +96,16 @@ fn entries(run: &Run, _gear: &gear::Gear) -> Vec<Entry> {
             shield_spell(run.shield_source),
         );
     }
+    if run.ice_barrier.present() {
+        add(
+            l::text("Ice Barrier · Skill", "寒冰护体·技能").into(),
+            format!("{}: {:.0} · {}",
+                l::text("Remaining absorption", "剩余吸收量"), run.ice_barrier.capacity,
+                l::text("Independent cumulative shield; absorbs before other shields after damage reduction.", "独立累计吸收池；减伤后先于其他盾吸收。")),
+            run.ice_barrier.left,
+            data::ability("ice_barrier").spell,
+        );
+    }
     add(
         hud::spell_name(
             None,
@@ -106,7 +116,11 @@ fn entries(run: &Run, _gear: &gear::Gear) -> Vec<Entry> {
                 "divine_shield"
             },
         ),
-        l::text("Immune to incoming damage.", "持续期间免疫受到的伤害。").into(),
+        if run.ice_blocked() {
+            l::text("Immune to damage; cannot move, cast or use F Blink. Existing missiles, areas and periodic damage continue; cooldowns recover normally.", "免疫伤害；不能移动、施法或F闪现。已有投射物、区域、持续伤害继续，冷却正常恢复。")
+        } else {
+            l::text("Immune to incoming damage.", "持续期间免疫受到的伤害。")
+        }.into(),
         run.immune_t,
         run.immune_spell,
     );
@@ -189,7 +203,15 @@ fn entries(run: &Run, _gear: &gear::Gear) -> Vec<Entry> {
     for (node, en, zh, remaining) in super::class_mechanics::buffs(run) {
         if let Some(nodes) = super::talents::nodes(run.class.id) {
             entries.push(Entry {
-                name: l::text(en, zh).into(),
+                name: if run.class.id == 8 {
+                    format!(
+                        "{} · {}",
+                        l::text(nodes[node].name, nodes[node].zh),
+                        l::text("Talent", "天赋")
+                    )
+                } else {
+                    l::text(en, zh).into()
+                },
                 description: format!(
                     "{} · {} {}\n{}",
                     l::text(nodes[node].name, nodes[node].zh),
@@ -245,7 +267,11 @@ fn entries(run: &Run, _gear: &gear::Gear) -> Vec<Entry> {
             "a timed spell buff must identify its source"
         );
         entries.push(Entry {
-            name: buff.name.into(),
+            name: if l::is_zh_cn() {
+                buff.name.into()
+            } else {
+                hud::spell_name(None, buff.spell, buff.key)
+            },
             description: buff.description,
             remaining: buff.remaining,
             stacks: buff.stacks as usize,
@@ -502,6 +528,53 @@ fn hover(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mage_active_and_talent_arcane_power_keep_separate_rules_and_names() {
+        let mut run = Run {
+            class: data::CLASSES.iter().find(|c| c.id == 8).unwrap(),
+            ..default()
+        };
+        run.talents.0[7] = 1;
+        super::super::class_mechanics::on_mobility(&mut run);
+        let cast = super::super::growth::cast_for_run(data::ability("arcane_power"), 1, 1.0, &run);
+        assert_eq!(
+            super::super::spell_expansion::utility(&mut run, "arcane_power", &cast, true),
+            Some(true)
+        );
+        let tray = entries(&run, &gear::Gear::default());
+        let talent = tray
+            .iter()
+            .find(|e| e.name.contains("天赋") || e.name.contains("Talent"))
+            .unwrap();
+        let skill = tray.iter().find(|e| e.spell == 12042).unwrap();
+        assert_ne!(talent.name, skill.name);
+        assert!(talent.description.contains("20%") && talent.description.contains("15%"));
+        assert!(skill.description.contains("30%"));
+        assert_eq!((talent.remaining, skill.remaining), (5.0, 6.0));
+    }
+
+    #[test]
+    fn mage_skill_and_talent_shields_have_independent_capacity_and_timers() {
+        let mut run = Run {
+            shield: 20.0,
+            shield_t: 6.0,
+            shield_source: Some("ice_barrier_talent"),
+            ..default()
+        };
+        run.ice_barrier.cast(55.0, 12.0);
+        let gear = gear::Gear::default();
+        let tray = entries(&run, &gear);
+        assert_eq!(tray.len(), 2);
+        assert_ne!(tray[0].name, tray[1].name);
+        assert!(tray[0].description.contains("20"));
+        assert!(tray[1].description.contains("55"));
+        assert_eq!((tray[0].remaining, tray[1].remaining), (6.0, 12.0));
+        run.ice_barrier.tick(12.0);
+        let tray = entries(&run, &gear);
+        assert_eq!(tray.len(), 1);
+        assert_eq!(tray[0].remaining, 6.0);
+    }
 
     #[test]
     fn timed_effects_expire_and_do_not_include_permanent_passives() {

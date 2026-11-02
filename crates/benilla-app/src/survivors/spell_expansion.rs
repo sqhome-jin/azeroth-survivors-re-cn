@@ -158,16 +158,16 @@ pub(super) fn description(key: &str) -> Option<&'static str> {
         "frostbrand_weapon" => "持续期间武器命中追加冰霜伤害并减速。",
         "rapid_fire" => "短时间提高远程技能施放频率。",
         "devotion_aura" | "inner_fire" => "持续期间提高护甲；只对自身施放，不向敌人发送增益法术。",
-        "frost_armor" => "持续期间提高护甲，并自动减速身边的近战敌人；不与法师护甲叠加。",
-        "mage_armor" => "持续期间恢复生命并降低受到的伤害；本模式无独立法力系统；不与霜甲术叠加。",
+        "frost_armor" => "持续期间提高护甲，并自动减速身边的近战敌人；学会后不再提供法师护甲新技能卡，两种护甲状态不叠加。",
+        "mage_armor" => "持续期间恢复生命并降低受到的伤害；本模式无独立法力系统；学会后不再提供霜甲术新技能卡，两种护甲状态不叠加。",
         "dampen_magic" => "持续期间受到的伤害降低20%，不提供直接伤害。",
         "arcane_power" => "法术的直接伤害和持续伤害提高30%；不增强治疗、护盾或武器攻击。本模式不消耗法力。",
-        "presence_of_mind" => "本模式法术已自动瞬发，改为下一次实际施放的直接法术伤害提高50%并回响一次；随后消耗。",
+        "presence_of_mind" => "持续期间，有伤害的法师技能冷却恢复速度×2，包括已经开始的冷却；与其他冷却修正乘算。施法不消耗或续期，不改变初始冷却、伤害或跳伤频率；不影响纯控制、防御、功能增益、自身和F闪现。",
         "combustion" => "每次直接火焰法术命中后，后续火焰法术暴击率提高10个百分点，最高100%；累计3次直接火焰暴击或持续时间结束时消失。",
-        "cold_snap" => "重置所有正在冷却的冰霜技能，不会重置自身；累计成长超过1的部分转为持续3秒的吸收护盾。",
+        "cold_snap" => "仅重置已学寒冰箭、冰霜新星、暴风雪、冰锥术、寒冰护体和寒冰屏障的冷却；不刷新自身，不补充或延长护盾，仍在的寒冰护体不会被覆盖。",
         "barkskin" | "evasion" => "树皮术减伤30%，闪避减伤50%。",
-        "ice_block" => "生命低于65%且近处有敌人时自动进入短暂无敌。",
-        "ice_barrier" => "与其他吸收护盾共用护盾池。",
+        "ice_block" => "生命低于65%且5码内有敌人时自动进入短暂无敌；期间不能移动、主动施法或F闪现，已有投射物、区域和持续伤害继续，冷却正常恢复。",
+        "ice_barrier" => "独立吸收池，满血且无敌人也自动释放；自身冰盾仍在时不覆盖、不叠加，其他盾不阻止释放。累计吸收减伤后的伤害，先于其他盾；耗尽或到期消失。",
         "mana_shield" => "与其他吸收护盾共用护盾池；本模式不消耗法力。",
         "flash_of_light"
         | "holy_light"
@@ -228,18 +228,23 @@ pub(super) fn buffs(run: &Run) -> Vec<BuffEntry> {
 }
 
 fn buff_description(run: &Run, buff: &Active) -> String {
+    use super::localization::{is_zh_cn, text as tr};
     let power = buff.power;
     let mut text = match buff.key {
-        "frost_armor" => "护甲 +3。每1秒减速4码内敌人：移动速度降低40%，持续2秒；首领减速最多25%。".into(),
+        "frost_armor" => tr("Armor +3. Every second, slows enemies within 4 yd by 40% for 2 sec; bosses are slowed by at most 25%.", "护甲 +3。每1秒减速4码内敌人：移动速度降低40%，持续2秒；首领减速最多25%。").into(),
         "devotion_aura" => "自身护甲 +5；不向敌人施放增益。".into(),
         "inner_fire" => "自身护甲 +4；不向敌人施放增益。".into(),
-        "mage_armor" => "生命恢复 +1/秒，受到的伤害降低10%；本模式不使用法力。".into(),
+        "mage_armor" => tr("Health regeneration +1/sec; damage taken reduced by 10%. This mode has no mana.", "生命恢复 +1/秒，受到的伤害降低10%；本模式不使用法力。").into(),
         "shield_wall" => "受到的伤害降低60%。生命低于65%、未处于无敌且30码内有敌人时自动开启。".into(),
         "barkskin" => "受到的伤害降低30%。生命低于65%、未处于无敌且30码内有敌人时自动开启。".into(),
         "evasion" => "受到的伤害降低50%（以减伤模拟闪避）。生命低于65%、未处于无敌且30码内有敌人时自动开启。".into(),
-        "dampen_magic" => "受到的伤害降低20%，不造成直接伤害。".into(),
-        "arcane_power" | "presence_of_mind" => description(buff.key).unwrap().into(),
-        "combustion" => format!("每次直接火焰命中后累加10个百分点暴击率；当前 +{:.0}个百分点，暴击进度 {}/3。总暴击率最多100%；3次直接火焰暴击或时间结束时消失。", run.expansion.combustion_bonus * 100.0, run.expansion.combustion_crits),
+        "dampen_magic" => tr("Damage taken reduced by 20%; deals no direct damage.", "受到的伤害降低20%，不造成直接伤害。").into(),
+        "arcane_power" | "presence_of_mind" => super::skill_tooltip_text::special_description(buff.key, is_zh_cn()).unwrap().into(),
+        "combustion" => if is_zh_cn() {
+            format!("每次直接火焰命中后累加10个百分点暴击率；当前 +{:.0}个百分点，暴击进度 {}/3。总暴击率最多100%；3次直接火焰暴击或时间结束时消失。", run.expansion.combustion_bonus * 100.0, run.expansion.combustion_crits)
+        } else {
+            format!("Each direct Fire hit adds 10 percentage points of critical chance; currently +{:.0} points, critical hits {}/3. Total chance capped at 100%; expires after 3 direct Fire critical hits or when time runs out.", run.expansion.combustion_bonus * 100.0, run.expansion.combustion_crits)
+        },
         "rapid_fire" => "奥术射击、多重射击、瞄准射击、毒蛇钉刺和乱射的施放频率提高40%（冷却除以1.4，最低0.2秒）。".into(),
         "rockbiter_weapon" => "武器近战技能伤害提高25%；普通附魔挥击伤害提高25%。".into(),
         "seal_of_wisdom" => "急速 +15个百分点；技能冷却的急速缩减最多65%。本模式不使用法力。".into(),
@@ -268,17 +273,35 @@ fn buff_description(run: &Run, buff: &Active) -> String {
             text.push_str(" 命中触发共享0.5秒内置冷却，只触发一次，不从持续或次级伤害递归。");
         }
     }
-    let might = (buff.growth - 1.0).max(0.0) * 0.01;
+    let might = if buff.key == "presence_of_mind" {
+        0.0
+    } else {
+        (buff.growth - 1.0).max(0.0) * 0.01
+    };
     if might > 0.0 {
         text.push_str(&format!(
-            " 本次增益的品质成长另提供伤害倍率 +{:.2}个百分点。",
-            might * 100.0
+            "{} +{:.2}{}",
+            tr(
+                " Quality growth also grants damage multiplier",
+                " 本次增益的品质成长另提供伤害倍率"
+            ),
+            might * 100.0,
+            tr(" percentage points.", "个百分点。")
         ));
     }
     if run.immune_t > 0.0 {
         text.push_str(&format!(
-            " 当前另有无敌 {:.1}秒、吸收护盾 {:.1}；两者不由本增益提供。",
-            run.immune_t, run.shield
+            "{} {:.1}s / {} {:.1}{}",
+            tr(" Separate immunity", " 当前另有无敌"),
+            run.immune_t,
+            tr("absorption", "吸收护盾"),
+            run.shield
+                + if run.ice_barrier.present() {
+                    run.ice_barrier.capacity
+                } else {
+                    0.0
+                },
+            tr("; not supplied by this buff.", "；不由本增益提供。")
         ));
     }
     text
@@ -416,7 +439,7 @@ pub(super) fn modify_stats(run: &Run, stats: &mut Stats) {
         .expansion
         .active
         .iter()
-        .filter(|b| b.until > run.elapsed)
+        .filter(|b| b.until > run.elapsed && b.key != "presence_of_mind")
     {
         stats.might += (buff.growth - 1.0).max(0.0) * 0.01;
     }
@@ -480,9 +503,24 @@ pub(super) fn modify_cast(run: &Run, key: &str, cast: &mut Cast, stats: &mut Sta
     if active(run, "combustion") && fire(key) && direct_spell(def) {
         stats.crit = (stats.crit + run.expansion.combustion_bonus).min(1.0);
     }
-    if active(run, "presence_of_mind") && direct_spell(def) && cast.dmg > 0.0 {
-        cast.dmg *= 1.5;
-        cast.modifiers.echo = 1.0;
+}
+
+pub(super) fn tick_cooldowns(run: &mut Run, dt: f32) {
+    // elapsed is the frame's start: hero_vitals advances it after casting.
+    let accelerated = run
+        .expansion
+        .active
+        .iter()
+        .find(|b| b.key == "presence_of_mind")
+        .map_or(0.0, |b| (b.until - run.elapsed).clamp(0.0, dt));
+    for owned in &mut run.abilities {
+        let mage_damage = data::CLASSES
+            .iter()
+            .find(|c| c.id == 8)
+            .is_some_and(|c| c.pool.contains(&owned.def.key))
+            && (owned.def.damage > 0.0 || owned.def.dot > 0.0)
+            && spell_damage(owned.def);
+        owned.cd = (owned.cd - dt - if mage_damage { accelerated } else { 0.0 }).max(0.0);
     }
 }
 
@@ -522,25 +560,12 @@ pub(super) fn direct_spell(def: &data::AbilityDef) -> bool {
 /// Returns None for the ordinary damage pipeline, Some(false) when a utility must wait.
 pub(super) fn utility(run: &mut Run, key: &'static str, cast: &Cast, nearby: bool) -> Option<bool> {
     if key == "cold_snap" {
-        let ready = run.abilities.iter().any(|o| frost(o.def.key) && o.cd > 0.2);
+        let ready = run.abilities.iter().any(|o| frost(o.def.key) && o.cd > 0.0);
         if ready {
             for o in &mut run.abilities {
                 if frost(o.def.key) {
                     o.cd = 0.0;
                 }
-            }
-            let growth = run
-                .abilities
-                .iter()
-                .find(|o| o.def.key == key)
-                .map_or(1.0, |o| o.growth);
-            let existing_shield = run.shield;
-            run.shield += (growth - 1.0).max(0.0);
-            if run.shield > existing_shield {
-                run.shield_source = Some(key);
-            }
-            if run.shield > 0.0 {
-                run.shield_t = run.shield_t.max(3.0);
             }
         }
         return Some(ready);
@@ -615,10 +640,7 @@ pub(super) fn cleave(run: &mut Run, source: Source) -> Option<(&'static str, f32
     Some(result)
 }
 
-pub(super) fn on_cast(run: &mut Run, key: &str, direct_spell: bool) {
-    if key != "presence_of_mind" && direct_spell {
-        run.expansion.active.retain(|b| b.key != "presence_of_mind");
-    }
+pub(super) fn on_cast(run: &mut Run, key: &str, _direct_spell: bool) {
     if matches!(key, "overpower" | "mongoose_bite") {
         run.expansion.reactive_until = 0.0;
     }
@@ -1018,33 +1040,44 @@ mod tests {
     }
 
     #[test]
-    fn presence_of_mind_is_consumed_only_by_an_actual_direct_spell() {
+    fn presence_of_mind_persists_without_damage_or_echo_bonus() {
         let mut run = Run::default();
+        own(&mut run, "presence_of_mind", 3.2, 0.0);
+        let might = run.stats().might;
         let c = cast(&run, "presence_of_mind");
         assert_eq!(utility(&mut run, "presence_of_mind", &c, true), Some(true));
+        assert_eq!(run.stats().might, might);
         on_cast(&mut run, "frost_armor", false);
         let mut bolt = cast(&run, "frostbolt");
         let base = bolt.dmg;
         let mut stats = run.stats();
         modify_cast(&run, "frostbolt", &mut bolt, &mut stats);
-        assert!((bolt.dmg - base * 1.5).abs() < 0.001);
-        assert_eq!(bolt.modifiers.echo, 1.0);
+        assert_eq!(bolt.dmg, base);
+        assert_eq!(bolt.modifiers.echo, 0.0);
         on_cast(&mut run, "frostbolt", true);
+        assert!(active(&run, "presence_of_mind"));
+        assert_eq!(utility(&mut run, "presence_of_mind", &c, true), Some(false));
+        run.elapsed += c.duration;
+        observe(&mut run);
         assert!(!active(&run, "presence_of_mind"));
     }
 
     #[test]
-    fn cold_snap_resets_only_frost_and_utility_growth_never_becomes_neutral() {
+    fn cold_snap_resets_only_frost_without_granting_shields() {
         let mut run = Run::default();
-        own(&mut run, "cold_snap", 20.0, 0.0);
+        own(&mut run, "cold_snap", 20.0, 7.0);
         own(&mut run, "fireball", 1.0, 10.0);
         own(&mut run, "frostbolt", 1.0, 10.0);
         let c = cast(&run, "cold_snap");
         assert_eq!(utility(&mut run, "cold_snap", &c, true), Some(true));
         assert_eq!(run.abilities[1].cd, 10.0);
         assert_eq!(run.abilities[2].cd, 0.0);
-        assert_eq!(run.shield, 19.0);
+        assert_eq!(run.abilities[0].cd, 7.0);
+        assert_eq!(run.shield, 0.0);
         assert_eq!(utility(&mut run, "cold_snap", &c, true), Some(false));
+        run.abilities[2].cd = 0.1;
+        assert_eq!(utility(&mut run, "cold_snap", &c, true), Some(true));
+        assert_eq!(run.abilities[2].cd, 0.0);
     }
 
     #[test]

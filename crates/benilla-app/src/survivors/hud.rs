@@ -1059,7 +1059,11 @@ fn choices_for(run: &Run, rng: &mut Rng) -> Vec<Choice> {
     }
     if run.abilities.len() < data::MAX_ABILITIES {
         for key in run.class.pool {
-            if !run.abilities.iter().any(|o| o.def.key == *key) {
+            if !run.abilities.iter().any(|o| {
+                o.def.key == *key
+                    || (matches!(*key, "frost_armor" | "mage_armor")
+                        && matches!(o.def.key, "frost_armor" | "mage_armor"))
+            }) {
                 pool.push((Choice::NewAbility(data::ability(key)), 1.0));
             }
         }
@@ -1841,11 +1845,14 @@ pub(super) fn hero_plate(
     }
     let stats = run.stats();
     let hp = (run.hp / stats.max_hp).clamp(0.0, 1.0);
-    let shield = if run.shield_t > 0.0 {
-        (run.shield / stats.max_hp).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
+    let shield = ((if run.shield_t > 0.0 { run.shield } else { 0.0 }
+        + if run.ice_barrier.present() {
+            run.ice_barrier.capacity
+        } else {
+            0.0
+        })
+        / stats.max_hp)
+        .clamp(0.0, 1.0);
     if let Ok(mut n) = nodes.p2().single_mut() {
         n.width = Val::Percent(hp * 100.0);
     }
@@ -2081,6 +2088,10 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
     if localization::is_zh_cn() {
         return ability_body_zh(def, c);
     }
+    ability_body_en(def, c)
+}
+
+fn ability_body_en(def: &AbilityDef, c: &Cast) -> String {
     let d = num(c.dmg);
     let burst = def.duration <= 0.0;
     let mut s = match def.kind {
@@ -2172,6 +2183,12 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
             description
         }
         Kind::Shield => {
+            if def.key == "ice_barrier" {
+                return format!(
+                    "Automatically casts even at full health without enemies when your own Ice Barrier is absent. An independent pool cumulatively absorbs {d} damage for {} sec after damage reduction and before other shields. Never stacks or overwrites an existing Ice Barrier; expires when depleted or timed out.",
+                    num(c.duration)
+                );
+            }
             let trigger = if def.key == "last_stand" {
                 "Below 65% health"
             } else {
@@ -2370,6 +2387,12 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
             description
         }
         Kind::Shield => {
+            if def.key == "ice_barrier" {
+                return format!(
+                    "自身寒冰护体不存在时自动释放，满血、无敌人或已有其他盾也可释放。独立护盾累计吸收{}点减伤后的伤害，持续{}秒；先于其他盾，不叠加、不覆盖仍在的自身冰盾，耗尽或到期消失",
+                    damage, num(c.duration)
+                );
+            }
             let trigger = if def.key == "last_stand" {
                 "生命低于65%"
             } else {
@@ -3662,10 +3685,83 @@ mod tests {
                     def.key
                 );
             }
+
             assert!(cast.dmg == 0.0 || def.damage > 0.0, "{}", def.key);
         }
     }
 
+    #[test]
+    fn mage_barrier_real_card_path_describes_an_independent_cumulative_shield() {
+        let run = Run::default();
+        let def = data::ability("ice_barrier");
+        let card = describe_card(Choice::NewAbility(def), Rarity::Common, &run, None);
+        assert!(
+            card.desc.contains("independent") || card.desc.contains("独立"),
+            "{}",
+            card.desc
+        );
+        let cast = super::super::growth::cast_for_run(def, 1, 1.0, &run);
+        let zh = ability_body_zh(def, &cast);
+        assert!(
+            zh.contains("累计") && zh.contains("满血") && !zh.contains("下一次"),
+            "{zh}"
+        );
+        let en = ability_body_en(def, &cast);
+        assert!(
+            en.contains("independent") && en.contains("cumulatively") && en.contains("full health"),
+            "{en}"
+        );
+        let mut app = App::new();
+        app.insert_resource(run)
+            .insert_resource(Offer {
+                choices: vec![Choice::NewAbility(def)],
+                qualities: vec![Rarity::Common],
+            })
+            .insert_resource(HudFont(Handle::default()))
+            .init_resource::<Assets<super::super::fill::FillMaterial>>()
+            .add_systems(Update, super::super::cards::deal_cards);
+        app.world_mut().spawn(OfferRow);
+        app.update();
+        let texts: Vec<_> = app
+            .world_mut()
+            .query::<&Text>()
+            .iter(app.world())
+            .map(|t| t.0.as_str())
+            .collect();
+        assert!(
+            texts.iter().any(|text| text.contains(&card.desc)),
+            "dealt card must use the verified description"
+        );
+        let details =
+            super::super::skill_descriptions::details(app.world().resource::<Run>(), def, None)
+                .join("\n");
+        assert!(details.contains("独立") || details.contains("Independent"));
+    }
+
+    #[test]
+    fn mage_armor_cards_exclude_the_other_owned_armor() {
+        for (owned, excluded) in [("frost_armor", "mage_armor"), ("mage_armor", "frost_armor")] {
+            let mut run = Run {
+                class: data::CLASSES.iter().find(|c| c.id == 8).unwrap(),
+                ..default()
+            };
+            run.abilities.push(Owned {
+                def: data::ability(owned),
+                level: 1,
+                growth: 1.0,
+                cd: 0.0,
+            });
+            let mut rng = Rng(12345);
+            for _ in 0..100 {
+                assert!(
+                    !choices_for(&run, &mut rng)
+                        .iter()
+                        .any(|c| { matches!(c, Choice::NewAbility(def) if def.key == excluded) }),
+                    "offered {excluded} while owning {owned}"
+                );
+            }
+        }
+    }
     #[test]
     fn card_descriptions_keep_growth_separate_from_effect_changes() {
         let run = Run::default();

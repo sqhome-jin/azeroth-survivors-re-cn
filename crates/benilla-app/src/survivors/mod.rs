@@ -20,6 +20,7 @@ mod growth;
 mod hero;
 mod hud;
 mod localization;
+mod mage;
 mod menu;
 mod menu_layout;
 mod minimap;
@@ -313,6 +314,7 @@ pub(super) struct Run {
     pub shield: f32,
     pub shield_t: f32,
     pub shield_source: Option<&'static str>,
+    ice_barrier: mage::Barrier,
     pub immune_t: f32,
     pub immune_spell: u32,
     pub thorns: f32,
@@ -371,6 +373,7 @@ impl Default for Run {
             shield: 0.0,
             shield_t: 0.0,
             shield_source: None,
+            ice_barrier: mage::Barrier::default(),
             immune_t: 0.0,
             immune_spell: 642,
             thorns: 0.0,

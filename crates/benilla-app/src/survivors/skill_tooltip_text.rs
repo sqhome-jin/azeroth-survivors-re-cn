@@ -79,20 +79,20 @@ pub(super) fn special_description(key: &str, zh_cn: bool) -> Option<&'static str
         "devotion_aura" => "Increases your armor while active; it affects only you.",
         "inner_fire" => "Increases your armor while active; it affects only you.",
         "frost_armor" => {
-            "Increases armor and automatically slows nearby melee enemies while active. Cannot stack with Mage Armor."
+            "Increases armor and automatically slows nearby melee enemies while active. Mutually exclusive with Mage Armor when learning skills; their buffs cannot stack."
         }
         "mage_armor" => {
-            "Restores health and reduces damage taken while active; this mode has no separate mana system. Cannot stack with Frost Armor."
+            "Restores health and reduces damage taken while active; this mode has no separate mana system. Mutually exclusive with Frost Armor when learning skills; their buffs cannot stack."
         }
         "dampen_magic" => "Reduces damage taken by 20% while active; it deals no direct damage.",
         "presence_of_mind" => {
-            "Spells are already automatic and instant in this mode: your next direct spell cast gains 50% damage and echoes once, then consumes this effect."
+            "While active, damaging Mage skills recover cooldowns at twice normal speed, including cooldowns already running. Multiplies with other cooldown modifiers. Casting neither consumes nor extends it. Does not change initial cooldowns, damage or periodic tick frequency; excludes pure control, defenses, utility buffs, itself and F Blink."
         }
-        "cold_snap" => "Resets all Frost skills on cooldown, not itself. Growth above 1 also grants that much absorption for 3 sec.",
+        "cold_snap" => "Resets only learned Frostbolt, Frost Nova, Blizzard, Cone of Cold, Ice Barrier and Ice Block cooldowns, not itself. Does not add or extend shields; an existing Ice Barrier is not overwritten.",
         "barkskin" => "Reduces damage taken by 30% while active.",
         "evasion" => "Reduces damage taken by 50% while active.",
         "ice_block" => {
-            "Automatically grants brief immunity below 65% health when an enemy is nearby."
+            "Automatically grants immunity below 65% health with an enemy within 5 yd. Cannot move, actively cast or use F Blink; existing missiles, areas and periodic damage continue, and cooldowns keep recovering."
         }
         "flash_of_light" | "holy_light" | "flash_heal" | "prayer_of_healing"
         | "healing_wave" | "lesser_healing_wave" | "healing_touch" => {

@@ -357,6 +357,21 @@ impl Fx<'_> {
         });
     }
 
+    pub fn absorption(&mut self, anchor: Entity, amount: f32, partial: bool) {
+        let label = if partial {
+            super::localization::text("Partial absorb", "部分吸收")
+        } else {
+            super::localization::text("Absorbed", "完全吸收")
+        };
+        self.text.write(CombatTextSpawn {
+            anchor,
+            text: format!("{label} {:.0}", amount),
+            category: 0,
+            color: Some(if partial { 0xFF80_BFFF } else { 0xFF80_FFFF }),
+        });
+        self.impact(anchor, 11426);
+    }
+
     /// A floating number over `anchor`, 0xAARRGGBB.
     pub fn number(&mut self, anchor: Entity, amount: f32, crit: bool, color: u32) {
         let shown = amount.round().max(1.0) as i64;
