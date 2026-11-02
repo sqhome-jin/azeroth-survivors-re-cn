@@ -684,6 +684,16 @@ impl EnhKind {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct ItemComparison {
+    pub slot: u8,
+    pub current: Option<u64>,
+    pub candidate: u64,
+    pub score: f32,
+    pub delta: f32,
+    pub compatible: bool,
+}
+
 #[allow(dead_code)]
 #[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Debug)]
 pub(super) struct ItemIdentity {
@@ -765,6 +775,37 @@ impl Item {
     pub fn slot_name(&self) -> &'static str {
         let s = SLOT_NAMES[usize::from(self.slot).min(SLOT_COUNT - 1)];
         localization::text(s.0, s.1)
+    }
+
+    pub fn score(&self) -> f32 {
+        let affix = self
+            .affixes
+            .iter()
+            .map(|roll| roll.value as f32 / SCALE)
+            .sum::<f32>();
+        let enhancement = self
+            .enhancements
+            .iter()
+            .chain(self.enhancement.iter())
+            .map(|enh| enh.value as f32 / SCALE)
+            .sum::<f32>();
+        affix + enhancement * 0.5
+    }
+
+    #[allow(dead_code)]
+    pub fn proc_value(&self) -> f32 {
+        self.enhancements
+            .iter()
+            .chain(self.enhancement.iter())
+            .map(|enh| {
+                let kind = ENH_KINDS[usize::from(enh.kind).min(ENH_KINDS.len() - 1)];
+                if kind.is_buff() || matches!(kind, EnhKind::Cooldown | EnhKind::Control) {
+                    enh.value as f32 / SCALE
+                } else {
+                    0.0
+                }
+            })
+            .sum::<f32>()
     }
 }
 
@@ -1404,6 +1445,43 @@ impl Gear {
         }
         out
     }
+
+    pub fn compare(&self, class: u8, id: u64) -> Option<ItemComparison> {
+        let item = self.item(id)?;
+        let slot = usize::from(item.slot);
+        let current = self.worn(class, slot);
+        let current_score = current.map(Item::score).unwrap_or(0.0);
+        let score = item.score();
+        let compatible = item.enhancements.iter().chain(item.enhancement.iter()).all(|enh| {
+            if enh.ability.is_empty() {
+                return true;
+            }
+            let allowed = data::CLASSES.iter().any(|c| {
+                c.id == class
+                    && (c.start == enh.ability || c.pool.iter().any(|key| *key == enh.ability))
+            });
+            allowed || !data::ABILITIES.iter().any(|ability| ability.key == enh.ability)
+        });
+        Some(ItemComparison {
+            slot: item.slot,
+            current: current.map(|item| item.id),
+            candidate: id,
+            score,
+            delta: score - current_score,
+            compatible,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn best_replacement(&self, class: u8, slot: usize, candidate_ids: &[u64]) -> Option<u64> {
+        candidate_ids
+            .iter()
+            .copied()
+            .filter_map(|id| self.compare(class, id).map(|comparison| (id, comparison)))
+            .filter(|(_, comparison)| comparison.slot as usize == slot)
+            .max_by(|(_, a), (_, b)| a.delta.partial_cmp(&b.delta).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(id, _)| id)
+    }
 }
 
 fn save_path() -> Option<std::path::PathBuf> {
@@ -2023,6 +2101,48 @@ mod tests {
         };
         retried.upgrade_skills();
         assert_eq!(retried.bag, save.bag);
+    }
+
+    #[test]
+    fn armory_comparison_reports_delta_and_prefers_lower_loss_choice() {
+        let mage = data::CLASSES.iter().find(|c| c.start == "frostbolt").unwrap();
+        let mut gear = Gear::default();
+        let current = Item {
+            id: 0,
+            slot: 0,
+            rarity: 3,
+            base: 0,
+            class: mage.id,
+            affixes: vec![Roll { kind: 0, value: 1000 }],
+            enhancement: None,
+            enhancements: vec![EnhRoll {
+                ability: "frostbolt".to_owned(),
+                kind: 0,
+                value: 500,
+            }],
+        };
+        let current_id = gear.add(current);
+        gear.equip(mage.id, current_id);
+
+        let upgrade = Item {
+            id: 0,
+            slot: 0,
+            rarity: 4,
+            base: 1,
+            class: mage.id,
+            affixes: vec![Roll { kind: 0, value: 3000 }],
+            enhancement: None,
+            enhancements: vec![EnhRoll {
+                ability: "frostbolt".to_owned(),
+                kind: 0,
+                value: 2000,
+            }],
+        };
+        let better_id = gear.add(upgrade);
+        let delta = gear.compare(mage.id, better_id).unwrap();
+        assert!(delta.delta > 0.0);
+        assert!(delta.compatible);
+        assert_eq!(gear.best_replacement(mage.id, 0, &[better_id]), Some(better_id));
     }
 
     #[test]
