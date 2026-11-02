@@ -132,7 +132,11 @@ fn spawn_enemy(
     hero: Vec3,
     boss: bool,
 ) -> Entity {
-    let scale = data::hp_scale(run.elapsed);
+    let scale = if boss {
+        data::boss_hp_scale(run.elapsed)
+    } else {
+        data::hp_scale(run.elapsed)
+    };
     let serial = run.guid();
     let e = units::spawn_unit(
         commands,
@@ -622,6 +626,43 @@ pub(super) fn still_gems(
 #[cfg(test)]
 mod loot_tests {
     use super::*;
+
+    #[test]
+    fn real_spawns_use_separate_normal_and_boss_endurance_curves() {
+        let mut app = App::new();
+        app.insert_resource(Run {
+            elapsed: 600.0,
+            ..default()
+        })
+        .add_systems(Startup, |mut commands: Commands, mut run: ResMut<Run>| {
+            spawn_enemy(
+                &mut commands,
+                &mut run,
+                &data::ENEMIES[29],
+                Vec3::ZERO,
+                Vec3::X,
+                false,
+            );
+            spawn_enemy(
+                &mut commands,
+                &mut run,
+                &data::BOSSES[4],
+                Vec3::ZERO,
+                Vec3::X,
+                true,
+            );
+        });
+        app.update();
+        let world = app.world_mut();
+        let mut enemies = world.query::<&Enemy>();
+        assert_eq!(enemies.iter(world).count(), 2);
+        for enemy in enemies.iter(world) {
+            assert_eq!(enemy.hp, enemy.max_hp);
+            assert_eq!(enemy.hp, if enemy.boss { 45_000.0 } else { 1440.0 });
+            assert_eq!(enemy.damage, enemy.def.damage * 1.9);
+            assert_eq!(enemy.xp, enemy.def.xp);
+        }
+    }
 
     #[test]
     fn bosses_spawn_inside_each_arena_even_when_hero_is_at_its_edge() {

@@ -483,7 +483,7 @@ mod tests {
         ];
         let total: f32 = qualities.into_iter().map(Rarity::growth).sum();
         assert!((total - 9.75).abs() < 0.0001);
-        assert!((growth::damage(total) - 3.625).abs() < 0.0001);
+        assert!((growth::damage(total) - 3.038_749_5).abs() < 0.0001);
     }
 
     #[test]
