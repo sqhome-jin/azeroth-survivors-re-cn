@@ -43,6 +43,10 @@ pub(super) struct WarmLanes<'w> {
     pub(super) images: ResMut<'w, Assets<Image>>,
     /// For the minimap interior composite's tile material, through its production builder.
     ui_quads: ResMut<'w, Assets<crate::ui_pass::UiQuadMaterial>>,
+    /// The Survivors UI fill and sweep materials compile through the same warm pass as the in-run
+    /// HUD, so they never do their first pipeline build under a live screen.
+    sweeps: ResMut<'w, Assets<crate::survivors::SweepUiMaterial>>,
+    fills: ResMut<'w, Assets<crate::survivors::FillMaterial>>,
 }
 
 /// A portrait booth camera and its layer. Booths run `Msaa::Off`, so each model pipeline has a
@@ -559,6 +563,36 @@ pub(super) fn spawn_menagerie(
         WarmRig,
     ));
     count += 1;
+
+    // The Survivors HUD's custom UI material lanes also need a warm compile: the real UI nodes
+    // register them in `survivors::{hud,fill}` and they must never be the first live pipeline for a
+    // running screen.
+    let sweep = lanes
+        .sweeps
+        .add(crate::survivors::SweepUiMaterial { sweep: 0.0 });
+    commands.spawn((
+        Node {
+            width: Val::Px(1.0),
+            height: Val::Px(1.0),
+            ..default()
+        },
+        bevy::ui_render::ui_material::MaterialNode(sweep),
+        Visibility::Hidden,
+    ));
+    let fill = lanes.fills.add(crate::survivors::FillMaterial::radial(
+        Color::WHITE,
+        Color::BLACK,
+    ));
+    commands.spawn((
+        Node {
+            width: Val::Px(1.0),
+            height: Val::Px(1.0),
+            ..default()
+        },
+        bevy::ui_render::ui_material::MaterialNode(fill),
+        Visibility::Hidden,
+    ));
+    count += 2;
 
     count
 }

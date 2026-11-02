@@ -81,6 +81,8 @@ fn is_instrument_consumer(rel: &str) -> bool {
 /// The designed API: every engine item game code may name, with the record that published it
 /// (`wall`: published without one). Adding a row is a claim made in review, with its record.
 const PUBLISHED: &[(&str, &str)] = &[
+    ("art_scope::ArtScope", "record"),
+    ("art_scope::ArtSlot", "record"),
     ("bgwin::BgWinPlugin", "wall"),
     ("bgwin::background_run", "record"),
     ("bgwin::no_pixel_run", "record"),
@@ -109,6 +111,8 @@ const PUBLISHED: &[(&str, &str)] = &[
     ("final_pass::FinalPassTarget", "record"),
     ("instance_tint::InstanceTintMirrors", "record"),
     ("instance_tint::InstanceTints", "record"),
+    ("interact::CreaturePickPart", "record"),
+    ("interact::GoPickPart", "record"),
     ("interact::PickMesh", "record"),
     ("interact::WorldObject", "record"),
     ("interact::WorldPick", "record"),
@@ -122,6 +126,7 @@ const PUBLISHED: &[(&str, &str)] = &[
     ("mat_anim_table::MatAnimTable", "record"),
     ("mat_anim_table::affine_row", "record"),
     ("mesh_tag::HIGHLIGHT_BIT", "record"),
+    ("mesh_tag::spawn_tag", "record"),
     ("model_fade::ModelFade", "record"),
     ("model_fade::ParentModel", "record"),
     ("model_fade::RenderFade", "record"),
@@ -157,6 +162,8 @@ const PUBLISHED: &[(&str, &str)] = &[
     ("thread_qos::QosClass", "record"),
     ("thread_qos::ThreadQosPlugin", "wall"),
     ("thread_qos::promote_current_thread", "record"),
+    ("view::CAM_FAR", "record"),
+    ("view::MSAA_RANGE", "record"),
     ("view::MsaaFormats", "record"),
     ("view::MsaaSetting", "record"),
     ("view::ViewDistance", "record"),
@@ -170,6 +177,7 @@ const PUBLISHED: &[(&str, &str)] = &[
     ("world_census::WorldCensus", "record"),
     ("world_map::CurrentMap", "record"),
     ("world_map::MapChange", "record"),
+    ("world_map::set_start_map", "record"),
     ("world_plugins::WorldPlugins", "record"),
     ("world_point::Subject", "record"),
     ("world_point::WorldPoint", "record"),

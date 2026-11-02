@@ -80,6 +80,8 @@ where
     input.release_all();
 }
 
+// Browser wake-up plumbing is not player input; the web bridge sends `WinitUserEvent::WakeUp`
+// through `EventLoopProxyWrapper`, and the loading cover must not swallow it.
 /// The raw input-message queues, as one [`bevy::ecs::system::SystemParam`] to stay under Bevy's
 /// 16-parameter ceiling.
 #[derive(bevy::ecs::system::SystemParam)]

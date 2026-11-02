@@ -34,6 +34,9 @@ mod target_ui;
 mod units;
 mod warlock;
 
+pub(crate) use fill::FillMaterial;
+pub(crate) use hud::SweepUiMaterial;
+
 use benilla_world::schedule::WorldStage;
 use bevy::prelude::*;
 
