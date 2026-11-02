@@ -460,6 +460,10 @@ pub(super) fn hero_vitals(
     for t in [&mut r.shield_t, &mut r.immune_t, &mut r.thorns_t] {
         *t = (*t - dt).max(0.0);
     }
+    if r.shield_t <= 0.0 {
+        r.shield = 0.0;
+        r.shield_source = None;
+    }
     let was_healing = run.heal_t > 0.0;
     let mut hot = 0.0;
     let mut heal = stats.regen * dt;

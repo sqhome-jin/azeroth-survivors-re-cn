@@ -27,6 +27,7 @@ mod mobility;
 mod preview;
 mod skill_descriptions;
 mod skill_effects;
+mod skill_tooltip_text;
 mod spell_expansion;
 mod talent_catalog;
 mod talents;
@@ -311,6 +312,7 @@ pub(super) struct Run {
     pub passive_growth: std::collections::BTreeMap<&'static str, f32>,
     pub shield: f32,
     pub shield_t: f32,
+    pub shield_source: Option<&'static str>,
     pub immune_t: f32,
     pub thorns: f32,
     pub thorns_t: f32,
@@ -364,6 +366,7 @@ impl Default for Run {
             passive_growth: std::collections::BTreeMap::new(),
             shield: 0.0,
             shield_t: 0.0,
+            shield_source: None,
             immune_t: 0.0,
             thorns: 0.0,
             thorns_t: 0.0,

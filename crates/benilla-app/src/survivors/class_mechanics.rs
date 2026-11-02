@@ -192,7 +192,7 @@ fn bleeding(enemy: &Enemy) -> bool {
 }
 
 fn slowed(enemy: &Enemy) -> bool {
-    enemy.root_t > 0.0 || (enemy.slow_t > 0.0 && enemy.slow < 1.0)
+    enemy.polymorph_t > 0.0 || enemy.root_t > 0.0 || (enemy.slow_t > 0.0 && enemy.slow < 1.0)
 }
 
 fn once(run: &mut Run, slot: u8, source: Source, whole_cast: bool) -> bool {
@@ -228,11 +228,14 @@ fn capped_heal(run: &mut Run, amount: f32) {
     run.hp = (run.hp + heal).min(max);
 }
 
-fn shield(run: &mut Run, grant: f32, duration: f32) {
+fn shield(run: &mut Run, grant: f32, duration: f32, source: &'static str) {
     if grant <= 0.0 || run.dead_t.is_some() || run.hp <= 0.0 {
         return;
     }
     let existing = if run.shield_t > 0.0 { run.shield } else { 0.0 };
+    if grant > existing {
+        run.shield_source = Some(source);
+    }
     run.shield = existing.max(grant);
     run.shield_t = run.shield_t.max(duration);
 }
@@ -611,6 +614,7 @@ pub(super) fn on_damage(
                         run,
                         (existing + effective * 0.005 * rank(run, 14)).min(cap),
                         8.0,
+                        "sacred_shield",
                     );
                 }
             }
@@ -791,7 +795,12 @@ pub(super) fn on_damage(
                 && rank(run, 22) > 0.0
                 && now >= run.class_effects.ready[22]
             {
-                shield(run, run.stats().max_hp * 0.02 * rank(run, 22), 6.0);
+                shield(
+                    run,
+                    run.stats().max_hp * 0.02 * rank(run, 22),
+                    6.0,
+                    "ice_barrier_talent",
+                );
                 run.class_effects.ready[22] = now + 6.0;
             }
             if frost(key) && rank(run, 23) > 0.0 && once(run, 23, source, false) && rng.f32() < 0.15
@@ -910,7 +919,7 @@ pub(super) fn before_contact(run: &mut Run, projected_hp: f32) {
         && projected_hp < max * 0.35
         && now >= run.class_effects.ready[23]
     {
-        shield(run, max * 0.20, 8.0);
+        shield(run, max * 0.20, 8.0, "ancestral_guardian");
         run.class_effects.ready[23] = now + 30.0;
     }
 }
@@ -947,7 +956,7 @@ pub(super) fn tick_healing(run: &mut Run, _dt: f32, effective_heal: f32, was_hea
         if run.heal_t <= 0.0 {
             let grant = (run.class_effects.rejuvenation_heal * 0.04 * rank(run, 22))
                 .min(run.stats().max_hp * 0.10);
-            shield(run, grant, 8.0);
+            shield(run, grant, 8.0, "living_seed");
             run.class_effects.rejuvenation = false;
             run.class_effects.rejuvenation_heal = 0.0;
             run.class_effects.rejuvenation_extension = 0.0;
@@ -1135,6 +1144,7 @@ mod tests {
             attack_cd: 0.0,
             slow: 1.0,
             slow_t: 0.0,
+            polymorph_t: 0.0,
             root_t: 0.0,
             stun_t: 0.0,
             fear_t: 0.0,

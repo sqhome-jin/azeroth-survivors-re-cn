@@ -427,55 +427,24 @@ fn exact(kind: EnhKind, value: f32) -> String {
     }
 }
 
-pub(super) fn mobility_details(run: &Run, gear: Option<&Gear>) -> Vec<String> {
+pub(super) fn mobility_details(run: &Run) -> Vec<String> {
     let tr = localization::text;
     let mut lines = vec![tr(
-        "Mobility enhancements (learned at level 5):",
-        "机动技能强化（局内5级解锁）：",
+        "Mobility bonuses (aggregated):",
+        "机动技能加成（聚合效果）：",
     )
     .into()];
-    if let Some(gear) = gear {
-        for slot in 0..gear::SLOT_COUNT {
-            if let Some(item) = gear.worn(run.class.id, slot) {
-                for roll in &item.affixes {
-                    if roll.kind == 13 {
-                        lines.push(format!("{} — {}", item.name(), gear::describe(roll)));
-                    }
-                }
-            }
-        }
-    }
+    let cooldown = run.mobility_cooldown();
     lines.push(format!(
-        "{}: {:.2}% ({} 60%)",
-        tr("Equipment cooldown reduction", "装备冷却缩减"),
-        (1.0 - run.gear.mobility_cooldown()) * 100.0,
-        tr("cap", "上限")
+        "{}: ×{cooldown:.3} ({} {:.2}%)",
+        tr("Final cooldown multiplier", "最终冷却倍率"),
+        tr("total reduction", "总缩减"),
+        (1.0 - cooldown) * 100.0,
     ));
-    if let Some(nodes) = talents::nodes(run.class.id) {
-        for (slot, node) in nodes.iter().enumerate() {
-            let rank = run.talents.0[slot];
-            if rank == 0 {
-                continue;
-            }
-            let mut probe = Run {
-                class: run.class,
-                ..Default::default()
-            };
-            probe.talents.0[slot] = rank;
-            if probe.mobility_cooldown() != 1.0
-                || node.desc.starts_with("F ")
-                || node.desc.starts_with("F:")
-            {
-                lines.push(format!(
-                    "{} {rank}/{} — {}",
-                    tr(node.name, node.zh),
-                    if slot % 8 == 7 { 1 } else { 5 },
-                    tr(node.desc, node.desc_zh)
-                ));
-            }
-        }
-    }
-    lines.push(tr("Equipment and talent cooldown multipliers combine multiplicatively; automatic-skill haste does not shorten F's cooldown.", "装备与天赋冷却倍率乘算；自动技能急速不会缩短F键冷却。").into());
+    lines.push(tr(
+        "Equipment and talent reductions combine multiplicatively; automatic-skill haste does not shorten F's cooldown.",
+        "装备与天赋冷却缩减乘算；自动技能急速不会缩短F键冷却。",
+    ).into());
     lines
 }
 
@@ -484,11 +453,7 @@ pub(super) fn mobility_details(run: &Run, gear: Option<&Gear>) -> Vec<String> {
 pub(super) fn details(run: &Run, def: &'static AbilityDef, gear: Option<&Gear>) -> Vec<String> {
     let tr = localization::text;
     let stats = run.stats();
-    let mut lines = vec![tr(
-        "Enhancement sources (current snapshot):",
-        "强化来源（当前快照）：",
-    )
-    .into()];
+    let mut lines = vec![tr("Skill bonuses (aggregated):", "技能加成（聚合效果）：").into()];
     let owned = run.abilities.iter().find(|o| o.def.key == def.key);
     let level = owned.map_or(1, |o| o.level);
     let acquired = owned.map_or(1.0, |o| o.growth);
@@ -541,8 +506,10 @@ pub(super) fn details(run: &Run, def: &'static AbilityDef, gear: Option<&Gear>) 
         "Each card adds one rank; quality contributes 1 / 1.35 / 1.8 / 2.4 / 3.2 additive growth. No maximum rank.",
         "每张卡增加1级；普通/优秀/精良/史诗/传说分别累计1 / 1.35 / 1.8 / 2.4 / 3.2成长，无等级上限。",
     ).into());
-    if localization::is_zh_cn() {
-        if let Some(description) = super::spell_expansion::description(def.key) {
+    if !matches!(def.kind, Kind::Shield | Kind::Heal | Kind::Totem) {
+        if let Some(description) =
+            super::skill_tooltip_text::special_description(def.key, localization::is_zh_cn())
+        {
             lines.push(description.into());
         }
     }
@@ -763,6 +730,21 @@ pub(super) fn details(run: &Run, def: &'static AbilityDef, gear: Option<&Gear>) 
             .into(),
         );
     }
+    let equipment_roll_ids: Vec<String> = run
+        .gear
+        .enh
+        .iter()
+        .flatten()
+        .map(|roll| format!(" #{}:", roll.item))
+        .collect();
+    lines.retain(|line| {
+        !line.starts_with(tr("Passive", "局内被动"))
+            && !line.starts_with(tr("Equipment:", "装备:"))
+            && !line.starts_with(tr("Talent (conditions apply)", "天赋（依所述条件生效）"))
+            && !line.starts_with(tr("Active class buff", "当前职业增益"))
+            && !line.starts_with(tr("Active equipment source", "当前装备增益来源"))
+            && !equipment_roll_ids.iter().any(|id| line.contains(id))
+    });
     lines
 }
 
@@ -897,7 +879,11 @@ mod tests {
         let text = details(&run, frostbolt, None).join("\n");
         assert!(text.contains("60%"));
         assert!(text.contains("50%"));
-        assert!(text.contains("#1") && text.contains("#2"));
+        assert!(text.contains(localization::text(
+            "Effective equipment total",
+            "装备实际合计"
+        )));
+        assert!(!text.contains("#1") && !text.contains("#2"));
         assert!(!details(&run, data::ability("blizzard"), None)
             .iter()
             .any(|line| line.starts_with("Equipment #4:") || line.starts_with("装备 #4:")));
@@ -916,11 +902,11 @@ mod tests {
         assert!(!frost.contains("Ignite") && !frost.contains("点燃"));
         assert!(!frost.contains("Deep Wounds") && !frost.contains("重伤"));
         let fire = details(&mage, data::ability("fireball"), None).join("\n");
-        let nodes = talents::nodes(8).unwrap();
-        assert!(fire.contains(localization::text(nodes[8].name, nodes[8].zh)));
-        assert!(fire.contains("3/5"));
-        assert!(fire.contains(localization::text(nodes[13].desc, nodes[13].desc_zh)));
+        assert!(!fire.contains("Fireball damage") && !fire.contains("火球术伤害"));
         assert!(!fire.contains("Active class buff:") && !fire.contains("当前职业增益："));
+        assert!(
+            !fire.contains("Talent (conditions apply)") && !fire.contains("天赋（依所述条件生效）")
+        );
     }
 
     #[test]
@@ -936,7 +922,7 @@ mod tests {
     }
 
     #[test]
-    fn active_class_buffs_are_distinguished_from_trigger_conditions() {
+    fn active_class_buffs_are_not_repeated_as_skill_sources() {
         let mut warrior = run(1);
         warrior.talents.0[15] = 1;
         let def = data::ability("cleave");
@@ -944,8 +930,7 @@ mod tests {
         assert!(!inactive.contains("Active class buff") && !inactive.contains("当前职业增益"));
         class_mechanics::on_mobility(&mut warrior);
         let active = details(&warrior, def, None).join("\n");
-        assert!(active.contains(localization::text("Active class buff", "当前职业增益")));
-        assert!(active.contains(localization::text("Recklessness", "鲁莽")));
+        assert!(!active.contains("Active class buff") && !active.contains("当前职业增益"));
         let druid = run(11);
         assert!(!active_talent_affects(
             &druid,
@@ -992,7 +977,7 @@ mod tests {
     }
 
     #[test]
-    fn equipment_item_names_are_resolved_without_changing_the_locked_snapshot() {
+    fn equipment_bonuses_are_aggregated_without_exposing_item_sources() {
         let mut run = run(8);
         let mut gear = Gear::default();
         let id = gear.add(gear::Item {
@@ -1021,8 +1006,12 @@ mod tests {
         assert!(gear.equip(8, id));
         run.gear = gear.bonuses(8);
         let text = details(&run, data::ability("fireball"), Some(&gear)).join("\n");
-        assert!(text.contains(gear.item(id).unwrap().name()));
-        assert!(text.contains("40%") && text.contains("10.0%"));
+        assert!(!text.contains(gear.item(id).unwrap().name()));
+        assert!(!text.contains(&format!("#{id}")));
+        assert!(
+            text.contains("40.00%")
+                && text.contains(localization::text("potency ×1.10", "威力 ×1.10"))
+        );
         assert!(!text.contains(gear::affix(8).en) && !text.contains(gear::affix(8).zh));
         assert_eq!(run.gear.enh[0].unwrap().value, 0.4);
     }

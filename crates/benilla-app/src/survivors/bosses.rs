@@ -938,8 +938,8 @@ pub(super) fn cast_skills(
             clear(&mut commands, &mut boss);
             continue;
         }
-        // Roots stop movement, not spellcasting; stuns can still cancel a telegraphed attack.
-        if enemy.stun_t > 0.0 || enemy.fear_t > 0.0 {
+        // Roots stop movement, not spellcasting; stuns, fear, and Polymorph cancel attacks.
+        if enemy.stun_t > 0.0 || enemy.fear_t > 0.0 || enemy.polymorph_t > 0.0 {
             clear(&mut commands, &mut boss);
             boss.cooldown = boss.cooldown.max(1.0);
             continue;
@@ -1132,6 +1132,7 @@ mod tests {
             attack_cd: 0.0,
             slow: 1.0,
             slow_t: 0.0,
+            polymorph_t: 0.0,
             root_t: 0.0,
             stun_t: 0.0,
             fear_t: 0.0,
@@ -1202,7 +1203,7 @@ mod tests {
 
     #[test]
     fn ecs_interrupts_terminal_states_and_removed_casters_cancel_hazards() {
-        for scenario in 0..8 {
+        for scenario in 0..9 {
             let (mut app, _, boss) = encounter();
             step(&mut app, 0.1);
             assert_eq!(warning_count(&mut app), 2);
@@ -1216,6 +1217,7 @@ mod tests {
                     app.world_mut().despawn(boss);
                 }
                 6 => app.world_mut().get_mut::<Enemy>(boss).unwrap().fear_t = 3.0,
+                7 => app.world_mut().get_mut::<Enemy>(boss).unwrap().polymorph_t = 1.5,
                 _ => app.world_mut().get_mut::<Enemy>(boss).unwrap().hp = 0.0,
             }
             let before = app.world().resource::<Run>().hp;

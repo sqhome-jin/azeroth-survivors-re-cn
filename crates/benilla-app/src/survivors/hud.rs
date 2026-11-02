@@ -2033,10 +2033,17 @@ fn effect_text(effect: Effect) -> Option<String> {
     if localization::is_zh_cn() {
         return Some(match effect {
             Effect::None => return None,
-            Effect::Slow(m, t) => format!("使其移动速度降低{}，持续{}秒", pct(1.0 - m), num(t)),
-            Effect::Root(t) => format!("将其定身{}秒", num(t)),
-            Effect::Stun(t) => format!("使其昏迷{}秒", num(t)),
-            Effect::Fear(t) => format!("使其恐惧并逃跑{}秒", num(t)),
+            Effect::Slow(m, t) => format!(
+                "使其移动速度降低{}，持续{}秒；首领最多减速25%",
+                pct(1.0 - m),
+                num(t)
+            ),
+            Effect::Root(t) => format!("将其定身{}秒；首领持续时间缩短至30%", num(t)),
+            Effect::Stun(t) => format!("使其昏迷{}秒；首领持续时间缩短至30%", num(t)),
+            Effect::Polymorph(t) => {
+                format!("将其变羊{}秒；首领持续时间缩短至30%，最多减速25%", num(t))
+            }
+            Effect::Fear(t) => format!("使其恐惧并逃跑{}秒；首领免疫", num(t)),
             Effect::Weaken(m, t) => {
                 format!("使其造成的伤害降低{}，持续{}秒", pct(1.0 - m), num(t))
             }
@@ -2046,10 +2053,18 @@ fn effect_text(effect: Effect) -> Option<String> {
     }
     Some(match effect {
         Effect::None => return None,
-        Effect::Slow(m, t) => format!("slowing them by {} for {} sec", pct(1.0 - m), num(t)),
-        Effect::Root(t) => format!("freezing them in place for {} sec", num(t)),
-        Effect::Stun(t) => format!("stunning them for {} sec", num(t)),
-        Effect::Fear(t) => format!("sending them fleeing for {} sec", num(t)),
+        Effect::Slow(m, t) => format!(
+            "slowing them by {} for {} sec; bosses are slowed by at most 25%",
+            pct(1.0 - m),
+            num(t)
+        ),
+        Effect::Root(t) => format!("rooting them for {} sec; bosses get 30% duration", num(t)),
+        Effect::Stun(t) => format!("stunning them for {} sec; bosses get 30% duration", num(t)),
+        Effect::Polymorph(t) => format!(
+            "polymorphing them for {} sec; bosses get 30% duration and at most 25% slow",
+            num(t)
+        ),
+        Effect::Fear(t) => format!("sending them fleeing for {} sec; bosses are immune", num(t)),
         Effect::Weaken(m, t) => format!(
             "cutting their damage by {} for {} sec",
             pct(1.0 - m),
@@ -2082,10 +2097,15 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
                 (false, false, 1) => "the nearest enemy".into(),
                 (false, false, n) => format!("the {n} nearest enemies"),
             };
-            let mut s = format!(
-                "{} {who} for {d} damage",
-                if melee { "Strikes" } else { "Hits" }
-            );
+            let effect = c.modifiers.effect(def.effect);
+            let mut s = if c.dmg <= 0.0 && !matches!(effect, Effect::None) {
+                format!("Applies its effect to {who}")
+            } else {
+                format!(
+                    "{} {who} for {d} damage",
+                    if melee { "Strikes" } else { "Hits" }
+                )
+            };
             if c.radius > 0.0 && !melee {
                 s += &format!(", and everything within {} yd of the hit", num(c.radius));
             }
@@ -2144,10 +2164,36 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
             },
             num(c.radius)
         ),
-        Kind::Shield => format!(
-            "Absorbs the next {d} damage you take within {} sec",
-            num(c.duration)
-        ),
+        Kind::Shield
+            if !matches!(
+                def.key,
+                "power_word_shield" | "ice_barrier" | "mana_shield" | "last_stand"
+            ) =>
+        {
+            let mut description = super::skill_tooltip_text::activation_condition(def.key, false)
+                .unwrap_or_default()
+                .to_owned();
+            description.push_str(
+                super::skill_tooltip_text::special_description(def.key, false)
+                    .unwrap_or_default(),
+            );
+            if def.duration > 0.0 {
+                description.push_str(&format!(" Duration: {} sec.", num(c.duration)));
+            }
+            description
+        }
+        Kind::Shield => {
+            let threshold = if def.key == "last_stand" { 65 } else { 85 };
+            let mut description = format!(
+                "Automatically triggers below {threshold}% health when the shared shield pool is empty, absorbing {d} damage for {} sec",
+                num(c.duration)
+            );
+            if let Some(extra) = super::skill_tooltip_text::special_description(def.key, false) {
+                description.push_str(". ");
+                description.push_str(extra);
+            }
+            description
+        }
         Kind::Immune => format!(
             "When an enemy closes in, grants immunity for {} sec and a {d} absorb shield for {} sec",
             num(c.duration),
@@ -2157,9 +2203,34 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
             "When enemies close in, deals {d} damage to every attacker for {} sec",
             num(c.duration)
         ),
+        Kind::Heal if c.duration <= 0.0 => {
+            format!("Below 85% health, instantly heals you for {d}")
+        }
+        Kind::Heal if def.key == "regrowth" => format!(
+            "Below 85% health, instantly heals {} and restores {} more over {} sec",
+            num(c.dmg * 0.4),
+            num(c.dmg * 0.6),
+            num(c.duration)
+        ),
         Kind::Heal => format!(
             "Below 85% health, heals you for {d} over {} sec",
             num(c.duration)
+        ),
+        Kind::Totem if def.key == "healing_stream_totem" => format!(
+            "Drops a totem for {} sec that heals you for {d} every {} sec within {} yd",
+            num(c.duration),
+            num(c.modifiers.interval(1.0)),
+            num(c.radius)
+        ),
+        Kind::Totem if def.key == "earthbind_totem" => format!(
+            "Drops a totem for {} sec that periodically slows nearby enemies within {} yd",
+            num(c.duration),
+            num(c.radius)
+        ),
+        Kind::Totem if def.key == "stoneclaw_totem" => format!(
+            "Drops a totem for {} sec that periodically weakens nearby enemies within {} yd",
+            num(c.duration),
+            num(c.radius)
         ),
         Kind::Totem if def.key == "magma_totem" => format!(
             "Drops a totem for {} sec that burns every enemy within {} yd for {d} damage every {} sec",
@@ -2189,7 +2260,9 @@ fn ability_body(def: &AbilityDef, c: &Cast) -> String {
         s += ", ";
         s += &e;
     }
-    s.push('.');
+    if !s.ends_with('.') {
+        s.push('.');
+    }
     s
 }
 
@@ -2210,15 +2283,20 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
                 (false, false, 1) => "距离最近的敌人".to_string(),
                 (false, false, count) => format!("距离最近的{count}名敌人"),
             };
-            let mut text = format!(
-                "{}，造成{}点伤害",
-                if def.kind == Kind::Melee {
-                    format!("攻击{target}")
-                } else {
-                    format!("命中{target}")
-                },
-                damage
-            );
+            let effect = c.modifiers.effect(def.effect);
+            let mut text = if c.dmg <= 0.0 && !matches!(effect, Effect::None) {
+                format!("对{target}施加效果")
+            } else {
+                format!(
+                    "{}，造成{}点伤害",
+                    if def.kind == Kind::Melee {
+                        format!("攻击{target}")
+                    } else {
+                        format!("命中{target}")
+                    },
+                    damage
+                )
+            };
             if c.radius > 0.0 && def.kind != Kind::Melee {
                 text += &format!("，并对命中点{}码内的敌人造成伤害", num(c.radius));
             }
@@ -2283,11 +2361,37 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
             c.count,
             damage
         ),
-        Kind::Shield => format!(
-            "吸收你在{}秒内受到的下一次{}点伤害",
-            num(c.duration),
-            damage
-        ),
+        Kind::Shield
+            if !matches!(
+                def.key,
+                "power_word_shield" | "ice_barrier" | "mana_shield" | "last_stand"
+            ) =>
+        {
+            let mut description = super::skill_tooltip_text::activation_condition(def.key, true)
+                .unwrap_or_default()
+                .to_owned();
+            if let Some(extra) = super::skill_tooltip_text::special_description(def.key, true) {
+                description.push_str(extra);
+            }
+            if def.duration > 0.0 {
+                description.push_str(&format!("持续{}秒。", num(c.duration)));
+            }
+            description
+        }
+        Kind::Shield => {
+            let threshold = if def.key == "last_stand" { 65 } else { 85 };
+            let mut description = format!(
+                "生命低于{}%且共用护盾池为空时自动触发，吸收{}点伤害，持续{}秒",
+                threshold,
+                damage,
+                num(c.duration)
+            );
+            if let Some(extra) = super::skill_tooltip_text::special_description(def.key, true) {
+                description.push('；');
+                description.push_str(extra);
+            }
+            description
+        }
         Kind::Immune => format!(
             "敌人靠近时，免疫所有伤害{}秒，并获得{}点吸收护盾，持续{}秒",
             num(c.duration),
@@ -2299,10 +2403,36 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
             damage,
             num(c.duration)
         ),
+        Kind::Heal if c.duration <= 0.0 => {
+            format!("生命值低于85%时，立即恢复{}点生命值", damage)
+        }
+        Kind::Heal if def.key == "regrowth" => format!(
+            "生命值低于85%时，立即恢复{}点生命值，其余{}点在{}秒内恢复",
+            num(c.dmg * 0.4),
+            num(c.dmg * 0.6),
+            num(c.duration)
+        ),
         Kind::Heal => format!(
             "生命值低于85%时，在{}秒内恢复{}点生命值",
             num(c.duration),
             damage
+        ),
+        Kind::Totem if def.key == "healing_stream_totem" => format!(
+            "放置图腾，持续{}秒；每{}秒为{}码内的自己恢复{}点生命值",
+            num(c.duration),
+            num(c.modifiers.interval(1.0)),
+            num(c.radius),
+            damage
+        ),
+        Kind::Totem if def.key == "earthbind_totem" => format!(
+            "放置图腾，持续{}秒；周期性减速{}码内的附近敌人",
+            num(c.duration),
+            num(c.radius)
+        ),
+        Kind::Totem if def.key == "stoneclaw_totem" => format!(
+            "放置图腾，持续{}秒；周期性削弱{}码内附近敌人的伤害",
+            num(c.duration),
+            num(c.radius)
         ),
         Kind::Totem if def.key == "magma_totem" => format!(
             "放置图腾，持续{}秒；每{}秒灼烧{}码内的所有敌人，造成{}点伤害",
@@ -2333,7 +2463,9 @@ fn ability_body_zh(def: &AbilityDef, c: &Cast) -> String {
         body.push('，');
         body.push_str(&effect);
     }
-    body.push('。');
+    if !body.ends_with('。') {
+        body.push('。');
+    }
     body
 }
 
@@ -2462,7 +2594,10 @@ fn ability_tip(
             Color::WHITE,
         ),
     );
-    lines.push(TipLine::new(ability_body(def, &now), GOLD));
+    let body = ability_body(def, &now);
+    if !body.is_empty() {
+        lines.push(TipLine::new(body, GOLD));
+    }
     lines.push(TipLine::new(
         localization::text(
             "Keep the pointer on this icon and scroll to read all enhancements.",
@@ -2477,12 +2612,13 @@ fn ability_tip(
             ..default()
         },
     );
-    if periodic_crit
-        || !matches!(
+    let direct_crit = def.damage > 0.0
+        && !matches!(
             def.kind,
-            Kind::Shield | Kind::Immune | Kind::Heal | Kind::Dot
+            Kind::Shield | Kind::Immune | Kind::Heal | Kind::Dot | Kind::Thorns
         )
-    {
+        && (def.kind != Kind::Totem || def.key == "magma_totem");
+    if periodic_crit || direct_crit {
         lines.push(TipLine::new(
             if localization::is_zh_cn() {
                 format!(
@@ -3054,7 +3190,7 @@ pub(super) fn icon_tooltip(
                 ),
             ];
             lines.extend(
-                skill_descriptions::mobility_details(&run, gear.as_deref())
+                skill_descriptions::mobility_details(&run)
                     .into_iter()
                     .map(|line| TipLine::new(line, DIM)),
             );

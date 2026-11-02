@@ -59,8 +59,21 @@ fn entries(run: &Run, gear: &gear::Gear) -> Vec<Entry> {
         }
     };
     if run.shield > 0.0 {
+        let name = match run.shield_source {
+            Some("ice_barrier") => l::text("Ice Barrier", "寒冰护体"),
+            Some("ice_barrier_talent") => l::text("Ice Barrier talent", "寒冰护体天赋"),
+            Some("mana_shield") => l::text("Mana Shield", "法力护盾"),
+            Some("power_word_shield") => l::text("Power Word: Shield", "真言术：盾"),
+            Some("last_stand") => l::text("Last Stand", "破釜沉舟"),
+            Some("ice_block") => l::text("Ice Block", "寒冰屏障"),
+            Some("divine_shield") => l::text("Divine Shield", "圣盾术"),
+            Some("sacred_shield") => l::text("Sacred Shield", "神圣护盾"),
+            Some("ancestral_guardian") => l::text("Ancestral Guardian", "先祖守护"),
+            Some("living_seed") => l::text("Living Seed", "生命之种"),
+            _ => l::text("Absorption shield", "吸收护盾"),
+        };
         add(
-            l::text("Absorption shield", "吸收护盾").into(),
+            name.into(),
             format!(
                 "{}: {:.0}",
                 l::text("Remaining absorption", "剩余吸收量"),
