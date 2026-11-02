@@ -6,8 +6,8 @@
 
 **Status:** ready-for-agent
 
-- [ ] Seeded item-generation tests cover rarity property counts, duplicate prevention, and balanced stat distribution.
-- [ ] Proc and control-effect scenarios validate trigger behavior, run cooldown rules, boss exceptions, and effect merging without coupling tests to internals.
-- [ ] Armory and replacement scoring tests compare full equipment sets and confirm the chosen replacement matches runtime behavior.
-- [ ] Golden-save migration tests confirm backup creation, successful conversion, and safe abort behavior for invalid mappings.
-- [ ] Simulation coverage confirms the full 16-slot build is the tuning environment and that balance changes remain data-driven.
+- [x] Seeded item-generation tests cover rarity property counts, duplicate prevention, and balanced stat distribution.
+- [x] Proc and control-effect scenarios validate trigger behavior, run cooldown rules, boss exceptions, and effect merging without coupling tests to internals.
+- [x] Armory and replacement scoring tests compare full equipment sets and confirm the chosen replacement matches runtime behavior.
+- [x] Golden-save migration tests confirm backup creation, successful conversion, and safe abort behavior for invalid mappings.
+- [x] Simulation coverage confirms the full 16-slot build is the tuning environment and that balance changes remain data-driven.

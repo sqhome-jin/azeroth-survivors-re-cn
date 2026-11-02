@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] The Armory shows raw values, capped outcomes, enhancement targets, and proc trigger details for the current and candidate gear.
-- [ ] Comparison scoring reflects capped effective gain, current build compatibility, and expected proc value using the same underlying item state as combat evaluation.
-- [ ] Dual-slot replacement decisions choose the lower-loss option when both slots are filled and the UI is responsive without unnecessary confirmation friction.
-- [ ] The comparison flow works in both menu and pause states and is consistent with the player-facing inventory flow.
+- [x] The Armory shows raw values, capped outcomes, enhancement targets, and proc trigger details for the current and candidate gear.
+- [x] Comparison scoring reflects capped effective gain, current build compatibility, and expected proc value using the same underlying item state as combat evaluation.
+- [x] Dual-slot replacement decisions choose the lower-loss option when both slots are filled and the UI is responsive without unnecessary confirmation friction.
+- [x] The comparison flow works in both menu and pause states and is consistent with the player-facing inventory flow.

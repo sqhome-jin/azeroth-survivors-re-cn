@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] The system distinguishes a base item identity from a concrete item instance and keeps instance-level randomness separate from fixed identity.
-- [ ] All 16 equipment slots are present with consistent semantics and no additional unlock gating in the initial release.
-- [ ] Rarity, profession affinity, preferred main attributes, and base item metadata are driven by data rather than hard-coded assumptions.
-- [ ] The item schema enables deterministic stat/prop generation and comparison without collapsing identity into a single rolled object.
+- [x] The system distinguishes a base item identity from a concrete item instance and keeps instance-level randomness separate from fixed identity.
+- [x] All 16 equipment slots are present with consistent semantics and no additional unlock gating in the initial release.
+- [x] Rarity, profession affinity, preferred main attributes, and base item metadata are driven by data rather than hard-coded assumptions.
+- [x] The item schema enables deterministic stat/prop generation and comparison without collapsing identity into a single rolled object.

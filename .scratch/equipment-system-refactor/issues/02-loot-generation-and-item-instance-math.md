@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] Item instances produce the correct number of primary and secondary stat rolls for each rarity, with no duplicate entries in a single item.
-- [ ] Main and secondary stat conversions flow through a shared data-driven table before combat resolution and remain capped per configured thresholds.
-- [ ] Inventory behavior preserves the current bag policy: the lowest-quality unequipped item is dropped when full, and refusal happens when no valid unequipped candidate exists.
-- [ ] The resulting item state is understandable in both raw and capped forms so the Armory can explain source values versus effective gains.
+- [x] Item instances produce the correct number of primary and secondary stat rolls for each rarity, with no duplicate entries in a single item.
+- [x] Main and secondary stat conversions flow through a shared data-driven table before combat resolution and remain capped per configured thresholds.
+- [x] Inventory behavior preserves the current bag policy: the lowest-quality unequipped item is dropped when full, and refusal happens when no valid unequipped candidate exists.
+- [x] The resulting item state is understandable in both raw and capped forms so the Armory can explain source values versus effective gains.

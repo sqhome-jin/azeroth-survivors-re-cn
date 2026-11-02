@@ -6,7 +6,7 @@
 
 **Status:** ready-for-agent
 
-- [ ] Legacy saves are backed up before any rewrite and migration aborts safely without discarding data if a mapping is unsafe.
-- [ ] Old equipment, rarity, shared inventory state, and nine legacy slots map to the new schema with explicit deterministic rules and no silent guesswork.
-- [ ] Invalid legacy attributes or skill/proc effects are removed with diagnostic records rather than guessed replacements.
-- [ ] Duplicate effect pairs keep the strongest valid entry while preserving useful pre-upgrade gear information.
+- [x] Legacy saves are backed up before any rewrite and migration aborts safely without discarding data if a mapping is unsafe.
+- [x] Old equipment, rarity, shared inventory state, and nine legacy slots map to the new schema with explicit deterministic rules and no silent guesswork.
+- [x] Invalid legacy attributes or skill/proc effects are removed with diagnostic records rather than guessed replacements.
+- [x] Duplicate effect pairs keep the strongest valid entry while preserving useful pre-upgrade gear information.
