@@ -841,7 +841,7 @@ fn debug_select_shot(
     if entered_at.elapsed(&time) < at {
         return;
     }
-    use bevy::render::view::screenshot::{Screenshot, save_to_disk};
+    use bevy::render::view::screenshot::{save_to_disk, Screenshot};
     commands
         .spawn(Screenshot::primary_window())
         .observe(save_to_disk(out.clone()));
@@ -867,7 +867,11 @@ pub(crate) fn locale_is_zh_cn(locale: &str) -> bool {
 }
 
 pub(crate) fn ui_locale_index() -> usize {
-    if locale_is_zh_cn(&ui_locale()) { 4 } else { 0 }
+    if locale_is_zh_cn(&ui_locale()) {
+        4
+    } else {
+        0
+    }
 }
 
 // ── 1.12 display names ──────────────────────────────────────────────────────────────────────────
@@ -1412,12 +1416,10 @@ mod tests {
         app.update();
         let cvars = app.world().resource::<crate::cvars::Cvars>();
         assert!(!cvars.has_events());
-        assert!(
-            cvars
-                .vm_seed()
-                .iter()
-                .any(|r| r.name == CVAR_LAST_CHARACTER && r.value == "1")
-        );
+        assert!(cvars
+            .vm_seed()
+            .iter()
+            .any(|r| r.name == CVAR_LAST_CHARACTER && r.value == "1"));
     }
 
     /// Result first, roster after: the arm is answered by the roster policy, and a name not found

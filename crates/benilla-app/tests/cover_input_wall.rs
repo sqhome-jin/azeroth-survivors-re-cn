@@ -78,6 +78,10 @@ const VERDICTS: &[(&str, Verdict)] = &[
     ),
     // ── Not input at all ────────────────────────────────────────────────────────────────────
     ("ButtonState", Plumbing),
+    // Browser wake-up plumbing, not player input: the page calls the proxy and event loop,
+    // which are intentionally not swallowed under the cover.
+    ("EventLoopProxyWrapper", Plumbing),
+    ("WinitUserEvent", Plumbing),
     // Cursor outputs benilla writes; nothing arrives through them.
     ("CursorGrabMode", Plumbing),
     ("CursorIcon", Plumbing),

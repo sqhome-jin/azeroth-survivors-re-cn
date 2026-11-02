@@ -19,6 +19,19 @@ fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// The realm page is hosted by a separate repository and is present only in workspaces that
+/// check it out alongside this client.
+fn hosting_pages() -> Vec<&'static str> {
+    let mut pages = vec!["web/index.html"];
+    if root()
+        .join("crates/wenilla-realm/templates/play.html")
+        .is_file()
+    {
+        pages.push("crates/wenilla-realm/templates/play.html");
+    }
+    pages
+}
+
 fn read(rel: &str) -> String {
     let path = root().join(rel);
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("reading {}: {e}", path.display()))
@@ -52,7 +65,7 @@ fn every_page_script_that_lives_in_web_is_copied_into_dist() {
         .find(|l| l.trim_start().starts_with("cp web/"))
         .expect("web-build.sh still has the `cp web/…` line that populates web/dist");
 
-    for page in ["web/index.html", "crates/wenilla-realm/templates/play.html"] {
+    for page in hosting_pages() {
         for name in referenced_scripts(&read(page)) {
             // Not every import has a source file: wenilla.js is wasm-bindgen's output, written
             // straight into dist by the build itself.
@@ -72,7 +85,7 @@ fn every_page_script_that_lives_in_web_is_copied_into_dist() {
 fn the_pages_agree_on_the_platform_module() {
     // platform.js is best-effort by contract (see its header): a page must import it
     // dynamically, so a missing or broken module costs the button and never the boot.
-    for page in ["web/index.html", "crates/wenilla-realm/templates/play.html"] {
+    for page in hosting_pages() {
         let text = read(page);
         assert!(
             text.contains("import('./platform.js')"),

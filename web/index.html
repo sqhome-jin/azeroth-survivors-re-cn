@@ -5,6 +5,7 @@
 <style>
   html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; background: #000; }
   #benilla { display: block; width: 100vw; height: 100vh; }
+  #fs { position: fixed; top: 12px; right: 12px; z-index: 10; }
 </style>
 <script>
   // Sound: the browser suspends any AudioContext created before the first user gesture (autoplay
@@ -58,6 +59,7 @@
     };
   }
 </script>
+<button id="fs" type="button" aria-label="Toggle full screen">full screen</button>
 <canvas id="benilla"></canvas>
 <script>
   // Dev page: allow `?user=&pass=&char=` links to log in. A hosting page that fetched the
@@ -84,7 +86,13 @@
   // Durable settings storage (the saved pick lives in localStorage): dynamic, unawaited, never
   // load-bearing — see web/platform.js.
   import('./platform.js')
-    .then(({ requestPersistentStorage }) => requestPersistentStorage())
+    .then(({ requestPersistentStorage, installFullscreenToggle }) => {
+      requestPersistentStorage();
+      installFullscreenToggle(document.getElementById('fs'), {
+        target: document.documentElement,
+        focusTarget: document.getElementById('benilla'),
+      });
+    })
     .catch((e) => console.warn('platform.js:', e));
   // The JavaScript bridge (web/bridge.js, `window.wenilla` in the console): live game state
   // out, commands in, the hidden-tab keepalive. Dynamic, never load-bearing, and only on request:

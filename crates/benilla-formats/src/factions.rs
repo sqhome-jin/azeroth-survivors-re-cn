@@ -13,8 +13,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::Chain;
 use crate::dbc::{parse, u32_at};
+use crate::Chain;
 
 const FACTION_TEMPLATE: &str = "DBFilesClient\\FactionTemplate.dbc";
 const FACTION: &str = "DBFilesClient\\Faction.dbc";
@@ -698,14 +698,12 @@ mod tests {
         let data = crate::wow_data_or_skip!();
         let mut chain = crate::open_chain(&data).expect("open chain");
         let cat = load_faction_catalog(&mut chain).expect("load factions");
-        assert!(
-            cat.faction_group_name(2)
-                .is_some_and(|name| !name.is_empty())
-        );
-        assert!(
-            cat.faction_group_name(4)
-                .is_some_and(|name| !name.is_empty())
-        );
+        assert!(cat
+            .faction_group_name(2)
+            .is_some_and(|name| !name.is_empty()));
+        assert!(cat
+            .faction_group_name(4)
+            .is_some_and(|name| !name.is_empty()));
         assert_eq!(cat.faction_group_name(0), None);
     }
 

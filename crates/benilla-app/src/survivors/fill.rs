@@ -8,7 +8,7 @@ use bevy::shader::ShaderRef;
 use bevy::ui_render::ui_material::UiMaterial;
 
 #[derive(Asset, TypePath, AsBindGroup, Clone)]
-pub(super) struct FillMaterial {
+pub(crate) struct FillMaterial {
     #[uniform(0)]
     fill: FillUniform,
 }
@@ -36,7 +36,13 @@ fn lin(c: Color) -> Vec4 {
 impl FillMaterial {
     /// Top to bottom through `mid` at `mid_at` (0..1), with corners rounded by `radius`, a
     /// fraction of the node's height.
-    pub(super) fn vertical(top: Color, mid: Color, mid_at: f32, bottom: Color, radius: f32) -> Self {
+    pub(crate) fn vertical(
+        top: Color,
+        mid: Color,
+        mid_at: f32,
+        bottom: Color,
+        radius: f32,
+    ) -> Self {
         Self {
             fill: FillUniform {
                 a: lin(top),
@@ -50,7 +56,7 @@ impl FillMaterial {
     }
 
     /// From `centre` at the middle to `edge` at the farthest corner.
-    pub(super) fn radial(centre: Color, edge: Color) -> Self {
+    pub(crate) fn radial(centre: Color, edge: Color) -> Self {
         Self {
             fill: FillUniform {
                 a: lin(centre),

@@ -446,10 +446,12 @@ mod tests {
 
     #[test]
     fn timed_effects_expire_and_do_not_include_permanent_passives() {
-        let mut run = Run::default();
-        run.shield_t = 3.2;
-        run.shield = 40.0;
-        run.immune_t = 2.0;
+        let mut run = Run {
+            shield_t: 3.2,
+            shield: 40.0,
+            immune_t: 2.0,
+            ..default()
+        };
         let gear = gear::Gear::default();
         assert_eq!(entries(&run, &gear).len(), 2);
         run.shield = 0.0;

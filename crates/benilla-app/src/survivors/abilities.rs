@@ -7,8 +7,8 @@ use super::data::{AbilityDef, Effect, Kind};
 use super::enemies::{self, Enemy, Loot};
 use super::hero::{self, Hero};
 use super::skill_effects::{self, Source};
-use super::units::{self, COLOR_HEAL, COLOR_MELEE, COLOR_SPELL, Fx, Marks, UnitSpec, flat};
-use super::{Rng, Run, RunEntity, Stats, class_mechanics, spell_expansion, warlock};
+use super::units::{self, flat, Fx, Marks, UnitSpec, COLOR_HEAL, COLOR_MELEE, COLOR_SPELL};
+use super::{class_mechanics, spell_expansion, warlock, Rng, Run, RunEntity, Stats};
 use crate::net::{FieldChanged, Guid, ObjectStore};
 
 /// One blow landing on one enemy.
@@ -1154,8 +1154,9 @@ pub(super) fn apply_hits(
 #[cfg(test)]
 mod tests {
     use super::super::{
-        Owned, data,
+        data,
         gear::{EnhKind, SkillRoll},
+        Owned,
     };
     use super::*;
     use crate::creature_anim::{CastEvent, PlaySeq, SpellGoTargets, SwingMessage};
@@ -1216,12 +1217,11 @@ mod tests {
         assert_eq!(run.boss_kills, 1);
         assert!(!run.won);
         assert!(!run.final_boss_defeated);
-        assert!(
-            app.world()
-                .resource::<super::super::gear::Gear>()
-                .bag()
-                .is_empty()
-        );
+        assert!(app
+            .world()
+            .resource::<super::super::gear::Gear>()
+            .bag()
+            .is_empty());
         assert!(matches!(
             app.world().resource::<NextState<super::super::Phase>>(),
             NextState::Unchanged
@@ -1644,14 +1644,13 @@ mod tests {
         let enemy = foe(&mut app, 1.0, 1000.0);
         step(&mut app, 0.1);
         step(&mut app, 0.1);
-        assert!(
-            app.world()
-                .resource::<PendingHits>()
-                .0
-                .iter()
-                .any(|(_, hit)| hit.source.secondary
-                    && hit.source.ability == Some("seal_of_righteousness"))
-        );
+        assert!(app
+            .world()
+            .resource::<PendingHits>()
+            .0
+            .iter()
+            .any(|(_, hit)| hit.source.secondary
+                && hit.source.ability == Some("seal_of_righteousness")));
         app.world_mut().resource_mut::<Run>().abilities.clear();
         step(&mut app, 0.1);
         assert!(app.world().resource::<PendingHits>().0.is_empty());

@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use benilla_dbc::{DbcParser, FieldType, Record, RecordSet, Schema, SchemaField, StringRef, Value};
 
 use crate::Chain;
@@ -93,16 +93,6 @@ pub(crate) fn preferred_locale(rs: &RecordSet, name_field: usize) -> usize {
     preferred_locale_from_counts(counts)
 }
 
-#[cfg(test)]
-mod locale_tests {
-    use super::*;
-
-    #[test]
-    fn preferred_locale_defaults_to_enus_on_ties() {
-        assert_eq!(preferred_locale_from_counts([12, 0, 0, 0, 12, 0, 0, 0]), 0);
-        assert_eq!(preferred_locale_from_counts([3, 0, 0, 0, 8, 0, 0, 0]), 4);
-    }
-}
 /// `SpellIcon.dbc`: id → extensionless texture path (`Interface\Icons\…`).
 pub(crate) fn load_spell_icon_map(chain: &mut Chain) -> Result<HashMap<u32, String>> {
     let bytes = chain
@@ -154,4 +144,15 @@ pub(crate) fn load_id_name_table(
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod locale_tests {
+    use super::*;
+
+    #[test]
+    fn preferred_locale_defaults_to_enus_on_ties() {
+        assert_eq!(preferred_locale_from_counts([12, 0, 0, 0, 12, 0, 0, 0]), 0);
+        assert_eq!(preferred_locale_from_counts([3, 0, 0, 0, 8, 0, 0, 0]), 4);
+    }
 }

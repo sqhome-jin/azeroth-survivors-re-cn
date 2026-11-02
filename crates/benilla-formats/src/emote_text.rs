@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use benilla_dbc::{FieldType, Schema, SchemaField};
 
-use crate::Chain;
 use crate::dbc::{parse, str_at, u32_at};
+use crate::Chain;
 
 const EMOTES_TEXT: &str = "DBFilesClient\\EmotesText.dbc";
 const EMOTES_TEXT_DATA: &str = "DBFilesClient\\EmotesTextData.dbc";
@@ -231,29 +231,25 @@ mod tests {
         assert_eq!(cat.len(), 169, "one form table per EmotesText row");
 
         // ctx 0: someone else waves at someone else.
-        assert!(
-            cat.compose(WAVE, &line("Bob", "Jane", "Me"), locale)
-                .is_some_and(|text| text.contains("Bob") && text.contains("Jane"))
-        );
+        assert!(cat
+            .compose(WAVE, &line("Bob", "Jane", "Me"), locale)
+            .is_some_and(|text| text.contains("Bob") && text.contains("Jane")));
         // ctx 1: someone else waves at you (the target name matches your own).
-        assert!(
-            cat.compose(WAVE, &line("Bob", "Me", "Me"), locale)
-                .is_some_and(|text| text.contains("Bob") && !text.contains("Me"))
-        );
+        assert!(cat
+            .compose(WAVE, &line("Bob", "Me", "Me"), locale)
+            .is_some_and(|text| text.contains("Bob") && !text.contains("Me")));
         // ctx 4: someone else waves at nobody.
-        assert!(
-            cat.compose(WAVE, &line("Bob", "", "Me"), locale)
-                .is_some_and(|text| text.contains("Bob"))
-        );
+        assert!(cat
+            .compose(WAVE, &line("Bob", "", "Me"), locale)
+            .is_some_and(|text| text.contains("Bob")));
         // ctx 2: you wave at someone.
         let mine = EmoteLine {
             performer_is_you: true,
             ..line("Me", "Jane", "Me")
         };
-        assert!(
-            cat.compose(WAVE, &mine, locale)
-                .is_some_and(|text| text.contains("Jane"))
-        );
+        assert!(cat
+            .compose(WAVE, &mine, locale)
+            .is_some_and(|text| text.contains("Jane")));
         // ctx 6: you wave at nobody.
         let mine = EmoteLine {
             performer_is_you: true,
@@ -274,19 +270,17 @@ mod tests {
             performer_is_you: true,
             ..line("Me", "Me", "Me")
         };
-        assert!(
-            cat.compose(WAVE, &me, locale)
-                .is_some_and(|text| text.contains("Me"))
-        );
+        assert!(cat
+            .compose(WAVE, &me, locale)
+            .is_some_and(|text| text.contains("Me")));
         // What the wire delivers for that action: an empty target.
         let me = EmoteLine {
             performer_is_you: true,
             ..line("Me", "", "Me")
         };
-        assert!(
-            cat.compose(WAVE, &me, locale)
-                .is_some_and(|text| !text.contains("Me"))
-        );
+        assert!(cat
+            .compose(WAVE, &me, locale)
+            .is_some_and(|text| !text.contains("Me")));
     }
 
     /// WAVE has no female column, so `8|ctx` misses and rung 2, `ctx` alone, answers.
@@ -300,10 +294,9 @@ mod tests {
             performer_female: true,
             ..line("Ann", "Jane", "Me")
         };
-        assert!(
-            cat.compose(WAVE, &her, locale)
-                .is_some_and(|text| text.contains("Ann") && text.contains("Jane"))
-        );
+        assert!(cat
+            .compose(WAVE, &her, locale)
+            .is_some_and(|text| text.contains("Ann") && text.contains("Jane")));
     }
 
     /// An unshipped locale is empty everywhere, so the ladder runs dry: no line (`0x49b4bd`).

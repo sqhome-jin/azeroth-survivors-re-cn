@@ -544,8 +544,10 @@ mod tests {
 
     #[test]
     fn boss_spells_respect_immunity_armor_shields_and_do_not_resurrect() {
-        let mut run = Run::default();
-        run.immune_t = 1.0;
+        let mut run = Run {
+            immune_t: 1.0,
+            ..default()
+        };
         assert_eq!(hurt_by_spell(&mut run, 100.0), 0.0);
         assert_eq!(run.hp, super::super::BASE_HP);
         run.immune_t = 0.0;
